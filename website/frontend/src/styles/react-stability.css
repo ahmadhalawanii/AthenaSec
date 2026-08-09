@@ -1,0 +1,430 @@
+/*
+  AthenaSec React Stability Fixes
+  =================================
+
+  Prevents visual jumping when React:
+  - filters table rows
+  - sorts records
+  - searches records
+  - changes row status
+  - changes the number of visible rows
+*/
+
+/* =========================================================
+   PAGE STABILITY
+   ========================================================= */
+
+html {
+  scrollbar-gutter: stable;
+}
+
+.page.active {
+  display: block;
+  opacity: 1;
+  transform: none;
+  animation: none;
+}
+
+.page-view,
+.page.active,
+.table-scroll {
+  overflow-anchor: none;
+}
+
+/* =========================================================
+   TABLE ROW STABILITY
+   ========================================================= */
+
+.data-row {
+  opacity: 1;
+  transform: none;
+  animation: none;
+}
+
+tbody tr {
+  transform: none;
+  transition:
+    background-color 0.15s ease,
+    outline-color 0.15s ease;
+}
+
+tbody tr:hover {
+  transform: none;
+}
+
+.card:has(table):hover {
+  transform: none;
+}
+
+/* =========================================================
+   TABLE CONTAINER HEIGHTS
+   ========================================================= */
+
+/*
+  Stable minimum heights prevent the surrounding page from
+  collapsing when filters reduce the number of visible rows.
+*/
+
+.page[data-page="alerts"] .table-scroll {
+  min-height: 390px;
+}
+
+.page[data-page="incidents"] .table-scroll {
+  min-height: 250px;
+}
+
+.page[data-page="response-activity"] .table-scroll {
+  min-height: 330px;
+}
+
+.page[data-page="detection-rules"] .table-scroll {
+  min-height: 320px;
+}
+
+.page[data-page="integrations"] .table-scroll {
+  min-height: 280px;
+}
+
+.page[data-page="user-management"] .table-scroll {
+  min-height: 300px;
+}
+
+.page[data-page="audit-logs"] .table-scroll {
+  min-height: 360px;
+}
+
+/* =========================================================
+   EMPTY TABLE STATE
+   ========================================================= */
+
+tbody td[colspan] {
+  width: 100%;
+  height: 150px;
+  vertical-align: middle;
+}
+
+tbody td[colspan] .empty {
+  width: 100%;
+  margin: 0;
+}
+
+/* =========================================================
+   TABLE WIDTH STABILITY
+   ========================================================= */
+
+.page[data-page="alerts"] table,
+.page[data-page="incidents"] table,
+.page[data-page="response-activity"] table,
+.page[data-page="detection-rules"] table,
+.page[data-page="integrations"] table,
+.page[data-page="user-management"] table,
+.page[data-page="audit-logs"] table {
+  width: 100%;
+  table-layout: fixed;
+}
+
+/*
+  Prevent long content from changing column width while the
+  visible rows change.
+*/
+
+.page[data-page="alerts"] th,
+.page[data-page="alerts"] td,
+.page[data-page="incidents"] th,
+.page[data-page="incidents"] td,
+.page[data-page="response-activity"] th,
+.page[data-page="response-activity"] td,
+.page[data-page="detection-rules"] th,
+.page[data-page="detection-rules"] td,
+.page[data-page="integrations"] th,
+.page[data-page="integrations"] td,
+.page[data-page="user-management"] th,
+.page[data-page="user-management"] td,
+.page[data-page="audit-logs"] th,
+.page[data-page="audit-logs"] td {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* =========================================================
+   ALERTS TABLE COLUMN WIDTHS
+   ========================================================= */
+
+.page[data-page="alerts"] th:nth-child(1),
+.page[data-page="alerts"] td:nth-child(1) {
+  width: 8%;
+}
+
+.page[data-page="alerts"] th:nth-child(2),
+.page[data-page="alerts"] td:nth-child(2) {
+  width: 9%;
+}
+
+.page[data-page="alerts"] th:nth-child(3),
+.page[data-page="alerts"] td:nth-child(3) {
+  width: 16%;
+}
+
+.page[data-page="alerts"] th:nth-child(4),
+.page[data-page="alerts"] td:nth-child(4) {
+  width: 11%;
+}
+
+.page[data-page="alerts"] th:nth-child(5),
+.page[data-page="alerts"] td:nth-child(5) {
+  width: 11%;
+}
+
+.page[data-page="alerts"] th:nth-child(6),
+.page[data-page="alerts"] td:nth-child(6) {
+  width: 11%;
+}
+
+.page[data-page="alerts"] th:nth-child(7),
+.page[data-page="alerts"] td:nth-child(7) {
+  width: 8%;
+}
+
+.page[data-page="alerts"] th:nth-child(8),
+.page[data-page="alerts"] td:nth-child(8) {
+  width: 9%;
+}
+
+.page[data-page="alerts"] th:nth-child(9),
+.page[data-page="alerts"] td:nth-child(9) {
+  width: 11%;
+}
+
+.page[data-page="alerts"] th:nth-child(10),
+.page[data-page="alerts"] td:nth-child(10) {
+  width: 7%;
+}
+
+.page[data-page="alerts"] th:nth-child(11),
+.page[data-page="alerts"] td:nth-child(11) {
+  width: 7%;
+}
+
+/* =========================================================
+   CASE MANAGEMENT TABLE COLUMN WIDTHS
+   ========================================================= */
+
+.page[data-page="incidents"] th:nth-child(1),
+.page[data-page="incidents"] td:nth-child(1) {
+  width: 13%;
+}
+
+.page[data-page="incidents"] th:nth-child(2),
+.page[data-page="incidents"] td:nth-child(2) {
+  width: 14%;
+}
+
+.page[data-page="incidents"] th:nth-child(3),
+.page[data-page="incidents"] td:nth-child(3) {
+  width: 13%;
+}
+
+.page[data-page="incidents"] th:nth-child(4),
+.page[data-page="incidents"] td:nth-child(4) {
+  width: 13%;
+}
+
+.page[data-page="incidents"] th:nth-child(5),
+.page[data-page="incidents"] td:nth-child(5) {
+  width: 19%;
+}
+
+.page[data-page="incidents"] th:nth-child(6),
+.page[data-page="incidents"] td:nth-child(6) {
+  width: 28%;
+}
+
+/* =========================================================
+   INCIDENT RESPONSE TABLE COLUMN WIDTHS
+   ========================================================= */
+
+.page[data-page="response-activity"] th:nth-child(1),
+.page[data-page="response-activity"] td:nth-child(1) {
+  width: 9%;
+}
+
+.page[data-page="response-activity"] th:nth-child(2),
+.page[data-page="response-activity"] td:nth-child(2) {
+  width: 8%;
+}
+
+.page[data-page="response-activity"] th:nth-child(3),
+.page[data-page="response-activity"] td:nth-child(3) {
+  width: 11%;
+}
+
+.page[data-page="response-activity"] th:nth-child(4),
+.page[data-page="response-activity"] td:nth-child(4) {
+  width: 11%;
+}
+
+.page[data-page="response-activity"] th:nth-child(5),
+.page[data-page="response-activity"] td:nth-child(5) {
+  width: 18%;
+}
+
+.page[data-page="response-activity"] th:nth-child(6),
+.page[data-page="response-activity"] td:nth-child(6) {
+  width: 11%;
+}
+
+.page[data-page="response-activity"] th:nth-child(7),
+.page[data-page="response-activity"] td:nth-child(7) {
+  width: 12%;
+}
+
+.page[data-page="response-activity"] th:nth-child(8),
+.page[data-page="response-activity"] td:nth-child(8) {
+  width: 9%;
+}
+
+.page[data-page="response-activity"] th:nth-child(9),
+.page[data-page="response-activity"] td:nth-child(9) {
+  width: 6%;
+}
+
+.page[data-page="response-activity"] th:nth-child(10),
+.page[data-page="response-activity"] td:nth-child(10) {
+  width: 7%;
+}
+
+/* =========================================================
+   TABLE ACTION BUTTONS
+   ========================================================= */
+
+.actions-cell {
+  vertical-align: middle;
+  white-space: nowrap;
+}
+
+.actions-cell .btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.actions-cell .btn + .btn {
+  margin-left: 8px;
+}
+
+/* =========================================================
+   DRAWER STABILITY
+   ========================================================= */
+
+.drawer-backdrop {
+  overflow-anchor: none;
+}
+
+.alert-drawer {
+  transform-origin: right center;
+}
+
+/* =========================================================
+   RESPONSIVE TABLES
+   ========================================================= */
+
+@media (max-width: 1100px) {
+  .page[data-page="alerts"] table,
+  .page[data-page="incidents"] table,
+  .page[data-page="response-activity"] table,
+  .page[data-page="detection-rules"] table,
+  .page[data-page="integrations"] table,
+  .page[data-page="user-management"] table,
+  .page[data-page="audit-logs"] table {
+    table-layout: auto;
+  }
+
+  .page[data-page="alerts"] .table-scroll table {
+    min-width: 1280px;
+  }
+
+  .page[data-page="incidents"] .table-scroll table {
+    min-width: 800px;
+  }
+
+  .page[data-page="response-activity"] .table-scroll table {
+    min-width: 1180px;
+  }
+
+  .page[data-page="detection-rules"] .table-scroll table,
+  .page[data-page="integrations"] .table-scroll table,
+  .page[data-page="user-management"] .table-scroll table,
+  .page[data-page="audit-logs"] .table-scroll table {
+    min-width: 900px;
+  }
+
+  .page[data-page="alerts"] th,
+  .page[data-page="alerts"] td,
+  .page[data-page="incidents"] th,
+  .page[data-page="incidents"] td,
+  .page[data-page="response-activity"] th,
+  .page[data-page="response-activity"] td,
+  .page[data-page="detection-rules"] th,
+  .page[data-page="detection-rules"] td,
+  .page[data-page="integrations"] th,
+  .page[data-page="integrations"] td,
+  .page[data-page="user-management"] th,
+  .page[data-page="user-management"] td,
+  .page[data-page="audit-logs"] th,
+  .page[data-page="audit-logs"] td {
+    width: auto;
+    overflow: visible;
+    text-overflow: initial;
+    white-space: nowrap;
+  }
+}
+
+/* =========================================================
+   MOBILE
+   ========================================================= */
+
+@media (max-width: 700px) {
+  .page[data-page="alerts"] .table-scroll {
+    min-height: 320px;
+  }
+
+  .page[data-page="incidents"] .table-scroll {
+    min-height: 220px;
+  }
+
+  .page[data-page="response-activity"] .table-scroll {
+    min-height: 280px;
+  }
+
+  .page[data-page="detection-rules"] .table-scroll,
+  .page[data-page="integrations"] .table-scroll,
+  .page[data-page="user-management"] .table-scroll,
+  .page[data-page="audit-logs"] .table-scroll {
+    min-height: 260px;
+  }
+}
+
+/* =========================================================
+   REDUCED MOTION
+   ========================================================= */
+
+@media (prefers-reduced-motion: reduce) {
+  .page-view,
+  .page.active,
+  .data-row,
+  tbody tr,
+  .drawer-backdrop,
+  .alert-drawer {
+    animation: none !important;
+    transition: none !important;
+  }
+
+  .page-view,
+  .page.active,
+  .data-row,
+  tbody tr {
+    opacity: 1 !important;
+    transform: none !important;
+  }
+}

@@ -1,0 +1,1026 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AthenaSec - HTML Pages Prototype</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+
+<body>
+  <div id="authViews">
+    <section class="section auth-view" id="loginView">
+      <div class="label">
+        <span>AthenaSec High Fidelity</span>
+        <span class="prototype-note">Interactive SOC Login</span>
+      </div>
+      <div class="screen">
+        <div class="login-body">
+          <div class="hero">
+            <div>
+              <div class="big-logo">
+              </div>
+              <h1>AthenaSec</h1>
+              <p class="sub">Security Monitoring & Automated Incident Response</p>
+            </div>
+          </div>
+          <div class="form-area">
+            <form class="form" id="loginForm">
+              <h1>Welcome back</h1>
+              <p class="sub">Sign in to continue to the SOC console.</p>
+              <div class="auth-error hidden" id="loginError">
+              </div>
+              <br>
+              <label class="form-label" for="loginEmail">Email address</label>
+              <input class="field-input" id="loginEmail" type="email" placeholder="analyst@athenasec.com" required>
+              <br>
+              <label class="form-label" for="loginPassword">Password</label>
+              <input class="field-input" id="loginPassword" type="password" placeholder="Enter password" required>
+              <br>
+              <div class="toolbar" style="margin-bottom:18px">
+                <label class="check-row">
+                  <input type="checkbox" id="rememberMe"> Remember Me</label>
+                <button class="btn ghost small" type="button" data-action="forgot-password"
+                  style="margin-left:auto">Forgot Password</button>
+              </div>
+              <button class="btn primary" type="submit" style="width:100%;justify-content:center">Sign In</button>
+              <p class="sub" style="text-align:center;margin-top:14px">Demo accounts: analyst@athenasec.com /
+                admin@athenasec.com</p>
+            </form>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="section auth-view hidden" id="mfaView">
+      <div class="label">
+        <span>AthenaSec High Fidelity</span>
+        <span class="prototype-note">Multi-Factor Authentication</span>
+      </div>
+      <div class="screen">
+        <div class="login-body">
+          <div class="hero">
+            <div>
+              <div class="big-logo"></div>
+              <h1>Secure Access</h1>
+              <p class="sub">MFA protects analyst and administrator sessions</p>
+            </div>
+          </div>
+          <div class="form-area">
+            <form class="form" id="mfaForm">
+              <h1>Two-Factor Authentication</h1>
+              <p class="sub">Enter the 6-digit demo code from your authenticator app.</p>
+              <p class="sub">Demo code: <strong style="color:#e5e7eb">123456</strong></p>
+              <div class="auth-error hidden" id="mfaError"></div>
+              <div class="code-row">
+                <input class="code" maxlength="1" data-mfa-digit>
+                <input class="code" maxlength="1" data-mfa-digit>
+                <input class="code" maxlength="1" data-mfa-digit>
+                <input class="code" maxlength="1" data-mfa-digit>
+                <input class="code" maxlength="1" data-mfa-digit>
+                <input class="code" maxlength="1" data-mfa-digit>
+              </div>
+              <button class="btn primary" type="submit" style="width:100%;justify-content:center">Verify & Sign
+                In</button>
+              <button class="btn ghost" type="button" data-action="resend-code"
+                style="width:100%;justify-content:center;margin-top:10px">Resend code</button>
+            </form>
+          </div>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <section class="section hidden" id="appShell">
+    <div class="label">
+      <span>AthenaSec High Fidelity</span>
+      <span class="prototype-note" id="workspaceRole">Workspace</span>
+    </div>
+    <div class="screen">
+      <div class="topbar">
+        <button class="logo" data-page-link="dashboard">AthenaSec</button>
+        <div class="system-status-widget" aria-label="System status">
+          <span class="status-indicator" aria-hidden="true"></span>
+          <span class="status-copy">
+            <strong>System Online</strong>
+            <small>All Systems Operational</small>
+          </span>
+        </div>
+        <div class="search-wrap">
+          <input class="search-input" id="globalSearch" placeholder="Search alerts, cases, responses, policies...">
+          <div class="search-results hidden" id="searchResults"></div>
+        </div>
+        <div class="top-actions">
+          <div class="dropdown-wrap">
+            <button class="icon-btn" id="notificationButton">
+              <span class="bell-shape"></span>
+              <span class="badge-dot"></span>
+            </button>
+            <div class="dropdown hidden" id="notificationDropdown">
+              <button class="drop-item" data-page-link="alerts"><strong>New Alert</strong>
+                <p>ALT-004 Kernel Exploit Attempt scored Critical.</p>
+              </button>
+              <button class="drop-item" data-page-link="incidents">
+                <strong>Case Created</strong>
+                <p>CASE-008 was created from endpoint-09 telemetry.</p>
+              </button>
+              <button class="drop-item" data-page-link="response-policies" data-admin-only>
+                <strong>Policy Updated</strong>
+                <p>Critical Host Isolation policy was validated.</p>
+              </button>
+              <button class="drop-item" data-page-link="system-health" data-admin-only>
+                <strong>System Warning</strong>
+                <p>Telemetry sync latency is above the expected threshold.</p>
+              </button>
+            </div>
+          </div>
+          <div class="dropdown-wrap">
+            <button class="user-chip" id="userMenuButton">Guest</button>
+            <div class="dropdown hidden" id="userDropdown">
+              <button class="drop-item" data-page-link="profile">
+                <strong>Profile</strong>
+                <p>View role, contact, and session details.</p>
+              </button>
+              <button class="drop-item" data-page-link="settings" data-admin-only>
+                <strong>Settings</strong>
+                <p>Manage console theme, MFA, and session timeout.</p>
+              </button>
+              <button class="drop-item" data-action="logout">
+                <strong>Logout</strong>
+                <p>End the current AthenaSec session.</p>
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="body">
+        <aside class="sidebar">
+          <div class="side-title" id="sidebarTitle">Analyst</div><button class="side-item"
+            data-page-link="dashboard"><span>Dashboard</span></button><button class="side-item"
+            data-page-link="alerts" data-analyst-only><span>Alerts</span><span class="count">4</span></button><button class="side-item"
+            data-page-link="incidents" data-analyst-only><span>Case Management</span><span class="count">3</span></button><button
+            class="side-item" data-page-link="response-activity" data-analyst-only><span>Incident Response</span></button><button class="side-item"
+            data-page-link="configuration" data-admin-only><span>Configuration</span></button><button class="side-item"
+            data-page-link="detection-rules" data-admin-only><span>Detection Rules</span></button><button
+            class="side-item" data-page-link="response-policies" data-admin-only><span>Response
+              Policies</span></button><button class="side-item" data-page-link="integrations"
+            data-admin-only><span>Integrations</span></button><button class="side-item" data-page-link="user-management"
+            data-admin-only><span>User Management</span></button><button class="side-item" data-page-link="audit-logs"
+            data-admin-only><span>Audit Logs</span></button><button class="side-item" data-page-link="system-health"
+            data-admin-only><span>System Health</span></button><button class="side-item" data-page-link="settings"
+            data-admin-only><span>Settings</span></button><button class="side-item"
+            data-page-link="profile"><span>Profile</span></button><button class="side-item"
+            data-action="logout"><span>Logout</span></button>
+        </aside>
+        <main class="main" id="mainContent">
+          <section class="page active" data-page="dashboard" data-page-name="Dashboard" data-search-page>
+            <div class="role-view" data-role-view="Analyst">
+              <div class="headline">
+                <div>
+                  <h1>Security Dashboard</h1>
+                  <p class="sub">Monitor detections, cases, and autonomous response history.</p>
+                </div><span class="pill ok">System Online</span>
+              </div>
+              <div class="grid stats">
+                <div class="stat"><strong>5</strong><span>Total Alerts</span><small>+18% today</small></div>
+                <div class="stat"><strong>2</strong><span>Critical Alerts</span><small>AI handled</small></div>
+                <div class="stat"><strong>2</strong><span>Open Cases</span><small>Analyst-owned</small></div>
+                <div class="stat"><strong>2</strong><span>AI Actions</span><small>AI handled</small></div>
+              </div>
+              <div class="card" style="margin-top:18px">
+                <div class="headline">
+                  <div>
+                    <h2>Recent Alerts</h2>
+                    <p class="sub">Use dashboard search and severity filters without leaving this view.</p>
+                  </div>
+                  <div class="toolbar" style="margin-bottom:0"><input class="field-input" id="dashboardSearch"
+                      placeholder="Search recent alerts"><select class="select-input" id="dashboardSeverity">
+                      <option value="all">All Severities</option>
+                      <option>Critical</option>
+                      <option>High</option>
+                      <option>Medium</option>
+                      <option>Low</option>
+                    </select></div>
+                </div>
+                <div class="table-scroll"><table>
+                  <thead>
+                    <tr>
+                      <th>Alert</th>
+                      <th>Type</th>
+                      <th>Endpoint</th>
+                      <th>Severity</th>
+                      <th>Risk</th>
+                      <th></th>
+                    </tr>
+                  </thead>
+                  <tbody id="dashboardAlertRows">
+                    <tr data-dashboard-alert data-severity="Critical">
+                      <td>ALT-001</td>
+                      <td>Brute Force SSH</td>
+                      <td>endpoint-01</td>
+                      <td><span class="pill danger">Critical</span></td>
+                      <td>92</td>
+                      <td><button class="btn small" data-action="view-alert" data-alert-id="ALT-001">View</button></td>
+                    </tr>
+                    <tr data-dashboard-alert data-severity="High">
+                      <td>ALT-002</td>
+                      <td>Privilege Escalation</td>
+                      <td>endpoint-03</td>
+                      <td><span class="pill warn">High</span></td>
+                      <td>84</td>
+                      <td><button class="btn small" data-action="view-alert" data-alert-id="ALT-002">View</button></td>
+                    </tr>
+                  </tbody>
+                </table></div>
+              </div>
+            </div>
+              <div class="grid two" style="margin-top:18px">
+                <div class="card">
+                  <h2>Alert Severity - Last 24 Hours</h2>
+                  <div class="chart"><button class="bar" style="height:38%"
+                      data-dashboard-severity="Low"><span>Low</span></button><button class="bar" style="height:58%"
+                      data-dashboard-severity="Medium"><span>Medium</span></button><button class="bar"
+                      style="height:74%" data-dashboard-severity="High"><span>High</span></button><button class="bar"
+                      style="height:88%" data-dashboard-severity="Critical"><span>Critical</span></button><button
+                      class="bar" style="height:66%" data-dashboard-severity="all"><span>Open</span></button></div>
+                </div>
+                <div class="card">
+                  <h2>Endpoint Status</h2>
+                  <div class="table-scroll"><table>
+                    <tbody>
+                      <tr>
+                        <td>Active</td>
+                        <td><span class="pill ok">2</span></td>
+                      </tr>
+                      <tr>
+                        <td>Warning</td>
+                        <td><span class="pill warn">1</span></td>
+                      </tr>
+                      <tr>
+                        <td>Isolated</td>
+                        <td><span class="pill danger">1</span></td>
+                      </tr>
+                      <tr>
+                        <td>Offline</td>
+                        <td><span class="pill danger">1</span></td>
+                      </tr>
+                    </tbody>
+                  </table></div>
+                </div>
+              </div>
+            <div class="role-view hidden" data-role-view="Administrator">
+              <div class="headline">
+                <div>
+                  <h1>Security Management</h1>
+                  <p class="sub">Administrative dashboard for configuration, integrations, AI response policies, users,
+                    and audit logs.</p>
+                </div><span class="pill ok">All Services Healthy</span>
+              </div>
+              <div class="grid stats">
+                <div class="stat"><strong>6</strong><span>Integrations</span><small>Connected now</small></div>
+                <div class="stat"><strong>5</strong><span>Detection Rules</span><small>3 updated today</small></div>
+                <div class="stat"><strong>4</strong><span>Response Policies</span><small>2 AI-managed</small></div>
+                <div class="stat"><strong>100%</strong><span>Audit Stored</span><small>OpenSearch synced</small></div>
+              </div>
+              <div class="grid three" style="margin-top:18px"><button class="card" data-page-link="configuration">
+                  <h2>Configuration</h2>
+                  <p class="sub">Edit general, detection, logging, retention, and notification controls.</p>
+                </button><button class="card" data-page-link="detection-rules">
+                  <h2>Detection Rules</h2>
+                  <p class="sub">Add, edit, enable, disable, and delete SOC detection logic.</p>
+                </button><button class="card" data-page-link="system-health">
+                  <h2>System Health</h2>
+                  <p class="sub">Review CPU, memory, storage, services, and processing totals.</p>
+                </button></div>
+              <div class="grid two" style="margin-top:18px">
+                <div class="card">
+                  <h2>System Health Snapshot</h2>
+                  <div class="grid" style="grid-template-columns:repeat(2,1fr);gap:14px">
+                    <div class="health-stat">
+                      <div class="donut good" style="--donut-pct:42"><div class="donut-label">42%</div></div>
+                      <div class="health-info"><strong style="font-size:14px;color:#fff">CPU</strong><span class="health-tag good">Good</span></div>
+                    </div>
+                    <div class="health-stat">
+                      <div class="donut warn" style="--donut-pct:67"><div class="donut-label">67%</div></div>
+                      <div class="health-info"><strong style="font-size:14px;color:#fff">Memory</strong><span class="health-tag warn">Watch</span></div>
+                    </div>
+                    <div class="health-stat">
+                      <div class="donut good" style="--donut-pct:96"><div class="donut-label">96%</div></div>
+                      <div class="health-info"><strong style="font-size:14px;color:#fff">Services</strong><span class="health-tag good">Good</span></div>
+                    </div>
+                    <div class="health-stat">
+                      <div class="donut bad" style="--donut-pct:58"><div class="donut-label">58%</div></div>
+                      <div class="health-info"><strong style="font-size:14px;color:#fff">Case Automation</strong><span class="health-tag bad">Attention</span></div>
+                    </div>
+                  </div>
+                  <button class="btn ghost small" data-page-link="system-health" style="margin-top:16px;width:100%;justify-content:center">View Full System Health</button>
+                </div>
+                <div class="card">
+                  <h2>Integration Status</h2>
+                  <div class="table-scroll"><table>
+                    <tbody>
+                      <tr>
+                        <td>Wazuh</td>
+                        <td style="text-align:right"><span class="pill ok">Connected</span></td>
+                      </tr>
+                      <tr>
+                        <td>OpenSearch</td>
+                        <td style="text-align:right"><span class="pill ok">Connected</span></td>
+                      </tr>
+                      <tr>
+                        <td>Ollama</td>
+                        <td style="text-align:right"><span class="pill ok">Connected</span></td>
+                      </tr>
+                      <tr>
+                        <td>Cortex</td>
+                        <td style="text-align:right"><span class="pill ok">Connected</span></td>
+                      </tr>
+                      <tr>
+                        <td>TheHive</td>
+                        <td style="text-align:right"><span class="pill ok">Connected</span></td>
+                      </tr>
+                      <tr>
+                        <td>Slack Alerts</td>
+                        <td style="text-align:right"><span class="pill ok">Connected</span></td>
+                      </tr>
+                    </tbody>
+                  </table></div>
+                  <button class="btn ghost small" data-page-link="integrations" style="margin-top:14px;width:100%;justify-content:center">Manage Integrations</button>
+                </div>
+              </div>
+              <div class="card" style="margin-top:18px">
+                <h2>Recent Administrative Activity</h2>
+                <div class="table-scroll"><table>
+                  <thead>
+                    <tr>
+                      <th>Time</th>
+                      <th>Admin</th>
+                      <th>Action</th>
+                      <th>Target</th>
+                      <th>Result</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr>
+                      <td>15:42</td>
+                      <td>System Administrator</td>
+                      <td>Updated detection rule</td>
+                      <td>Brute Force SSH</td>
+                      <td><span class="pill ok">Saved</span></td>
+                    </tr>
+                    <tr>
+                      <td>15:10</td>
+                      <td>System Administrator</td>
+                      <td>Validated response policy</td>
+                      <td>Critical Host Isolation</td>
+                      <td><span class="pill ok">Validated</span></td>
+                    </tr>
+                    <tr>
+                      <td>14:21</td>
+                      <td>System Administrator</td>
+                      <td>Added user account</td>
+                      <td>Analyst B</td>
+                      <td><span class="pill ok">Created</span></td>
+                    </tr>
+                  </tbody>
+                </table></div>
+              </div>
+            </div>
+          </section>
+          <section class="page" data-page="alerts" data-page-name="Alerts" data-search-page>
+            <div class="headline">
+              <div>
+                <h1>Alerts</h1>
+                <p class="sub">Brute Force and Privilege Escalation alerts with AI-generated analysis and case context.
+                </p>
+              </div><span class="pill blue" id="visibleAlertCount">5 visible alerts</span>
+            </div>
+            <div class="card">
+              <h2>Advanced Filters</h2>
+              <div class="toolbar"><select class="select-input" id="attackFilter">
+                  <option value="all">All Attacks</option>
+                  <option>Brute Force</option>
+                  <option>Privilege Escalation</option>
+                </select><select class="select-input" id="riskFilter">
+                  <option value="all">All Risk Scores</option>
+                  <option value="low">Low (0-39)</option>
+                  <option value="medium">Medium (40-69)</option>
+                  <option value="high">High (70-89)</option>
+                  <option value="critical">Critical (90-100)</option>
+                </select><select class="select-input" id="riskSort">
+                  <option value="desc">Highest Risk First</option>
+                  <option value="asc">Lowest Risk First</option>
+                </select></div>
+              <div class="table-scroll"><table>
+                <thead>
+                  <tr>
+                    <th>Alert ID</th>
+                    <th>Severity</th>
+                    <th>Attack Type</th>
+                    <th>Source IP</th>
+                    <th>Destination IP</th>
+                    <th>Endpoint</th>
+                    <th>Risk Score</th>
+                    <th>Status</th>
+                    <th>Assigned Analyst</th>
+                    <th>Time</th>
+                    <th>Action</th>
+                  </tr>
+                </thead>
+                <tbody id="alertsTableBody">
+                  <tr class="data-row" data-search-record data-page-target="alerts" data-alert-id="ALT-001"
+                    data-attack="Brute Force" data-risk="92" data-risk-band="critical">
+                    <td>ALT-001</td>
+                    <td><span class="pill danger">Critical</span></td>
+                    <td>Brute Force SSH</td>
+                    <td>192.168.1.45</td>
+                    <td>10.0.4.21</td>
+                    <td>endpoint-01</td>
+                    <td>92</td>
+                    <td class="status-cell"><span class="pill blue">Open</span></td>
+                    <td>Analyst A</td>
+                    <td>14:32</td>
+                    <td><button class="btn small primary" data-action="view-alert" data-alert-id="ALT-001">View</button>
+                    </td>
+                  </tr>
+                  <tr class="data-row" data-search-record data-page-target="alerts" data-alert-id="ALT-002"
+                    data-attack="Privilege Escalation" data-risk="84" data-risk-band="high">
+                    <td>ALT-002</td>
+                    <td><span class="pill warn">High</span></td>
+                    <td>Privilege Escalation</td>
+                    <td>10.0.2.18</td>
+                    <td>10.0.4.33</td>
+                    <td>endpoint-03</td>
+                    <td>84</td>
+                    <td class="status-cell"><span class="pill blue">AI Handled</span></td>
+                    <td>Analyst B</td>
+                    <td>14:41</td>
+                    <td><button class="btn small primary" data-action="view-alert" data-alert-id="ALT-002">View</button>
+                    </td>
+                  </tr>
+                  <tr class="data-row" data-search-record data-page-target="alerts" data-alert-id="ALT-003"
+                    data-attack="Brute Force" data-risk="64" data-risk-band="medium">
+                    <td>ALT-003</td>
+                    <td><span class="pill blue">Medium</span></td>
+                    <td>Brute Force - Password Spray</td>
+                    <td>203.0.113.88</td>
+                    <td>10.0.4.41</td>
+                    <td>vpn-gateway-02</td>
+                    <td>64</td>
+                    <td class="status-cell"><span class="pill blue">Open</span></td>
+                    <td>Analyst A</td>
+                    <td>15:02</td>
+                    <td><button class="btn small primary" data-action="view-alert" data-alert-id="ALT-003">View</button>
+                    </td>
+                  </tr>
+                  <tr class="data-row" data-search-record data-page-target="alerts" data-alert-id="ALT-004"
+                    data-attack="Privilege Escalation" data-risk="95" data-risk-band="critical">
+                    <td>ALT-004</td>
+                    <td><span class="pill danger">Critical</span></td>
+                    <td>Privilege Escalation - Kernel Exploit Attempt</td>
+                    <td>10.0.7.51</td>
+                    <td>10.0.7.51</td>
+                    <td>endpoint-09</td>
+                    <td>95</td>
+                    <td class="status-cell"><span class="pill blue">AI Handled</span></td>
+                    <td>Analyst C</td>
+                    <td>15:17</td>
+                    <td><button class="btn small primary" data-action="view-alert" data-alert-id="ALT-004">View</button>
+                    </td>
+                  </tr>
+                  <tr class="data-row" data-search-record data-page-target="alerts" data-alert-id="ALT-005"
+                    data-attack="Brute Force" data-risk="28" data-risk-band="low">
+                    <td>ALT-005</td>
+                    <td><span class="pill muted">Low</span></td>
+                    <td>Brute Force - SSH Probe</td>
+                    <td>198.51.100.77</td>
+                    <td>10.0.4.21</td>
+                    <td>endpoint-01</td>
+                    <td>28</td>
+                    <td class="status-cell"><span class="pill ok">Closed</span></td>
+                    <td>Analyst A</td>
+                    <td>15:36</td>
+                    <td><button class="btn small primary" data-action="view-alert" data-alert-id="ALT-005">View</button>
+                    </td>
+                  </tr>
+                </tbody>
+              </table></div>
+            </div>
+          </section>
+                    <section class="page" data-page="incidents" data-page-name="Case Management" data-search-page>
+            <div class="headline">
+              <div>
+                <h1>Case Management</h1>
+                <p class="sub">Analyst-owned cases created from validated Brute Force and Privilege Escalation alerts.</p>
+              </div><span class="pill blue">3 active cases</span>
+            </div>
+            <div class="toolbar"><input class="field-input" id="incidentSearch" placeholder="Search cases"><select
+                class="select-input" id="incidentSeverity">
+                <option value="all">All Severities</option>
+                <option>Critical</option>
+                <option>High</option>
+                <option>Medium</option>
+              </select><select class="select-input" id="incidentStatus">
+                <option value="all">All Statuses</option>
+                <option>Open</option>
+                <option>Closed</option>
+              </select></div>
+            <div class="card">
+              <h2>Case Queue</h2>
+              <div class="table-scroll"><table>
+                  <thead>
+                    <tr>
+                      <th>Case</th>
+                      <th>Source Alert</th>
+                      <th>Severity</th>
+                      <th>Status</th>
+                      <th>Assigned Analyst</th>
+                      <th>Action</th>
+                    </tr>
+                  </thead>
+                  <tbody id="incidentRows">
+                    <tr class="data-row" data-search-record data-page-target="incidents" data-case-id="CASE-006"
+                      data-severity="Critical" data-status="Open">
+                      <td>CASE-006</td>
+                      <td>ALT-001</td>
+                      <td><span class="pill danger">Critical</span></td>
+                      <td class="incident-status"><span class="pill blue">Open</span></td>
+                      <td class="incident-assigned">Analyst A</td>
+                      <td class="actions-cell"><button class="btn small" data-action="view-case" data-case-id="CASE-006">View</button> <button class="btn small primary" data-action="toggle-case-status" data-case-id="CASE-006">Close Case</button></td>
+                    </tr>
+                    <tr class="data-row" data-search-record data-page-target="incidents" data-case-id="CASE-007"
+                      data-severity="High" data-status="Open">
+                      <td>CASE-007</td>
+                      <td>ALT-002</td>
+                      <td><span class="pill warn">High</span></td>
+                      <td class="incident-status"><span class="pill blue">Open</span></td>
+                      <td class="incident-assigned">Analyst B</td>
+                      <td class="actions-cell"><button class="btn small" data-action="view-case" data-case-id="CASE-007">View</button> <button class="btn small primary" data-action="toggle-case-status" data-case-id="CASE-007">Close Case</button></td>
+                    </tr>
+                    <tr class="data-row" data-search-record data-page-target="incidents" data-case-id="CASE-008"
+                      data-severity="Critical" data-status="Closed">
+                      <td>CASE-008</td>
+                      <td>ALT-004</td>
+                      <td><span class="pill danger">Critical</span></td>
+                      <td class="incident-status"><span class="pill ok">Closed</span></td>
+                      <td class="incident-assigned">Analyst C</td>
+                      <td class="actions-cell"><button class="btn small" data-action="view-case" data-case-id="CASE-008">View</button> <button class="btn small primary" data-action="toggle-case-status" data-case-id="CASE-008">Reopen Case</button></td>
+                    </tr>
+                  </tbody>
+                </table></div>
+            </div>
+          </section>
+          <section class="page" data-page="response-activity" data-page-name="Incident Response" data-search-page>
+            <div class="headline">
+              <div>
+                <h1>Incident Response</h1>
+                <p class="sub">Historical log of autonomous AthenaSec AI responses and the policies that triggered them.</p>
+              </div><span class="pill blue">AI Handled</span>
+            </div>
+            <div class="card">
+              <div class="table-scroll"><table>
+                <thead>
+                  <tr>
+                    <th>Time</th>
+                    <th>Response</th>
+                    <th>Policy / Rule</th>
+                    <th>Reason</th>
+                    <th>Status</th>
+                    <th>Executed By</th>
+                      <th>Action</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr data-search-record data-page-target="response-activity" data-execution-id="EXE-004">
+                    <td>15:19</td>
+                    <td>Isolate endpoint-09</td>
+                    <td>Critical Host Isolation</td>
+                    <td>Kernel exploit attempt with risk score 95</td>
+                    <td><span class="pill blue">AI Handled</span></td>
+                    <td>AthenaSec AI</td>
+                    <td><button class="btn small" data-action="view-execution" data-execution-id="EXE-004">View</button></td>
+                  </tr>
+                  <tr data-search-record data-page-target="response-activity" data-execution-id="EXE-001">
+                    <td>14:33</td>
+                    <td>Block IP 192.168.1.45</td>
+                    <td>Critical Authentication Abuse</td>
+                    <td>Critical brute force detection</td>
+                    <td><span class="pill blue">AI Handled</span></td>
+                    <td>AthenaSec AI</td>
+                    <td><button class="btn small" data-action="view-execution" data-execution-id="EXE-001">View</button></td>
+                  </tr>
+                </tbody>
+              </table></div>
+            </div>
+          </section>
+<section class="page" data-page="configuration" data-page-name="Configuration" data-admin-only
+            data-search-page>
+            <div class="headline">
+              <div>
+                <h1>Configuration Management</h1>
+                <p class="sub">Edit general, detection, logging, retention, and notification settings.</p>
+              </div><span class="pill blue" id="configState">Draft</span>
+            </div>
+            <div class="grid two">
+              <div class="card">
+                <h2>General Settings</h2><label class="form-label">Organization</label><input class="field-input"
+                  value="AthenaSec SOC"><br><label class="form-label">Workspace</label><input class="field-input"
+                  value="Production">
+              </div>
+              <div class="card">
+                <h2>Detection Settings</h2><label class="form-label">Correlation Window</label><input
+                  class="field-input" value="5 minutes"><br><label class="form-label">Critical Risk
+                  Threshold</label><input class="field-input" value="90">
+              </div>
+              <div class="card">
+                <h2>Logging Settings</h2><label class="form-label">Destination</label><input class="field-input"
+                  value="OpenSearch"><br><label class="form-label">Mode</label><input class="field-input"
+                  value="Realtime">
+              </div>
+              <div class="card">
+                <h2>Retention</h2><label class="form-label">Hot Storage</label><input class="field-input"
+                  value="30 days"><br><label class="form-label">Audit Retention</label><input class="field-input"
+                  value="365 days">
+              </div>
+              <div class="card">
+                <h2>Notifications</h2><label class="form-label">Critical Alerts</label><input class="field-input"
+                  value="Email + In-App">
+              </div>
+              <div class="card">
+                <h2>Configuration Actions</h2><button class="btn primary" data-action="save-config">Save</button>
+                <button class="btn" data-action="cancel-config">Cancel</button>
+              </div>
+            </div>
+          </section>
+          <section class="page" data-page="detection-rules" data-page-name="Detection Rules" data-admin-only
+            data-search-page>
+            <div class="headline">
+              <div>
+                <h1>Detection Rules</h1>
+                <p class="sub">Add, edit, delete, enable, disable, search, and filter detection logic.</p>
+              </div><button class="btn primary" data-action="add-rule">+ Add Rule</button>
+            </div>
+            <div class="toolbar"><input class="field-input" id="ruleSearch" placeholder="Search rules"><select
+                class="select-input" id="ruleStatus">
+                <option value="all">All Statuses</option>
+                <option>Enabled</option>
+                <option>Disabled</option>
+              </select></div>
+            <div class="card">
+              <div class="table-scroll"><table>
+                <thead>
+                  <tr>
+                    <th>Rule</th>
+                    <th>Category</th>
+                    <th>Threshold</th>
+                    <th>Policy</th>
+                    <th>Actions</th>
+                    <th>Status</th>
+                  </tr>
+                </thead>
+                <tbody id="ruleRows">
+                  <tr data-search-record data-page-target="detection-rules" data-status="Enabled">
+                    <td>Brute Force SSH</td>
+                    <td>Authentication</td>
+                    <td>10 attempts / 60s</td>
+                    <td>Auto block IP</td>
+                    <td class="actions-cell"><button class="btn small" data-action="edit-rule">Edit/Modify</button> <button class="btn small" data-action="toggle-rule">Disable</button> <button class="btn small danger" data-action="delete-rule">Delete</button></td>
+                    <td class="rule-status"><span class="pill ok">Enabled</span></td>
+                  </tr>
+                  <tr data-search-record data-page-target="detection-rules" data-status="Enabled">
+                    <td>Privilege Escalation</td>
+                    <td>Privilege</td>
+                    <td>sudo -i detected</td>
+                    <td>AI autonomous response</td>
+                    <td class="actions-cell"><button class="btn small" data-action="edit-rule">Edit/Modify</button> <button class="btn small" data-action="toggle-rule">Disable</button> <button class="btn small danger" data-action="delete-rule">Delete</button></td>
+                    <td class="rule-status"><span class="pill ok">Enabled</span></td>
+                  </tr>
+                  <tr data-search-record data-page-target="detection-rules" data-status="Disabled">
+                    <td>Suspicious PowerShell</td>
+                    <td>Execution</td>
+                    <td>encoded command</td>
+                    <td>Analyst review</td>
+                    <td class="actions-cell"><button class="btn small" data-action="edit-rule">Edit/Modify</button> <button class="btn small" data-action="toggle-rule">Enable</button> <button class="btn small danger" data-action="delete-rule">Delete</button></td>
+                    <td class="rule-status"><span class="pill muted">Disabled</span></td>
+                  </tr>
+                </tbody>
+              </table></div>
+            </div>
+          </section>
+          <section class="page" data-page="response-policies" data-page-name="Response Policies" data-admin-only
+            data-search-page>
+            <div class="headline">
+              <div>
+                <h1>Response Policies</h1>
+                <p class="sub">Editable AI response policies define allowed automated actions.</p>
+              </div><span class="pill ok">4 active policies</span>
+            </div>
+            <div class="grid two">
+              <div class="card" data-search-record data-page-target="response-policies">
+                <h2>Critical Authentication Abuse</h2>
+                <p class="sub">POL-001 - Security Management</p>
+                <div class="notice"><strong>IF Severity = Critical AND Attack Type = Brute Force</strong><br><br>THEN
+                  <span class="pill blue">Block IP</span> <span
+                    class="pill blue">Notify Administrator</span>
+                </div><br><label class="form-label">Policy
+                  Condition</label><input class="field-input"
+                  value="IF Severity = Critical AND Attack Type = Brute Force"><br><label
+                  class="form-label">Actions</label><input class="field-input"
+                  value="Block IP, Notify Administrator"><br><button class="btn primary"
+                  data-action="save-policy">Save Policy</button>
+              </div>
+              <div class="card" data-search-record data-page-target="response-policies">
+                <h2>Critical Host Isolation</h2>
+                <p class="sub">POL-003 - Security Management</p>
+                <div class="notice"><strong>IF Risk Score >= 90 AND Endpoint Exploit Evidence =
+                    True</strong><br><br>THEN <span class="pill blue">Isolate Endpoint</span> <span
+                    class="pill blue">Capture Telemetry</span> <span class="pill blue">Record Response</span></div>
+                <br><button class="btn primary" data-action="save-policy">Save Policy</button>
+              </div>
+            </div>
+          </section>
+          <section class="page" data-page="integrations" data-page-name="Integrations" data-admin-only data-search-page>
+            <div class="headline">
+              <div>
+                <h1>Integrations</h1>
+                <p class="sub">Connected telemetry and response systems with version and synchronization status.</p>
+              </div><span class="pill ok">6/6 connected</span>
+            </div>
+            <div class="card">
+              <div class="table-scroll"><table>
+                <thead>
+                  <tr>
+                    <th>Integration</th>
+                    <th>Type</th>
+                    <th>Status</th>
+                    <th>Actions</th>
+                    <th>Last Sync</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr data-search-record data-page-target="integrations">
+                    <td>Wazuh</td>
+                    <td>SIEM Agent</td>
+                    <td><span class="pill ok">Connected</span></td>
+                    <td class="actions-cell"><button class="btn small" data-action="sync-integration">Sync</button></td>
+                    <td>2 minutes ago</td>
+                  </tr>
+                  <tr data-search-record data-page-target="integrations">
+                    <td>OpenSearch</td>
+                    <td>Search</td>
+                    <td><span class="pill ok">Connected</span></td>
+                    <td class="actions-cell"><button class="btn small" data-action="sync-integration">Sync</button></td>
+                    <td>1 minute ago</td>
+                  </tr>
+                  <tr data-search-record data-page-target="integrations">
+                    <td>TheHive</td>
+                    <td>Case Management</td>
+                    <td><span class="pill ok">Connected</span></td>
+                    <td class="actions-cell"><button class="btn small" data-action="sync-integration">Sync</button></td>
+                    <td>4 minutes ago</td>
+                  </tr>
+                  <tr data-search-record data-page-target="integrations">
+                    <td>Cortex</td>
+                    <td>Analyzer</td>
+                    <td><span class="pill ok">Connected</span></td>
+                    <td class="actions-cell"><button class="btn small" data-action="sync-integration">Sync</button></td>
+                    <td>5 minutes ago</td>
+                  </tr>
+                  <tr data-search-record data-page-target="integrations">
+                    <td>Suricata</td>
+                    <td>Network IDS</td>
+                    <td><span class="pill ok">Connected</span></td>
+                    <td class="actions-cell"><button class="btn small" data-action="sync-integration">Sync</button></td>
+                    <td>3 minutes ago</td>
+                  </tr>
+                  <tr data-search-record data-page-target="integrations">
+                    <td>Ollama</td>
+                    <td>AI Runtime</td>
+                    <td><span class="pill ok">Connected</span></td>
+                    <td class="actions-cell"><button class="btn small" data-action="sync-integration">Sync</button></td>
+                    <td>1 minute ago</td>
+                  </tr>
+                  <tr data-search-record data-page-target="integrations">
+                    <td>LangGraph</td>
+                    <td>AI Workflow</td>
+                    <td><span class="pill ok">Connected</span></td>
+                    <td class="actions-cell"><button class="btn small" data-action="sync-integration">Sync</button></td>
+                    <td>6 minutes ago</td>
+                  </tr>
+                </tbody>
+              </table></div>
+            </div>
+          </section>
+          <section class="page" data-page="user-management" data-page-name="User Management" data-admin-only
+            data-search-page>
+            <div class="headline">
+              <div>
+                <h1>User Management</h1>
+                <p class="sub">Manage SOC users, roles, status, and password reset flows.</p>
+              </div><button class="btn primary" data-action="add-user">Add User</button>
+            </div>
+            <div class="card">
+              <div class="table-scroll"><table>
+                <thead>
+                  <tr>
+                    <th>User</th>
+                    <th>Role</th>
+                    <th>Status</th>
+                    <th>Actions</th>
+                    <th>Last Login</th>
+                  </tr>
+                </thead>
+                <tbody id="userRows">
+                  <tr data-search-record data-page-target="user-management">
+                    <td>Analyst A</td>
+                    <td>Analyst</td>
+                    <td class="user-status"><span class="pill ok">Active</span></td>
+                    <td class="actions-cell"><button class="btn small" data-action="edit-user">Edit/Manage</button> <button class="btn small danger" data-action="disable-user">Disable User</button> <button class="btn small" data-action="reset-user">Reset Password</button></td>
+                    <td>Today 14:28</td>
+                  </tr>
+                  <tr data-search-record data-page-target="user-management">
+                    <td>System Administrator</td>
+                    <td>Administrator</td>
+                    <td class="user-status"><span class="pill ok">Active</span></td>
+                    <td class="actions-cell"><button class="btn small" data-action="edit-user">Edit/Manage</button> <button class="btn small danger" data-action="disable-user">Disable User</button> <button class="btn small" data-action="reset-user">Reset Password</button></td>
+                    <td>Today 14:12</td>
+                  </tr>
+                </tbody>
+              </table></div>
+            </div>
+          </section>
+          <section class="page" data-page="audit-logs" data-page-name="Audit Logs" data-admin-only data-search-page>
+            <div class="headline">
+              <div>
+                <h1>Audit Logs</h1>
+                <p class="sub">Searchable and filterable administrative audit trail with pagination.</p>
+              </div><span class="pill blue">8 logs</span>
+            </div>
+            <div class="toolbar"><input class="field-input" id="auditSearch" placeholder="Search audit logs"><select
+                class="select-input" id="auditResult">
+                <option value="all">All Results</option>
+                <option>Success</option>
+                <option>Warning</option>
+                <option>Failed</option>
+              </select></div>
+            <div class="card">
+              <div class="table-scroll"><table>
+                <thead>
+                  <tr>
+                    <th>Timestamp</th>
+                    <th>User</th>
+                    <th>Module</th>
+                    <th>Action</th>
+                    <th>Result</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr data-search-record data-page-target="audit-logs">
+                    <td>Today 15:19</td>
+                    <td>AthenaSec AI</td>
+                    <td>Incident Response</td>
+                    <td>Endpoint isolated</td>
+                    <td><span class="pill ok">Success</span></td>
+                  </tr>
+                  <tr data-search-record data-page-target="audit-logs">
+                    <td>Today 14:26</td>
+                    <td>System Administrator</td>
+                    <td>Detection Rules</td>
+                    <td>Detection rule updated</td>
+                    <td><span class="pill ok">Success</span></td>
+                  </tr>
+                  <tr data-search-record data-page-target="audit-logs">
+                    <td>Today 13:58</td>
+                    <td>System</td>
+                    <td>System Health</td>
+                    <td>Telemetry warning delivered</td>
+                    <td><span class="pill warn">Warning</span></td>
+                  </tr>
+                </tbody>
+              </table></div>
+              <div class="toolbar" style="margin-top:16px;margin-bottom:0;justify-content:flex-end"><button
+                  class="btn small" data-action="prev-audit">Previous</button><span class="pill blue">Page 1 of
+                  1</span><button class="btn small" data-action="next-audit">Next</button></div>
+            </div>
+          </section>
+          <section class="page" data-page="system-health" data-page-name="System Health" data-admin-only
+            data-search-page>
+            <div class="headline">
+              <div>
+                <h1>System Health</h1>
+                <p class="sub">Operational health across infrastructure, services, alert processing, and case
+                  automation.</p>
+              </div><button class="btn primary" data-action="refresh-health">Refresh</button>
+            </div>
+            <div class="grid four">
+              <div class="stat health-stat">
+                <div class="donut good" style="--donut-pct:42"><div class="donut-label">42%</div></div>
+                <div class="health-info"><strong style="font-size:15px;color:#fff">CPU Usage</strong><span>Healthy load</span>
+                  <span class="health-tag good">Good</span>
+                </div>
+              </div>
+              <div class="stat health-stat">
+                <div class="donut warn" style="--donut-pct:67"><div class="donut-label">67%</div></div>
+                <div class="health-info"><strong style="font-size:15px;color:#fff">Memory Usage</strong><span>Elevated</span>
+                  <span class="health-tag warn">Watch</span>
+                </div>
+              </div>
+              <div class="stat health-stat">
+                <div class="donut warn" style="--donut-pct:54"><div class="donut-label">54%</div></div>
+                <div class="health-info"><strong style="font-size:15px;color:#fff">Storage</strong><span>Moderate</span>
+                  <span class="health-tag warn">Watch</span>
+                </div>
+              </div>
+              <div class="stat health-stat">
+                <div class="donut good" style="--donut-pct:31"><div class="donut-label">31%</div></div>
+                <div class="health-info"><strong style="font-size:15px;color:#fff">Network</strong><span>Low traffic</span>
+                  <span class="health-tag good">Good</span>
+                </div>
+              </div>
+              <div class="stat health-stat">
+                <div class="donut good" style="--donut-pct:96"><div class="donut-label">96%</div></div>
+                <div class="health-info"><strong style="font-size:15px;color:#fff">Running Services</strong><span>Nearly all up</span>
+                  <span class="health-tag good">Good</span>
+                </div>
+              </div>
+              <div class="stat health-stat">
+                <div class="donut good" style="--donut-pct:82"><div class="donut-label">82%</div></div>
+                <div class="health-info"><strong style="font-size:15px;color:#fff">Connected Hosts</strong><span>Most online</span>
+                  <span class="health-tag good">Good</span>
+                </div>
+              </div>
+              <div class="stat health-stat">
+                <div class="donut warn" style="--donut-pct:74"><div class="donut-label">74%</div></div>
+                <div class="health-info"><strong style="font-size:15px;color:#fff">Alerts Processed</strong><span>Backlog forming</span>
+                  <span class="health-tag warn">Watch</span>
+                </div>
+              </div>
+              <div class="stat health-stat">
+                <div class="donut bad" style="--donut-pct:58"><div class="donut-label">58%</div></div>
+                <div class="health-info"><strong style="font-size:15px;color:#fff">Cases Created</strong><span>Below target</span>
+                  <span class="health-tag bad">Needs attention</span>
+                </div>
+              </div>
+            </div>
+          </section>
+          <section class="page" data-page="settings" data-page-name="Settings" data-admin-only data-search-page>
+            <div class="headline">
+              <div>
+                <h1>Settings</h1>
+                <p class="sub">Console preferences and security session controls.</p>
+              </div><span class="pill ok">Administrator Only</span>
+            </div>
+            <div class="grid two">
+              <div class="card">
+                <h2>Preferences</h2><label class="form-label">Theme</label><select class="select-input">
+                  <option>Dark Enterprise</option>
+                  <option>High Contrast</option>
+                </select><br><label class="form-label">Language</label><select class="select-input">
+                  <option>English</option>
+                  <option>Arabic</option>
+                </select><br><label class="check-row"><input type="checkbox" checked> Notifications</label>
+              </div>
+              <div class="card">
+                <h2>Security</h2><label class="form-label">Session Timeout</label><select class="select-input">
+                  <option>30 minutes</option>
+                  <option>60 minutes</option>
+                  <option>4 hours</option>
+                </select><br><label class="check-row"><input type="checkbox" checked> MFA</label><br><br><button
+                  class="btn primary" data-action="save-settings">Save Settings</button> <button class="btn"
+                  data-action="cancel-settings">Cancel</button>
+              </div>
+            </div>
+          </section>
+          <section class="page" data-page="profile" data-page-name="Profile" data-search-page>
+            <div class="headline">
+              <div>
+                <h1>Profile</h1>
+                <p class="sub">Current authenticated user, role, session, and contact preferences.</p>
+              </div><span class="pill blue" id="profileRole">Role</span>
+            </div>
+            <div class="grid two">
+              <div class="card">
+                <h2>Account</h2>
+                <div id="profileAccount"></div>
+              </div>
+              <div class="card profile-details-card">
+                <h2>Profile Details</h2><label class="form-label">Display Name</label><input class="field-input"
+                  id="profileName"><br><label class="form-label">Phone</label><input class="field-input"
+                  id="profilePhone"><br><label class="form-label">Timezone</label><select class="select-input">
+                  <option>Asia/Dubai</option>
+                  <option>UTC</option>
+                </select><br><button class="btn primary" data-action="save-profile">Save Profile</button>
+              </div>
+            </div>
+          </section>
+        </main>
+      </div>
+    </div>
+  </section>
+  <div id="alertDrawerRoot"></div>
+  <div id="modal-root"></div>
+  <script src="app.js"></script>
+</body>
+
+</html>

@@ -1,0 +1,181 @@
+/*
+  AthenaSec User Management Table Fix
+  ====================================
+  Keeps all user-management action buttons visible:
+  - View
+  - Edit
+  - Reset Password
+  - Suspend / Activate
+  - Delete
+*/
+
+/* Keep a stable table area during filtering and user updates. */
+.page[data-page="user-management"] .table-scroll {
+  min-height: 340px;
+  width: 100%;
+  overflow-x: auto;
+  overflow-y: visible;
+  overflow-anchor: none;
+}
+
+/*
+  The table needs extra horizontal room because the Actions
+  column contains five separate buttons.
+*/
+.page[data-page="user-management"] table {
+  width: 100%;
+  min-width: 1240px;
+  table-layout: fixed;
+}
+
+/* User */
+.page[data-page="user-management"] th:nth-child(1),
+.page[data-page="user-management"] td:nth-child(1) {
+  width: 24%;
+}
+
+/* Role */
+.page[data-page="user-management"] th:nth-child(2),
+.page[data-page="user-management"] td:nth-child(2) {
+  width: 12%;
+}
+
+/* Status */
+.page[data-page="user-management"] th:nth-child(3),
+.page[data-page="user-management"] td:nth-child(3) {
+  width: 10%;
+}
+
+/* Actions */
+.page[data-page="user-management"] th:nth-child(4),
+.page[data-page="user-management"] td:nth-child(4) {
+  width: 42%;
+  min-width: 500px;
+  overflow: visible;
+  text-overflow: clip;
+  white-space: nowrap;
+}
+
+/* Last Login */
+.page[data-page="user-management"] th:nth-child(5),
+.page[data-page="user-management"] td:nth-child(5) {
+  width: 12%;
+}
+
+/*
+  Override the general stability stylesheet, which hides
+  overflowing table-cell content.
+*/
+.page[data-page="user-management"] td.actions-cell {
+  display: table-cell;
+  overflow: visible;
+  text-overflow: clip;
+  white-space: nowrap;
+  vertical-align: middle;
+}
+
+/* Keep every action button visible and aligned. */
+.page[data-page="user-management"] .actions-cell .btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 34px;
+  margin: 0;
+  white-space: nowrap;
+}
+
+/* Standard separation between buttons. */
+.page[data-page="user-management"] .actions-cell .btn + .btn {
+  margin-left: 7px;
+}
+
+/* Specific minimum widths for clearer button labels. */
+.page[data-page="user-management"]
+  .actions-cell
+  .btn:nth-child(1) {
+  min-width: 60px;
+}
+
+.page[data-page="user-management"]
+  .actions-cell
+  .btn:nth-child(2) {
+  min-width: 58px;
+}
+
+.page[data-page="user-management"]
+  .actions-cell
+  .btn:nth-child(3) {
+  min-width: 122px;
+}
+
+.page[data-page="user-management"]
+  .actions-cell
+  .btn:nth-child(4) {
+  min-width: 82px;
+}
+
+.page[data-page="user-management"]
+  .actions-cell
+  .btn:nth-child(5) {
+  min-width: 68px;
+}
+
+/*
+  Ensure disabled buttons remain visible instead of appearing
+  to be missing.
+*/
+.page[data-page="user-management"] .btn:disabled {
+  display: inline-flex;
+  opacity: 0.48;
+  cursor: not-allowed;
+}
+
+/* Prevent row animation from replaying during filtering. */
+.page[data-page="user-management"] .data-row,
+.page[data-page="user-management"] tbody tr {
+  opacity: 1;
+  transform: none;
+  animation: none;
+}
+
+/* Preserve normal row hover without moving the table. */
+.page[data-page="user-management"] tbody tr:hover {
+  transform: none;
+}
+
+/*
+  Long user names and emails should be shortened visually
+  instead of expanding the table.
+*/
+.page[data-page="user-management"] td:nth-child(1) {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Do not clip the action cell. */
+.page[data-page="user-management"] td:nth-child(4) {
+  overflow: visible;
+  text-overflow: clip;
+}
+
+/*
+  Narrow screens use horizontal scrolling. Buttons should not
+  be compressed, wrapped, or hidden.
+*/
+@media (max-width: 1300px) {
+  .page[data-page="user-management"] table {
+    min-width: 1240px;
+    table-layout: fixed;
+  }
+
+  .page[data-page="user-management"] .table-scroll {
+    overflow-x: auto;
+  }
+}
+
+@media (max-width: 700px) {
+  .page[data-page="user-management"] .table-scroll {
+    min-height: 300px;
+  }
+}

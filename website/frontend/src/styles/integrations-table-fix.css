@@ -1,0 +1,128 @@
+/*
+  AthenaSec Integrations Table Fix
+  =================================
+  Prevents the Actions column from clipping the View, Sync,
+  and Connect/Disconnect buttons.
+*/
+
+.page[data-page="integrations"] .table-scroll {
+  min-height: 430px;
+  overflow-x: auto;
+  overflow-y: visible;
+}
+
+.page[data-page="integrations"] table {
+  width: 100%;
+  min-width: 1050px;
+  table-layout: fixed;
+}
+
+/* Integration name */
+.page[data-page="integrations"] th:nth-child(1),
+.page[data-page="integrations"] td:nth-child(1) {
+  width: 20%;
+}
+
+/* Integration type */
+.page[data-page="integrations"] th:nth-child(2),
+.page[data-page="integrations"] td:nth-child(2) {
+  width: 16%;
+}
+
+/* Status */
+.page[data-page="integrations"] th:nth-child(3),
+.page[data-page="integrations"] td:nth-child(3) {
+  width: 13%;
+}
+
+/* Actions */
+.page[data-page="integrations"] th:nth-child(4),
+.page[data-page="integrations"] td:nth-child(4) {
+  width: 33%;
+  min-width: 330px;
+  overflow: visible;
+  text-overflow: clip;
+  white-space: nowrap;
+}
+
+/* Last sync */
+.page[data-page="integrations"] th:nth-child(5),
+.page[data-page="integrations"] td:nth-child(5) {
+  width: 18%;
+}
+
+/*
+  Keep all three integration action buttons visible.
+*/
+.page[data-page="integrations"] .actions-cell {
+  display: table-cell;
+  vertical-align: middle;
+  overflow: visible;
+  white-space: nowrap;
+}
+
+.page[data-page="integrations"] .actions-cell .btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 72px;
+  margin: 0;
+}
+
+.page[data-page="integrations"] .actions-cell .btn + .btn {
+  margin-left: 8px;
+}
+
+/*
+  Prevent disabled Sync buttons from disappearing visually.
+*/
+.page[data-page="integrations"] .btn:disabled {
+  display: inline-flex;
+  opacity: 0.48;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
+/*
+  Do not hide the contents of the Actions column through the
+  general stability stylesheet.
+*/
+.page[data-page="integrations"] td.actions-cell {
+  overflow: visible;
+}
+
+/*
+  Preserve table stability during search, filtering, syncing,
+  connecting, and disconnecting.
+*/
+.page[data-page="integrations"] .data-row {
+  opacity: 1;
+  transform: none;
+  animation: none;
+}
+
+.page[data-page="integrations"] tbody tr {
+  transform: none;
+  animation: none;
+}
+
+/*
+  On narrower screens, keep all columns and use horizontal
+  scrolling rather than compressing or hiding buttons.
+*/
+@media (max-width: 1200px) {
+  .page[data-page="integrations"] table {
+    min-width: 1050px;
+    table-layout: fixed;
+  }
+
+  .page[data-page="integrations"] .table-scroll {
+    overflow-x: auto;
+  }
+}
+
+@media (max-width: 700px) {
+  .page[data-page="integrations"] .table-scroll {
+    min-height: 380px;
+  }
+}
