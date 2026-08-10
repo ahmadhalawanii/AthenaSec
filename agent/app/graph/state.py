@@ -4,6 +4,7 @@ from app.schemas import (
     AlertAnalysis,
     EvidenceRecord,
     PolicyDecision,
+    ResponsePlan,
     RiskAssessment,
     RiskContext,
     SecurityAlertInput,
@@ -19,6 +20,7 @@ InvestigationStatus = Literal[
     "evidence_gathered",
     "risk_scored",
     "policy_evaluated",
+    "response_planned",
     "complete",
     "failed",
 ]
@@ -38,6 +40,8 @@ class InvestigationState(TypedDict, total=False):
     risk_assessment: RiskAssessment
 
     policy_decision: PolicyDecision
+
+    response_plan: ResponsePlan
 
     investigation_iteration: int
 

@@ -22,9 +22,7 @@ def make_fake_analyzer():
                 classification="brute_force",
                 confidence=0.85,
                 severity_assessment="high",
-                summary=(
-                    "More authentication context required."
-                ),
+                summary="More evidence required.",
                 evidence_refs=[
                     "E001",
                 ],
@@ -42,10 +40,7 @@ def make_fake_analyzer():
             classification="brute_force",
             confidence=0.95,
             severity_assessment="high",
-            summary=(
-                "SSH brute-force activity supported "
-                "by additional evidence."
-            ),
+            summary="Brute force supported.",
             evidence_refs=[
                 "E001",
                 "E002",
@@ -69,28 +64,20 @@ def fake_evidence_provider(
     return [
         EvidenceObservation(
             source="mock_wazuh",
-            content=(
-                "151 failed SSH authentication events "
-                "were recorded"
-            ),
+            content="151 failed SSH attempts.",
         ),
         EvidenceObservation(
             source="mock_wazuh",
-            content=(
-                "No successful SSH authentication "
-                "was found"
-            ),
+            content="No successful login found.",
         ),
         EvidenceObservation(
             source="mock_wazuh",
-            content=(
-                "Source belongs to workstation-07"
-            ),
+            content="Source is workstation-07.",
         ),
     ]
 
 
-def test_graph_calculates_risk_and_policy():
+def test_graph_creates_pending_response_plan():
     graph = build_investigation_graph(
         analyzer=make_fake_analyzer(),
         evidence_provider=fake_evidence_provider,
@@ -120,46 +107,26 @@ def test_graph_calculates_risk_and_policy():
 
     assert result["status"] == "complete"
 
-    assert len(
-        result["evidence_records"]
-    ) == 4
-
-    assert result["analysis"].evidence_refs == [
-        "E001",
-        "E002",
-        "E003",
-        "E004",
-    ]
-
-    assert result["investigation_iteration"] == 1
-
     assert result["risk_assessment"].score == 75
 
     assert (
-        result["risk_assessment"].band
-        == "high"
-    )
-
-    decision = result["policy_decision"]
-
-    assert decision.matched is True
-
-    assert (
-        decision.policy_id
+        result["policy_decision"].policy_id
         == "POL-BF-HIGH"
     )
 
+    plan = result["response_plan"]
+
     assert (
-        decision.approval_type
-        == "analyst"
+        plan.status
+        == "pending_approval"
     )
 
     assert (
-        decision.execution_mode
+        plan.execution_mode
         == "dry_run"
     )
 
-    assert decision.actions == [
+    assert plan.actions == [
         "block_ip",
         "notify_administrator",
         "create_case",

@@ -259,3 +259,26 @@ class PolicyDecision(BaseModel):
     actions: list[AllowedAction]
 
     reason: str
+
+
+ResponsePlanStatus = Literal[
+    "no_action",
+    "pending_approval",
+    "approved",
+    "rejected",
+    "ready_for_dry_run",
+]
+
+
+class ResponsePlan(BaseModel):
+    policy_id: str
+
+    actions: list[AllowedAction]
+
+    approval_type: ApprovalType
+
+    execution_mode: ExecutionMode
+
+    status: ResponsePlanStatus
+
+    reason: str

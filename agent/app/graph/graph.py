@@ -21,6 +21,9 @@ from app.graph.nodes.normalize import (
 from app.graph.nodes.policy import (
     evaluate_investigation_policy,
 )
+from app.graph.nodes.response_plan import (
+    create_investigation_response_plan,
+)
 from app.graph.nodes.risk import (
     calculate_investigation_risk,
 )
@@ -95,6 +98,11 @@ def build_investigation_graph(
     )
 
     builder.add_node(
+        "create_response_plan",
+        create_investigation_response_plan,
+    )
+
+    builder.add_node(
         "finalize_investigation",
         finalize_investigation,
     )
@@ -126,6 +134,11 @@ def build_investigation_graph(
 
     builder.add_edge(
         "evaluate_policy",
+        "create_response_plan",
+    )
+
+    builder.add_edge(
+        "create_response_plan",
         "finalize_investigation",
     )
 
