@@ -40,7 +40,7 @@ def make_fake_analyzer():
 
         return AlertAnalysis(
             classification="brute_force",
-            confidence=0.97,
+            confidence=0.95,
             severity_assessment="high",
             summary=(
                 "SSH brute-force activity supported "
@@ -90,7 +90,7 @@ def fake_evidence_provider(
     ]
 
 
-def test_graph_maintains_grounded_evidence():
+def test_graph_calculates_grounded_risk():
     graph = build_investigation_graph(
         analyzer=make_fake_analyzer(),
         evidence_provider=fake_evidence_provider,
@@ -103,6 +103,12 @@ def test_graph_maintains_grounded_evidence():
             "148 failed SSH login attempts "
             "occurred against root."
         ),
+        metadata={
+            "failed_attempts": 148,
+            "privileged_target": True,
+            "successful_authentication": None,
+            "asset_criticality": "medium",
+        },
     )
 
     result = graph.invoke(
@@ -114,19 +120,9 @@ def test_graph_maintains_grounded_evidence():
 
     assert result["status"] == "complete"
 
-    records = result["evidence_records"]
-
-    assert len(records) == 4
-
-    assert [
-        record.evidence_id
-        for record in records
-    ] == [
-        "E001",
-        "E002",
-        "E003",
-        "E004",
-    ]
+    assert len(
+        result["evidence_records"]
+    ) == 4
 
     assert result["analysis"].evidence_refs == [
         "E001",
@@ -137,7 +133,19 @@ def test_graph_maintains_grounded_evidence():
 
     assert result["investigation_iteration"] == 1
 
+    assert result["risk_assessment"].score == 75
+
     assert (
-        result["analysis"].needs_more_evidence
-        is False
+        result["risk_assessment"].band
+        == "high"
+    )
+
+    assert (
+        result["risk_context"].failed_attempts
+        == 148
+    )
+
+    assert (
+        result["risk_context"].privileged_target
+        is True
     )

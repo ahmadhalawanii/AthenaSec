@@ -40,7 +40,7 @@ def test_routes_to_evidence_when_requested():
     assert result == "gather_evidence"
 
 
-def test_routes_to_finalize_when_evidence_not_needed():
+def test_routes_to_risk_when_evidence_not_needed():
     result = route_after_analysis(
         {
             "analysis": make_analysis(
@@ -50,10 +50,10 @@ def test_routes_to_finalize_when_evidence_not_needed():
         }
     )
 
-    assert result == "finalize_investigation"
+    assert result == "calculate_risk"
 
 
-def test_routes_to_finalize_when_no_tool_requested():
+def test_routes_to_risk_when_no_tool_requested():
     result = route_after_analysis(
         {
             "analysis": make_analysis(
@@ -64,10 +64,10 @@ def test_routes_to_finalize_when_no_tool_requested():
         }
     )
 
-    assert result == "finalize_investigation"
+    assert result == "calculate_risk"
 
 
-def test_routes_to_finalize_after_max_iterations():
+def test_routes_to_risk_after_max_iterations():
     result = route_after_analysis(
         {
             "analysis": make_analysis(
@@ -80,4 +80,4 @@ def test_routes_to_finalize_after_max_iterations():
         }
     )
 
-    assert result == "finalize_investigation"
+    assert result == "calculate_risk"

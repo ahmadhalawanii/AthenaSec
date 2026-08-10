@@ -13,6 +13,12 @@ alert = SecurityAlertInput(
         against the root account from IP
         192.168.1.45 within five minutes.
     """,
+    metadata={
+        "failed_attempts": 148,
+        "privileged_target": True,
+        "successful_authentication": None,
+        "asset_criticality": "medium",
+    },
 )
 
 
@@ -25,6 +31,7 @@ result = graph.invoke(
 
 
 analysis = result["analysis"]
+risk = result["risk_assessment"]
 
 
 print("\nATHENASEC INVESTIGATION")
@@ -52,7 +59,7 @@ print(
 )
 
 print(
-    f"Severity: "
+    f"AI Severity Assessment: "
     f"{analysis.severity_assessment}"
 )
 
@@ -131,3 +138,27 @@ print(
         0,
     ),
 )
+
+
+print("\nRISK ASSESSMENT")
+print("---------------")
+
+print(
+    f"Authoritative Risk Score: "
+    f"{risk.score}/100"
+)
+
+print(
+    f"Risk Band: "
+    f"{risk.band.upper()}"
+)
+
+
+print("\nRisk Factors:")
+
+for factor in risk.factors:
+    print(
+        f"- +{factor.points} "
+        f"{factor.name}: "
+        f"{factor.reason}"
+    )

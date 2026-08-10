@@ -10,7 +10,7 @@ def route_after_analysis(
     state: InvestigationState,
 ) -> Literal[
     "gather_evidence",
-    "finalize_investigation",
+    "calculate_risk",
 ]:
     analysis = state["analysis"]
 
@@ -27,4 +27,4 @@ def route_after_analysis(
     ):
         return "gather_evidence"
 
-    return "finalize_investigation"
+    return "calculate_risk"

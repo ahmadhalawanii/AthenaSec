@@ -18,6 +18,9 @@ from app.graph.nodes.gather_evidence import (
 from app.graph.nodes.normalize import (
     normalize_alert,
 )
+from app.graph.nodes.risk import (
+    calculate_investigation_risk,
+)
 from app.graph.routing import (
     route_after_analysis,
 )
@@ -25,24 +28,20 @@ from app.graph.state import InvestigationState
 from app.llm import analyze_security_event
 from app.schemas import (
     AlertAnalysis,
-    SecurityAlertInput,
-)
-
-from app.tools.mock_wazuh import (
-    gather_requested_evidence,
-)
-
-from app.schemas import (
-    AlertAnalysis,
     EvidenceObservation,
     EvidenceRequest,
     SecurityAlertInput,
 )
+from app.tools.mock_wazuh import (
+    gather_requested_evidence,
+)
+
 
 Analyzer = Callable[
     [str],
     AlertAnalysis,
 ]
+
 
 EvidenceProvider = Callable[
     [
@@ -83,6 +82,11 @@ def build_investigation_graph(
     )
 
     builder.add_node(
+        "calculate_risk",
+        calculate_investigation_risk,
+    )
+
+    builder.add_node(
         "finalize_investigation",
         finalize_investigation,
     )
@@ -105,6 +109,11 @@ def build_investigation_graph(
     builder.add_edge(
         "gather_evidence",
         "analyze_alert",
+    )
+
+    builder.add_edge(
+        "calculate_risk",
+        "finalize_investigation",
     )
 
     builder.add_edge(
