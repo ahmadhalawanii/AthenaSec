@@ -221,3 +221,41 @@ class RiskAssessment(BaseModel):
     band: RiskBand
 
     factors: list[RiskFactor]
+
+
+AllowedAction = Literal[
+    "block_ip",
+    "lock_account",
+    "notify_administrator",
+    "create_case",
+    "capture_telemetry",
+    "record_response",
+]
+
+
+ApprovalType = Literal[
+    "none",
+    "analyst",
+    "automatic",
+]
+
+
+ExecutionMode = Literal[
+    "dry_run",
+]
+
+
+class PolicyDecision(BaseModel):
+    policy_id: str
+
+    policy_name: str
+
+    matched: bool
+
+    approval_type: ApprovalType
+
+    execution_mode: ExecutionMode = "dry_run"
+
+    actions: list[AllowedAction]
+
+    reason: str
