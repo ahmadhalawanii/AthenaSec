@@ -52,3 +52,57 @@ def test_analyze_node_stores_structured_analysis():
     assert result["analysis"].classification == "brute_force"
     assert result["analysis"].confidence == 0.95
     assert result["status"] == "analyzed"
+
+def test_analyze_node_includes_gathered_evidence():
+    received_context = ""
+
+    def analyzer(event: str) -> AlertAnalysis:
+        nonlocal received_context
+        received_context = event
+
+        return AlertAnalysis(
+            classification="brute_force",
+            confidence=0.98,
+            severity_assessment="high",
+            summary="SSH brute force detected.",
+            evidence=[
+                "148 failed SSH login attempts",
+            ],
+            uncertainties=[],
+            recommended_investigation_steps=[],
+            recommended_response_actions=[],
+            needs_more_evidence=False,
+        )
+
+    node = make_analyze_alert_node(analyzer)
+
+    alert = SecurityAlertInput(
+        alert_id="ALT-TEST-002",
+        source="mock",
+        event_text="SSH failures detected.",
+    )
+
+    node(
+        {
+            "alert": alert,
+            "normalized_event": "SSH failures detected.",
+            "gathered_evidence": [
+                "No successful authentication was found",
+                "Source belongs to workstation-07",
+            ],
+            "investigation_iteration": 1,
+            "status": "needs_evidence",
+        }
+    )
+
+    assert "ORIGINAL EVENT:" in received_context
+
+    assert (
+        "No successful authentication was found"
+        in received_context
+    )
+
+    assert (
+        "Source belongs to workstation-07"
+        in received_context
+    )

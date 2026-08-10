@@ -24,9 +24,19 @@ def fake_analyzer(event: str) -> AlertAnalysis:
     )
 
 
+def fake_evidence_provider(
+    alert: SecurityAlertInput,
+) -> list[str]:
+    return [
+        "No successful authentication was found",
+        "Source belongs to workstation-07",
+    ]
+
+
 def test_graph_normalizes_security_alert():
     graph = build_investigation_graph(
-        analyzer=fake_analyzer
+        analyzer=fake_analyzer,
+        evidence_provider=fake_evidence_provider,
     )
 
     alert = SecurityAlertInput(
@@ -53,12 +63,19 @@ def test_graph_normalizes_security_alert():
     )
 
     assert result["status"] == "complete"
-    assert result["investigation_iteration"] == 0
+
+    assert result["investigation_iteration"] == 1
+
+    assert result["gathered_evidence"] == [
+        "No successful authentication was found",
+        "Source belongs to workstation-07",
+    ]
 
 
 def test_graph_runs_complete_ai_analysis():
     graph = build_investigation_graph(
-        analyzer=fake_analyzer
+        analyzer=fake_analyzer,
+        evidence_provider=fake_evidence_provider,
     )
 
     alert = SecurityAlertInput(
@@ -85,3 +102,14 @@ def test_graph_runs_complete_ai_analysis():
     )
 
     assert result["analysis"].confidence == 0.97
+
+    assert result["investigation_iteration"] == 1
+
+    assert len(
+        result["gathered_evidence"]
+    ) > 0
+
+    assert (
+        "No successful authentication was found"
+        in result["gathered_evidence"]
+    )

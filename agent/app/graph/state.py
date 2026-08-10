@@ -9,6 +9,7 @@ InvestigationStatus = Literal[
     "analyzing",
     "analyzed",
     "needs_evidence",
+    "evidence_gathered",
     "complete",
     "failed",
 ]
