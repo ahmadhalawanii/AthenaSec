@@ -2,7 +2,7 @@ from app.graph.nodes.normalize import normalize_alert
 from app.schemas import SecurityAlertInput
 
 
-def test_normalize_alert_cleans_event_text():
+def test_normalize_alert_creates_initial_evidence():
     alert = SecurityAlertInput(
         alert_id="ALT-TEST-001",
         source="mock",
@@ -26,6 +26,17 @@ def test_normalize_alert_cleans_event_text():
         "within five minutes."
     )
 
+    assert len(result["evidence_records"]) == 1
+
+    evidence = result["evidence_records"][0]
+
+    assert evidence.evidence_id == "E001"
+    assert evidence.source == "alert"
+
+    assert evidence.content == (
+        "148 failed SSH login attempts "
+        "occurred against the root account "
+        "within five minutes."
+    )
+
     assert result["status"] == "normalized"
-    assert result["investigation_iteration"] == 0
-    assert result["gathered_evidence"] == []

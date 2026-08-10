@@ -34,6 +34,7 @@ from app.tools.mock_wazuh import (
 
 from app.schemas import (
     AlertAnalysis,
+    EvidenceObservation,
     EvidenceRequest,
     SecurityAlertInput,
 )
@@ -48,7 +49,7 @@ EvidenceProvider = Callable[
         SecurityAlertInput,
         list[EvidenceRequest],
     ],
-    list[str],
+    list[EvidenceObservation],
 ]
 
 

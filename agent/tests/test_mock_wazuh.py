@@ -20,19 +20,19 @@ def test_gathers_only_requested_authentication_evidence():
 
     assert any(
         "151 failed SSH authentication"
-        in item
+        in item.content
         for item in evidence
     )
 
     assert any(
         "No successful SSH authentication"
-        in item
+        in item.content
         for item in evidence
     )
 
     assert not any(
         "workstation-07"
-        in item
+        in item.content
         for item in evidence
     )
 
@@ -53,7 +53,7 @@ def test_gathers_endpoint_context_when_requested():
 
     assert any(
         "workstation-07"
-        in item
+        in item.content
         for item in evidence
     )
 
@@ -75,12 +75,12 @@ def test_gathers_multiple_requested_evidence_types():
 
     assert any(
         "No successful SSH authentication"
-        in item
+        in item.content
         for item in evidence
     )
 
     assert any(
         "workstation-07"
-        in item
+        in item.content
         for item in evidence
     )

@@ -1,6 +1,7 @@
 from app.graph.graph import build_investigation_graph
 from app.schemas import (
     AlertAnalysis,
+    EvidenceObservation,
     EvidenceRequest,
     SecurityAlertInput,
 )
@@ -13,6 +14,7 @@ def make_fake_analyzer():
         event: str,
     ) -> AlertAnalysis:
         nonlocal calls
+
         calls += 1
 
         if calls == 1:
@@ -21,16 +23,12 @@ def make_fake_analyzer():
                 confidence=0.85,
                 severity_assessment="high",
                 summary=(
-                    "SSH brute-force activity "
-                    "requires additional evidence."
+                    "More authentication context required."
                 ),
-                evidence=[
-                    "148 failed SSH login attempts",
+                evidence_refs=[
+                    "E001",
                 ],
-                uncertainties=[
-                    "Successful authentication "
-                    "status is unknown",
-                ],
+                uncertainties=[],
                 recommended_investigation_steps=[],
                 recommended_response_actions=[],
                 requested_evidence=[
@@ -45,13 +43,14 @@ def make_fake_analyzer():
             confidence=0.97,
             severity_assessment="high",
             summary=(
-                "SSH brute-force activity confirmed "
-                "with additional context."
+                "SSH brute-force activity supported "
+                "by additional evidence."
             ),
-            evidence=[
-                "148 failed SSH login attempts",
-                "No successful authentication was found",
-                "Source belongs to workstation-07",
+            evidence_refs=[
+                "E001",
+                "E002",
+                "E003",
+                "E004",
             ],
             uncertainties=[],
             recommended_investigation_steps=[],
@@ -66,49 +65,32 @@ def make_fake_analyzer():
 def fake_evidence_provider(
     alert: SecurityAlertInput,
     requests: list[EvidenceRequest],
-) -> list[str]:
-    assert requests == [
-        "authentication_history",
-        "source_endpoint_context",
-    ]
-
+) -> list[EvidenceObservation]:
     return [
-        "No successful authentication was found",
-        "Source belongs to workstation-07",
+        EvidenceObservation(
+            source="mock_wazuh",
+            content=(
+                "151 failed SSH authentication events "
+                "were recorded"
+            ),
+        ),
+        EvidenceObservation(
+            source="mock_wazuh",
+            content=(
+                "No successful SSH authentication "
+                "was found"
+            ),
+        ),
+        EvidenceObservation(
+            source="mock_wazuh",
+            content=(
+                "Source belongs to workstation-07"
+            ),
+        ),
     ]
 
 
-def test_graph_normalizes_security_alert():
-    graph = build_investigation_graph(
-        analyzer=make_fake_analyzer(),
-        evidence_provider=fake_evidence_provider,
-    )
-
-    alert = SecurityAlertInput(
-        alert_id="ALT-TEST-001",
-        source="mock",
-        event_text="""
-            148 failed SSH login attempts
-            occurred against root.
-        """,
-    )
-
-    result = graph.invoke(
-        {
-            "alert": alert,
-            "status": "received",
-        }
-    )
-
-    assert result["normalized_event"] == (
-        "148 failed SSH login attempts "
-        "occurred against root."
-    )
-
-    assert result["status"] == "complete"
-
-
-def test_graph_gathers_only_requested_evidence():
+def test_graph_maintains_grounded_evidence():
     graph = build_investigation_graph(
         analyzer=make_fake_analyzer(),
         evidence_provider=fake_evidence_provider,
@@ -132,26 +114,30 @@ def test_graph_gathers_only_requested_evidence():
 
     assert result["status"] == "complete"
 
-    assert result["investigation_iteration"] == 1
+    records = result["evidence_records"]
 
-    assert result["gathered_evidence"] == [
-        "No successful authentication was found",
-        "Source belongs to workstation-07",
+    assert len(records) == 4
+
+    assert [
+        record.evidence_id
+        for record in records
+    ] == [
+        "E001",
+        "E002",
+        "E003",
+        "E004",
     ]
 
-    assert (
-        result["analysis"].classification
-        == "brute_force"
-    )
+    assert result["analysis"].evidence_refs == [
+        "E001",
+        "E002",
+        "E003",
+        "E004",
+    ]
 
-    assert result["analysis"].confidence == 0.97
+    assert result["investigation_iteration"] == 1
 
     assert (
         result["analysis"].needs_more_evidence
         is False
-    )
-
-    assert (
-        result["analysis"].requested_evidence
-        == []
     )

@@ -2,6 +2,8 @@ from collections.abc import Callable
 
 from app.graph.state import InvestigationState
 from app.schemas import (
+    EvidenceObservation,
+    EvidenceRecord,
     EvidenceRequest,
     SecurityAlertInput,
 )
@@ -12,7 +14,7 @@ EvidenceProvider = Callable[
         SecurityAlertInput,
         list[EvidenceRequest],
     ],
-    list[str],
+    list[EvidenceObservation],
 ]
 
 
@@ -24,19 +26,34 @@ def make_gather_evidence_node(
     ) -> InvestigationState:
         analysis = state["analysis"]
 
-        requested_evidence = (
-            analysis.requested_evidence
-        )
-
-        evidence = evidence_provider(
+        observations = evidence_provider(
             state["alert"],
-            requested_evidence,
+            analysis.requested_evidence,
         )
 
-        existing_evidence = state.get(
-            "gathered_evidence",
+        existing_records = state.get(
+            "evidence_records",
             [],
         )
+
+        next_number = (
+            len(existing_records) + 1
+        )
+
+        new_records: list[EvidenceRecord] = []
+
+        for observation in observations:
+            record = EvidenceRecord(
+                evidence_id=(
+                    f"E{next_number:03d}"
+                ),
+                source=observation.source,
+                content=observation.content,
+            )
+
+            new_records.append(record)
+
+            next_number += 1
 
         iteration = state.get(
             "investigation_iteration",
@@ -44,9 +61,9 @@ def make_gather_evidence_node(
         )
 
         return {
-            "gathered_evidence": (
-                existing_evidence
-                + evidence
+            "evidence_records": (
+                existing_records
+                + new_records
             ),
             "investigation_iteration": (
                 iteration + 1

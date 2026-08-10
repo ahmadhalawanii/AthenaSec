@@ -1,7 +1,10 @@
 import pytest
 from pydantic import ValidationError
 
-from app.schemas import AlertAnalysis
+from app.schemas import (
+    AlertAnalysis,
+    EvidenceRecord,
+)
 
 
 def test_valid_alert_analysis():
@@ -9,28 +12,23 @@ def test_valid_alert_analysis():
         classification="brute_force",
         confidence=0.95,
         severity_assessment="high",
-        summary="Repeated SSH authentication failures targeted the root account.",
-        evidence=[
-            "148 failed SSH login attempts",
-            "Root account was targeted",
-            "Attempts occurred within five minutes",
+        summary="Repeated SSH failures detected.",
+        evidence_refs=[
+            "E001",
         ],
         uncertainties=[
-            "No evidence confirms whether authentication eventually succeeded"
+            "Successful authentication status is unknown",
         ],
-        recommended_investigation_steps=[
-            "Review SSH authentication logs",
-            "Check for successful login events",
-        ],
-        recommended_response_actions=[
-            "Consider temporarily blocking the source if policy permits"
+        recommended_investigation_steps=[],
+        recommended_response_actions=[],
+        requested_evidence=[
+            "authentication_history",
         ],
         needs_more_evidence=True,
     )
 
     assert analysis.classification == "brute_force"
-    assert analysis.confidence == 0.95
-    assert analysis.needs_more_evidence is True
+    assert analysis.evidence_refs == ["E001"]
 
 
 def test_confidence_cannot_exceed_one():
@@ -40,12 +38,14 @@ def test_confidence_cannot_exceed_one():
             confidence=1.5,
             severity_assessment="high",
             summary="Test",
-            evidence=["Test evidence"],
+            evidence_refs=["E001"],
             uncertainties=[],
             recommended_investigation_steps=[],
             recommended_response_actions=[],
+            requested_evidence=[],
             needs_more_evidence=False,
         )
+
 
 def test_analysis_accepts_requested_evidence():
     analysis = AlertAnalysis(
@@ -53,12 +53,8 @@ def test_analysis_accepts_requested_evidence():
         confidence=0.95,
         severity_assessment="high",
         summary="SSH brute force suspected.",
-        evidence=[
-            "148 failed SSH login attempts",
-        ],
-        uncertainties=[
-            "Successful authentication status is unknown",
-        ],
+        evidence_refs=["E001"],
+        uncertainties=[],
         recommended_investigation_steps=[],
         recommended_response_actions=[],
         requested_evidence=[
@@ -80,8 +76,8 @@ def test_analysis_rejects_unknown_evidence_type():
             classification="brute_force",
             confidence=0.95,
             severity_assessment="high",
-            summary="SSH brute force suspected.",
-            evidence=[],
+            summary="Test",
+            evidence_refs=["E001"],
             uncertainties=[],
             recommended_investigation_steps=[],
             recommended_response_actions=[],
@@ -89,4 +85,48 @@ def test_analysis_rejects_unknown_evidence_type():
                 "run_random_command",
             ],
             needs_more_evidence=True,
+        )
+
+
+def test_evidence_reference_requires_valid_id():
+    with pytest.raises(ValidationError):
+        AlertAnalysis(
+            classification="brute_force",
+            confidence=0.95,
+            severity_assessment="high",
+            summary="Test",
+            evidence_refs=[
+                "something-made-up",
+            ],
+            uncertainties=[],
+            recommended_investigation_steps=[],
+            recommended_response_actions=[],
+            requested_evidence=[],
+            needs_more_evidence=False,
+        )
+
+
+def test_evidence_record_is_immutable():
+    evidence = EvidenceRecord(
+        evidence_id="E001",
+        source="alert",
+        content="148 failed SSH login attempts.",
+    )
+
+    with pytest.raises(ValidationError):
+        evidence.content = "Changed evidence"
+
+def test_analysis_rejects_empty_evidence_refs():
+    with pytest.raises(ValidationError):
+        AlertAnalysis(
+            classification="brute_force",
+            confidence=0.95,
+            severity_assessment="high",
+            summary="SSH brute force detected.",
+            evidence_refs=[],
+            uncertainties=[],
+            recommended_investigation_steps=[],
+            recommended_response_actions=[],
+            requested_evidence=[],
+            needs_more_evidence=False,
         )

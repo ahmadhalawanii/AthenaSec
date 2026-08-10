@@ -37,6 +37,7 @@ print(f"Status: {result['status']}")
 print("\nNormalized Event:")
 print(result["normalized_event"])
 
+
 print("\nAI ANALYSIS")
 print("-----------")
 
@@ -55,29 +56,54 @@ print(
     f"{analysis.severity_assessment}"
 )
 
+
 print("\nSummary:")
 print(analysis.summary)
 
-print("\nObserved Evidence:")
-for evidence in analysis.evidence:
-    print(f"- {evidence}")
+
+print("\nGrounded Evidence:")
+
+records_by_id = {
+    record.evidence_id: record
+    for record in result["evidence_records"]
+}
+
+for evidence_id in analysis.evidence_refs:
+    record = records_by_id[evidence_id]
+
+    print(
+        f"[{record.evidence_id}] "
+        f"({record.source})"
+    )
+
+    print(
+        f"  {record.content}"
+    )
+
 
 print("\nUncertainties:")
+
 for uncertainty in analysis.uncertainties:
     print(f"- {uncertainty}")
 
+
 print("\nInvestigation Steps:")
+
 for step in analysis.recommended_investigation_steps:
     print(f"- {step}")
 
+
 print("\nRecommended Responses:")
+
 for action in analysis.recommended_response_actions:
     print(f"- {action}")
+
 
 print(
     "\nNeeds More Evidence:",
     analysis.needs_more_evidence,
 )
+
 
 print("\nRequested Evidence:")
 
@@ -88,13 +114,14 @@ else:
     print("- None")
 
 
-print("\nEvidence Gathered:")
+print("\nAll Evidence Records:")
 
-for evidence in result.get(
-    "gathered_evidence",
-    [],
-):
-    print(f"- {evidence}")
+for record in result["evidence_records"]:
+    print(
+        f"[{record.evidence_id}] "
+        f"({record.source}) "
+        f"{record.content}"
+    )
 
 
 print(

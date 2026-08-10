@@ -1,29 +1,13 @@
+import re
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    field_validator,
+)
 
-
-AttackClassification = Literal[
-    "brute_force",
-    "privilege_escalation",
-    "privilege_misuse",
-    "benign",
-    "unknown",
-]
-
-SeverityAssessment = Literal[
-    "low",
-    "medium",
-    "high",
-    "critical",
-]
-
-EvidenceRequest = Literal[
-    "authentication_history",
-    "source_endpoint_context",
-    "privilege_activity",
-    "related_security_events",
-]
 
 class SecurityAlertInput(BaseModel):
     alert_id: str
@@ -42,33 +26,124 @@ class SecurityAlertInput(BaseModel):
 
     metadata: dict[str, Any] = Field(
         default_factory=dict,
-        description="Optional structured data associated with the alert.",
+        description="Optional structured alert metadata.",
     )
 
+
+AttackClassification = Literal[
+    "brute_force",
+    "privilege_escalation",
+    "privilege_misuse",
+    "benign",
+    "unknown",
+]
+
+
+SeverityAssessment = Literal[
+    "low",
+    "medium",
+    "high",
+    "critical",
+]
+
+
+EvidenceRequest = Literal[
+    "authentication_history",
+    "source_endpoint_context",
+    "privilege_activity",
+    "related_security_events",
+]
+
+
+EvidenceSource = Literal[
+    "alert",
+    "mock_wazuh",
+    "wazuh",
+    "opensearch",
+    "cortex",
+    "thehive",
+    "dataset",
+]
+
+
+# Keep this as a plain string for Ollama's JSON Schema.
+# We validate the E001 format locally in Python instead.
+EvidenceReference = str
+
+
+def validate_evidence_reference(
+    value: str,
+) -> str:
+    if not re.fullmatch(
+        r"E\d{3,}",
+        value,
+    ):
+        raise ValueError(
+            "Evidence ID must use the format "
+            "E001, E002, E003, etc."
+        )
+
+    return value
+
+
+class EvidenceObservation(BaseModel):
+    source: EvidenceSource
+
+    content: str = Field(
+        min_length=1,
+    )
+
+
+class EvidenceRecord(BaseModel):
+    model_config = ConfigDict(
+        frozen=True,
+        extra="forbid",
+    )
+
+    evidence_id: EvidenceReference
+
+    source: EvidenceSource
+
+    content: str = Field(
+        min_length=1,
+    )
+
+    @field_validator("evidence_id")
+    @classmethod
+    def check_evidence_id(
+        cls,
+        value: str,
+    ) -> str:
+        return validate_evidence_reference(
+            value
+        )
+
+
 class AlertAnalysis(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+
     classification: AttackClassification
 
     confidence: float = Field(
         ge=0.0,
         le=1.0,
-        description="Confidence in the classification from 0 to 1.",
     )
 
     severity_assessment: SeverityAssessment
 
     summary: str
 
-    evidence: list[str] = Field(
+    evidence_refs: list[EvidenceReference] = Field(
+        min_length=1,
         description=(
-            "Only facts directly supported by the supplied security data."
-        )
+            "One or more supplied evidence IDs that directly "
+            "support the analysis. At least one is required."
+        ),
     )
 
-    uncertainties: list[str] = Field(
-        description=(
-            "Things that cannot be determined from the supplied evidence."
-        )
-    )
+    uncertainties: list[str]
 
     recommended_investigation_steps: list[str]
 
@@ -77,10 +152,19 @@ class AlertAnalysis(BaseModel):
     requested_evidence: list[EvidenceRequest] = Field(
         default_factory=list,
         max_length=2,
-        description=(
-            "Approved evidence types AthenaSec should gather next. "
-            "Request at most two."
-        ),
     )
 
     needs_more_evidence: bool
+
+    @field_validator("evidence_refs")
+    @classmethod
+    def check_evidence_refs(
+        cls,
+        values: list[str],
+    ) -> list[str]:
+        return [
+            validate_evidence_reference(
+                value
+            )
+            for value in values
+        ]

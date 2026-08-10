@@ -1,4 +1,5 @@
 from app.graph.state import InvestigationState
+from app.schemas import EvidenceRecord
 
 
 def normalize_alert(
@@ -10,9 +11,17 @@ def normalize_alert(
         alert.event_text.split()
     )
 
+    initial_evidence = EvidenceRecord(
+        evidence_id="E001",
+        source="alert",
+        content=normalized_event,
+    )
+
     return {
         "normalized_event": normalized_event,
-        "gathered_evidence": [],
+        "evidence_records": [
+            initial_evidence,
+        ],
         "investigation_iteration": 0,
         "status": "normalized",
     }

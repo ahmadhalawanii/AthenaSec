@@ -3,6 +3,8 @@ from app.graph.nodes.gather_evidence import (
 )
 from app.schemas import (
     AlertAnalysis,
+    EvidenceObservation,
+    EvidenceRecord,
     EvidenceRequest,
     SecurityAlertInput,
 )
@@ -11,19 +13,25 @@ from app.schemas import (
 def fake_evidence_provider(
     alert: SecurityAlertInput,
     requests: list[EvidenceRequest],
-) -> list[str]:
-    assert requests == [
-        "authentication_history",
-        "source_endpoint_context",
-    ]
-
+) -> list[EvidenceObservation]:
     return [
-        "No successful SSH authentication was found",
-        "Source belongs to workstation-07",
+        EvidenceObservation(
+            source="mock_wazuh",
+            content=(
+                "No successful SSH authentication "
+                "was found"
+            ),
+        ),
+        EvidenceObservation(
+            source="mock_wazuh",
+            content=(
+                "Source belongs to workstation-07"
+            ),
+        ),
     ]
 
 
-def test_gather_evidence_uses_requested_types():
+def test_gather_evidence_assigns_immutable_ids():
     node = make_gather_evidence_node(
         fake_evidence_provider
     )
@@ -39,34 +47,44 @@ def test_gather_evidence_uses_requested_types():
         confidence=0.90,
         severity_assessment="high",
         summary="SSH brute force suspected.",
-        evidence=[
-            "148 failed SSH attempts",
-        ],
+        evidence_refs=["E001"],
         uncertainties=[],
         recommended_investigation_steps=[],
         recommended_response_actions=[],
         requested_evidence=[
             "authentication_history",
-            "source_endpoint_context",
         ],
         needs_more_evidence=True,
+    )
+
+    initial_record = EvidenceRecord(
+        evidence_id="E001",
+        source="alert",
+        content="SSH failures detected.",
     )
 
     result = node(
         {
             "alert": alert,
             "analysis": analysis,
-            "gathered_evidence": [],
+            "evidence_records": [
+                initial_record,
+            ],
             "investigation_iteration": 0,
-            "status": "needs_evidence",
         }
     )
 
-    assert result["gathered_evidence"] == [
-        "No successful SSH authentication was found",
-        "Source belongs to workstation-07",
-    ]
+    records = result["evidence_records"]
+
+    assert len(records) == 3
+
+    assert records[0].evidence_id == "E001"
+    assert records[1].evidence_id == "E002"
+    assert records[2].evidence_id == "E003"
+
+    assert (
+        records[1].content
+        == "No successful SSH authentication was found"
+    )
 
     assert result["investigation_iteration"] == 1
-
-    assert result["status"] == "evidence_gathered"

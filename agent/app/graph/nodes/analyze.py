@@ -4,32 +4,69 @@ from app.graph.state import InvestigationState
 from app.schemas import AlertAnalysis
 
 
-Analyzer = Callable[[str], AlertAnalysis]
+Analyzer = Callable[
+    [str],
+    AlertAnalysis,
+]
 
 
 def build_analysis_context(
     state: InvestigationState,
 ) -> str:
-    event = state["normalized_event"]
-
-    evidence = state.get(
-        "gathered_evidence",
+    records = state.get(
+        "evidence_records",
         [],
     )
 
-    if not evidence:
-        return event
-
-    evidence_text = "\n".join(
-        f"- {item}" for item in evidence
+    evidence_text = "\n\n".join(
+        (
+            f"[{record.evidence_id}] "
+            f"source={record.source}\n"
+            f"{record.content}"
+        )
+        for record in records
     )
 
     return (
-        f"ORIGINAL EVENT:\n"
-        f"{event}\n\n"
-        f"ADDITIONAL EVIDENCE:\n"
+        "AVAILABLE EVIDENCE RECORDS:\n\n"
         f"{evidence_text}"
     )
+
+
+def validate_evidence_references(
+    state: InvestigationState,
+    analysis: AlertAnalysis,
+) -> None:
+    records = state.get(
+        "evidence_records",
+        [],
+    )
+
+    valid_ids = {
+        record.evidence_id
+        for record in records
+    }
+
+    if (
+        records
+        and not analysis.evidence_refs
+    ):
+        raise ValueError(
+            "Analysis must cite at least one "
+            "available evidence record."
+        )
+
+    invalid_ids = [
+        evidence_id
+        for evidence_id in analysis.evidence_refs
+        if evidence_id not in valid_ids
+    ]
+
+    if invalid_ids:
+        raise ValueError(
+            "Analysis referenced unavailable evidence: "
+            + ", ".join(invalid_ids)
+        )
 
 
 def make_analyze_alert_node(
@@ -38,9 +75,18 @@ def make_analyze_alert_node(
     def analyze_alert(
         state: InvestigationState,
     ) -> InvestigationState:
-        context = build_analysis_context(state)
+        context = build_analysis_context(
+            state
+        )
 
-        analysis = analyzer(context)
+        analysis = analyzer(
+            context
+        )
+
+        validate_evidence_references(
+            state,
+            analysis,
+        )
 
         return {
             "analysis": analysis,

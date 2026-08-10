@@ -8,10 +8,13 @@ def test_finalize_marks_investigation_complete():
         confidence=0.95,
         severity_assessment="high",
         summary="Brute-force activity detected.",
-        evidence=["148 failed SSH login attempts"],
+        evidence_refs=[
+            "E001",
+        ],
         uncertainties=[],
         recommended_investigation_steps=[],
         recommended_response_actions=[],
+        requested_evidence=[],
         needs_more_evidence=False,
     )
 

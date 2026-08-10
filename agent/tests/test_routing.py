@@ -11,7 +11,9 @@ def make_analysis(
         confidence=0.90,
         severity_assessment="high",
         summary="Test analysis",
-        evidence=["Evidence"],
+        evidence_refs=[
+            "E001",
+        ],
         uncertainties=[],
         recommended_investigation_steps=[],
         recommended_response_actions=[],

@@ -1,6 +1,10 @@
 from typing import Literal, TypedDict
 
-from app.schemas import AlertAnalysis, SecurityAlertInput
+from app.schemas import (
+    AlertAnalysis,
+    EvidenceRecord,
+    SecurityAlertInput,
+)
 
 
 InvestigationStatus = Literal[
@@ -14,12 +18,13 @@ InvestigationStatus = Literal[
     "failed",
 ]
 
+
 class InvestigationState(TypedDict, total=False):
     alert: SecurityAlertInput
 
     normalized_event: str
 
-    gathered_evidence: list[str]
+    evidence_records: list[EvidenceRecord]
 
     analysis: AlertAnalysis
 

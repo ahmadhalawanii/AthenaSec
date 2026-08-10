@@ -1,6 +1,7 @@
 from collections.abc import Callable
 
 from app.schemas import (
+    EvidenceObservation,
     EvidenceRequest,
     SecurityAlertInput,
 )
@@ -8,57 +9,72 @@ from app.schemas import (
 
 EvidenceTool = Callable[
     [SecurityAlertInput],
-    list[str],
+    list[EvidenceObservation],
 ]
 
 
 def search_authentication_history(
     alert: SecurityAlertInput,
-) -> list[str]:
+) -> list[EvidenceObservation]:
     return [
-        (
-            "151 failed SSH authentication events "
-            "were recorded from 192.168.1.45 "
-            "during the surrounding ten-minute window"
+        EvidenceObservation(
+            source="mock_wazuh",
+            content=(
+                "151 failed SSH authentication events "
+                "were recorded from 192.168.1.45 "
+                "during the surrounding ten-minute window"
+            ),
         ),
-        (
-            "No successful SSH authentication from "
-            "192.168.1.45 was found during that window"
+        EvidenceObservation(
+            source="mock_wazuh",
+            content=(
+                "No successful SSH authentication from "
+                "192.168.1.45 was found during that window"
+            ),
         ),
     ]
 
 
 def get_source_endpoint_context(
     alert: SecurityAlertInput,
-) -> list[str]:
+) -> list[EvidenceObservation]:
     return [
-        (
-            "The source IP 192.168.1.45 is assigned "
-            "to internal endpoint workstation-07"
+        EvidenceObservation(
+            source="mock_wazuh",
+            content=(
+                "The source IP 192.168.1.45 is assigned "
+                "to internal endpoint workstation-07"
+            ),
         ),
     ]
 
 
 def search_privilege_activity(
     alert: SecurityAlertInput,
-) -> list[str]:
+) -> list[EvidenceObservation]:
     return [
-        (
-            "No sudo, account elevation, or privilege "
-            "escalation events were recorded for "
-            "workstation-07 during the surrounding window"
+        EvidenceObservation(
+            source="mock_wazuh",
+            content=(
+                "No sudo, account elevation, or privilege "
+                "escalation events were recorded for "
+                "workstation-07 during the surrounding window"
+            ),
         ),
     ]
 
 
 def search_related_security_events(
     alert: SecurityAlertInput,
-) -> list[str]:
+) -> list[EvidenceObservation]:
     return [
-        (
-            "No additional high-severity security alerts "
-            "linked to workstation-07 were observed in "
-            "the surrounding thirty-minute window"
+        EvidenceObservation(
+            source="mock_wazuh",
+            content=(
+                "No additional high-severity security alerts "
+                "linked to workstation-07 were observed in "
+                "the surrounding thirty-minute window"
+            ),
         ),
     ]
 
@@ -85,8 +101,8 @@ TOOL_REGISTRY: dict[
 def gather_requested_evidence(
     alert: SecurityAlertInput,
     requests: list[EvidenceRequest],
-) -> list[str]:
-    evidence: list[str] = []
+) -> list[EvidenceObservation]:
+    observations: list[EvidenceObservation] = []
 
     unique_requests = list(
         dict.fromkeys(requests)
@@ -95,8 +111,8 @@ def gather_requested_evidence(
     for request in unique_requests:
         tool = TOOL_REGISTRY[request]
 
-        tool_evidence = tool(alert)
+        observations.extend(
+            tool(alert)
+        )
 
-        evidence.extend(tool_evidence)
-
-    return evidence
+    return observations
