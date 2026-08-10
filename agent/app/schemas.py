@@ -1,4 +1,4 @@
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -18,6 +18,25 @@ SeverityAssessment = Literal[
     "critical",
 ]
 
+class SecurityAlertInput(BaseModel):
+    alert_id: str
+
+    source: Literal[
+        "manual",
+        "mock",
+        "wazuh",
+        "dataset",
+    ] = "manual"
+
+    event_text: str = Field(
+        min_length=1,
+        description="Raw security event or alert text.",
+    )
+
+    metadata: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Optional structured data associated with the alert.",
+    )
 
 class AlertAnalysis(BaseModel):
     classification: AttackClassification
