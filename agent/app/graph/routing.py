@@ -21,6 +21,7 @@ def route_after_analysis(
 
     if (
         analysis.needs_more_evidence
+        and analysis.requested_evidence
         and iteration
         < MAX_INVESTIGATION_ITERATIONS
     ):

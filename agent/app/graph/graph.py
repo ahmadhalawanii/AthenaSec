@@ -27,10 +27,16 @@ from app.schemas import (
     AlertAnalysis,
     SecurityAlertInput,
 )
+
 from app.tools.mock_wazuh import (
-    search_related_security_events,
+    gather_requested_evidence,
 )
 
+from app.schemas import (
+    AlertAnalysis,
+    EvidenceRequest,
+    SecurityAlertInput,
+)
 
 Analyzer = Callable[
     [str],
@@ -38,7 +44,10 @@ Analyzer = Callable[
 ]
 
 EvidenceProvider = Callable[
-    [SecurityAlertInput],
+    [
+        SecurityAlertInput,
+        list[EvidenceRequest],
+    ],
     list[str],
 ]
 
@@ -46,7 +55,7 @@ EvidenceProvider = Callable[
 def build_investigation_graph(
     analyzer: Analyzer = analyze_security_event,
     evidence_provider: EvidenceProvider = (
-        search_related_security_events
+        gather_requested_evidence
     ),
 ):
     builder = StateGraph(

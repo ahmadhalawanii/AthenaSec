@@ -46,3 +46,47 @@ def test_confidence_cannot_exceed_one():
             recommended_response_actions=[],
             needs_more_evidence=False,
         )
+
+def test_analysis_accepts_requested_evidence():
+    analysis = AlertAnalysis(
+        classification="brute_force",
+        confidence=0.95,
+        severity_assessment="high",
+        summary="SSH brute force suspected.",
+        evidence=[
+            "148 failed SSH login attempts",
+        ],
+        uncertainties=[
+            "Successful authentication status is unknown",
+        ],
+        recommended_investigation_steps=[],
+        recommended_response_actions=[],
+        requested_evidence=[
+            "authentication_history",
+            "source_endpoint_context",
+        ],
+        needs_more_evidence=True,
+    )
+
+    assert analysis.requested_evidence == [
+        "authentication_history",
+        "source_endpoint_context",
+    ]
+
+
+def test_analysis_rejects_unknown_evidence_type():
+    with pytest.raises(ValidationError):
+        AlertAnalysis(
+            classification="brute_force",
+            confidence=0.95,
+            severity_assessment="high",
+            summary="SSH brute force suspected.",
+            evidence=[],
+            uncertainties=[],
+            recommended_investigation_steps=[],
+            recommended_response_actions=[],
+            requested_evidence=[
+                "run_random_command",
+            ],
+            needs_more_evidence=True,
+        )

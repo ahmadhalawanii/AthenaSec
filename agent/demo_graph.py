@@ -78,3 +78,29 @@ print(
     "\nNeeds More Evidence:",
     analysis.needs_more_evidence,
 )
+
+print("\nRequested Evidence:")
+
+if analysis.requested_evidence:
+    for request in analysis.requested_evidence:
+        print(f"- {request}")
+else:
+    print("- None")
+
+
+print("\nEvidence Gathered:")
+
+for evidence in result.get(
+    "gathered_evidence",
+    [],
+):
+    print(f"- {evidence}")
+
+
+print(
+    "\nInvestigation Iterations:",
+    result.get(
+        "investigation_iteration",
+        0,
+    ),
+)

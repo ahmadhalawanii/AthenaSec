@@ -25,6 +25,26 @@ Rules:
 7. If the event cannot be confidently classified, use "unknown".
 8. Do not assume that a private IP address is spoofed or malicious merely
    because it is private.
+9. If more evidence is required, use requested_evidence to specify
+   exactly what AthenaSec should retrieve.
+
+10. You may request only these evidence types:
+    - authentication_history
+    - source_endpoint_context
+    - privilege_activity
+    - related_security_events
+
+11. Request no more than two evidence types at a time.
+
+12. For brute-force investigations, prefer authentication_history
+    and source_endpoint_context when those facts are missing.
+
+13. For privilege escalation or privilege misuse investigations,
+    prefer privilege_activity and related_security_events when relevant.
+
+14. Do not request evidence that is already present in the supplied data.
+
+15. If needs_more_evidence is false, requested_evidence should be empty.
 """
 
 

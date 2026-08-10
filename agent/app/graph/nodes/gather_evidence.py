@@ -1,11 +1,17 @@
 from collections.abc import Callable
 
 from app.graph.state import InvestigationState
-from app.schemas import SecurityAlertInput
+from app.schemas import (
+    EvidenceRequest,
+    SecurityAlertInput,
+)
 
 
 EvidenceProvider = Callable[
-    [SecurityAlertInput],
+    [
+        SecurityAlertInput,
+        list[EvidenceRequest],
+    ],
     list[str],
 ]
 
@@ -16,8 +22,15 @@ def make_gather_evidence_node(
     def gather_evidence(
         state: InvestigationState,
     ) -> InvestigationState:
+        analysis = state["analysis"]
+
+        requested_evidence = (
+            analysis.requested_evidence
+        )
+
         evidence = evidence_provider(
-            state["alert"]
+            state["alert"],
+            requested_evidence,
         )
 
         existing_evidence = state.get(
@@ -32,7 +45,8 @@ def make_gather_evidence_node(
 
         return {
             "gathered_evidence": (
-                existing_evidence + evidence
+                existing_evidence
+                + evidence
             ),
             "investigation_iteration": (
                 iteration + 1

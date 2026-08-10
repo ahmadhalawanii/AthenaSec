@@ -18,6 +18,13 @@ SeverityAssessment = Literal[
     "critical",
 ]
 
+EvidenceRequest = Literal[
+    "authentication_history",
+    "source_endpoint_context",
+    "privilege_activity",
+    "related_security_events",
+]
+
 class SecurityAlertInput(BaseModel):
     alert_id: str
 
@@ -66,5 +73,14 @@ class AlertAnalysis(BaseModel):
     recommended_investigation_steps: list[str]
 
     recommended_response_actions: list[str]
+
+    requested_evidence: list[EvidenceRequest] = Field(
+        default_factory=list,
+        max_length=2,
+        description=(
+            "Approved evidence types AthenaSec should gather next. "
+            "Request at most two."
+        ),
+    )
 
     needs_more_evidence: bool

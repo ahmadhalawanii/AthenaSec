@@ -4,6 +4,7 @@ from app.schemas import AlertAnalysis
 
 def make_analysis(
     needs_more_evidence: bool,
+    requested_evidence=None,
 ) -> AlertAnalysis:
     return AlertAnalysis(
         classification="brute_force",
@@ -14,14 +15,22 @@ def make_analysis(
         uncertainties=[],
         recommended_investigation_steps=[],
         recommended_response_actions=[],
+        requested_evidence=(
+            requested_evidence or []
+        ),
         needs_more_evidence=needs_more_evidence,
     )
 
 
-def test_routes_to_evidence_when_needed():
+def test_routes_to_evidence_when_requested():
     result = route_after_analysis(
         {
-            "analysis": make_analysis(True),
+            "analysis": make_analysis(
+                True,
+                [
+                    "authentication_history",
+                ],
+            ),
             "investigation_iteration": 0,
         }
     )
@@ -32,7 +41,23 @@ def test_routes_to_evidence_when_needed():
 def test_routes_to_finalize_when_evidence_not_needed():
     result = route_after_analysis(
         {
-            "analysis": make_analysis(False),
+            "analysis": make_analysis(
+                False
+            ),
+            "investigation_iteration": 0,
+        }
+    )
+
+    assert result == "finalize_investigation"
+
+
+def test_routes_to_finalize_when_no_tool_requested():
+    result = route_after_analysis(
+        {
+            "analysis": make_analysis(
+                True,
+                [],
+            ),
             "investigation_iteration": 0,
         }
     )
@@ -43,7 +68,12 @@ def test_routes_to_finalize_when_evidence_not_needed():
 def test_routes_to_finalize_after_max_iterations():
     result = route_after_analysis(
         {
-            "analysis": make_analysis(True),
+            "analysis": make_analysis(
+                True,
+                [
+                    "authentication_history",
+                ],
+            ),
             "investigation_iteration": 1,
         }
     )
