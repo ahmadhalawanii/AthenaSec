@@ -282,3 +282,49 @@ class ResponsePlan(BaseModel):
     status: ResponsePlanStatus
 
     reason: str
+
+
+AnalystDecisionType = Literal[
+    "approve",
+    "reject",
+]
+
+
+class AnalystDecision(BaseModel):
+    decision: AnalystDecisionType
+
+    analyst_id: str = Field(
+        min_length=1,
+    )
+
+    reason: str = Field(
+        min_length=1,
+    )
+
+
+ActionExecutionStatus = Literal[
+    "simulated",
+]
+
+
+ExecutionStatus = Literal[
+    "completed",
+]
+
+
+class ActionExecutionResult(BaseModel):
+    action: AllowedAction
+
+    status: ActionExecutionStatus
+
+    message: str
+
+
+class DryRunExecutionResult(BaseModel):
+    policy_id: str
+
+    execution_mode: ExecutionMode
+
+    status: ExecutionStatus
+
+    action_results: list[ActionExecutionResult]
