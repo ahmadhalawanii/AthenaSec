@@ -328,3 +328,30 @@ class DryRunExecutionResult(BaseModel):
     status: ExecutionStatus
 
     action_results: list[ActionExecutionResult]
+
+
+class InvestigationResponse(BaseModel):
+    alert_id: str
+
+    source: Literal[
+        "manual",
+        "mock",
+        "wazuh",
+        "dataset",
+    ]
+
+    status: str
+
+    normalized_event: str
+
+    analysis: AlertAnalysis
+
+    evidence_records: list[EvidenceRecord]
+
+    risk_assessment: RiskAssessment
+
+    policy_decision: PolicyDecision
+
+    response_plan: ResponsePlan
+
+    investigation_iteration: int
