@@ -32,6 +32,7 @@ result = graph.invoke(
 
 analysis = result["analysis"]
 risk = result["risk_assessment"]
+policy = result["policy_decision"]
 
 
 print("\nATHENASEC INVESTIGATION")
@@ -40,9 +41,6 @@ print("=======================")
 print(f"Alert: {result['alert'].alert_id}")
 print(f"Source: {result['alert'].source}")
 print(f"Status: {result['status']}")
-
-print("\nNormalized Event:")
-print(result["normalized_event"])
 
 
 print("\nAI ANALYSIS")
@@ -100,44 +98,10 @@ for step in analysis.recommended_investigation_steps:
     print(f"- {step}")
 
 
-print("\nRecommended Responses:")
+print("\nAI Recommended Responses:")
 
 for action in analysis.recommended_response_actions:
     print(f"- {action}")
-
-
-print(
-    "\nNeeds More Evidence:",
-    analysis.needs_more_evidence,
-)
-
-
-print("\nRequested Evidence:")
-
-if analysis.requested_evidence:
-    for request in analysis.requested_evidence:
-        print(f"- {request}")
-else:
-    print("- None")
-
-
-print("\nAll Evidence Records:")
-
-for record in result["evidence_records"]:
-    print(
-        f"[{record.evidence_id}] "
-        f"({record.source}) "
-        f"{record.content}"
-    )
-
-
-print(
-    "\nInvestigation Iterations:",
-    result.get(
-        "investigation_iteration",
-        0,
-    ),
-)
 
 
 print("\nRISK ASSESSMENT")
@@ -162,3 +126,53 @@ for factor in risk.factors:
         f"{factor.name}: "
         f"{factor.reason}"
     )
+
+
+print("\nPOLICY DECISION")
+print("---------------")
+
+print(
+    f"Matched: "
+    f"{policy.matched}"
+)
+
+print(
+    f"Policy ID: "
+    f"{policy.policy_id}"
+)
+
+print(
+    f"Policy Name: "
+    f"{policy.policy_name}"
+)
+
+print(
+    f"Approval Type: "
+    f"{policy.approval_type.upper()}"
+)
+
+print(
+    f"Execution Mode: "
+    f"{policy.execution_mode.upper()}"
+)
+
+print("\nPermitted Actions:")
+
+if policy.actions:
+    for action in policy.actions:
+        print(f"- {action}")
+else:
+    print("- None")
+
+
+print("\nPolicy Reason:")
+print(policy.reason)
+
+
+print(
+    "\nInvestigation Iterations:",
+    result.get(
+        "investigation_iteration",
+        0,
+    ),
+)

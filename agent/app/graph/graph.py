@@ -18,6 +18,9 @@ from app.graph.nodes.gather_evidence import (
 from app.graph.nodes.normalize import (
     normalize_alert,
 )
+from app.graph.nodes.policy import (
+    evaluate_investigation_policy,
+)
 from app.graph.nodes.risk import (
     calculate_investigation_risk,
 )
@@ -87,6 +90,11 @@ def build_investigation_graph(
     )
 
     builder.add_node(
+        "evaluate_policy",
+        evaluate_investigation_policy,
+    )
+
+    builder.add_node(
         "finalize_investigation",
         finalize_investigation,
     )
@@ -113,6 +121,11 @@ def build_investigation_graph(
 
     builder.add_edge(
         "calculate_risk",
+        "evaluate_policy",
+    )
+
+    builder.add_edge(
+        "evaluate_policy",
         "finalize_investigation",
     )
 

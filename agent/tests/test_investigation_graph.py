@@ -90,7 +90,7 @@ def fake_evidence_provider(
     ]
 
 
-def test_graph_calculates_grounded_risk():
+def test_graph_calculates_risk_and_policy():
     graph = build_investigation_graph(
         analyzer=make_fake_analyzer(),
         evidence_provider=fake_evidence_provider,
@@ -140,12 +140,27 @@ def test_graph_calculates_grounded_risk():
         == "high"
     )
 
+    decision = result["policy_decision"]
+
+    assert decision.matched is True
+
     assert (
-        result["risk_context"].failed_attempts
-        == 148
+        decision.policy_id
+        == "POL-BF-HIGH"
     )
 
     assert (
-        result["risk_context"].privileged_target
-        is True
+        decision.approval_type
+        == "analyst"
     )
+
+    assert (
+        decision.execution_mode
+        == "dry_run"
+    )
+
+    assert decision.actions == [
+        "block_ip",
+        "notify_administrator",
+        "create_case",
+    ]
