@@ -1,6 +1,23 @@
+import os
+
+from dotenv import load_dotenv
 from langchain_ollama import ChatOllama
 
 from app.schemas import AlertAnalysis
+
+
+load_dotenv()
+
+
+OLLAMA_BASE_URL = os.getenv(
+    "OLLAMA_BASE_URL",
+    "http://localhost:11434",
+)
+
+OLLAMA_MODEL = os.getenv(
+    "OLLAMA_MODEL",
+    "qwen3:8b",
+)
 
 
 SYSTEM_PROMPT = """
@@ -99,8 +116,8 @@ RESPONSE RULES:
 
 def create_analysis_model():
     model = ChatOllama(
-        model="qwen3:8b",
-        base_url="http://localhost:11434",
+        model=OLLAMA_MODEL,
+        base_url=OLLAMA_BASE_URL,
         temperature=0,
     )
 

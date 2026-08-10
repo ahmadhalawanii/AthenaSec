@@ -47,6 +47,22 @@ SeverityAssessment = Literal[
 ]
 
 
+RiskBand = Literal[
+    "low",
+    "medium",
+    "high",
+    "critical",
+]
+
+
+AssetCriticality = Literal[
+    "low",
+    "medium",
+    "high",
+    "critical",
+]
+
+
 EvidenceRequest = Literal[
     "authentication_history",
     "source_endpoint_context",
@@ -168,3 +184,40 @@ class AlertAnalysis(BaseModel):
             )
             for value in values
         ]
+
+class RiskContext(BaseModel):
+    failed_attempts: int = Field(
+        default=0,
+        ge=0,
+    )
+
+    privileged_target: bool = False
+
+    successful_authentication: bool | None = None
+
+    privilege_change_observed: bool = False
+
+    policy_violation_observed: bool = False
+
+    asset_criticality: AssetCriticality = "medium"
+
+
+class RiskFactor(BaseModel):
+    name: str
+
+    points: int = Field(
+        ge=0,
+    )
+
+    reason: str
+
+
+class RiskAssessment(BaseModel):
+    score: int = Field(
+        ge=0,
+        le=100,
+    )
+
+    band: RiskBand
+
+    factors: list[RiskFactor]
