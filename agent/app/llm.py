@@ -119,6 +119,8 @@ def create_analysis_model():
         model=OLLAMA_MODEL,
         base_url=OLLAMA_BASE_URL,
         temperature=0,
+        reasoning=False,
+        keep_alive="30m",
     )
 
     return model.with_structured_output(
