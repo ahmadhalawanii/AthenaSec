@@ -2,12 +2,14 @@ import pytest
 
 from app.schemas import (
     AlertAnalysis,
+    DryRunExecutionResult,
     EvidenceRecord,
     InvestigationResponse,
     PolicyDecision,
     ResponsePlan,
     RiskAssessment,
 )
+
 from app.services.investigation_store import (
     InMemoryInvestigationStore,
 )
@@ -152,3 +154,44 @@ def test_updating_missing_investigation_fails():
             "ALT-MISSING",
             plan,
         )
+
+def test_store_updates_execution_result():
+    store = InMemoryInvestigationStore()
+
+    investigation = make_investigation()
+
+    store.save(
+        investigation
+    )
+
+    execution = DryRunExecutionResult(
+        policy_id="POL-BF-HIGH",
+        execution_mode="dry_run",
+        status="completed",
+        action_results=[],
+    )
+
+    updated = store.update_execution_result(
+        "ALT-STORE-001",
+        execution,
+    )
+
+    assert updated.execution_result is not None
+
+    assert (
+        updated.execution_result.status
+        == "completed"
+    )
+
+    stored = store.get(
+        "ALT-STORE-001"
+    )
+
+    assert stored is not None
+
+    assert stored.execution_result is not None
+
+    assert (
+        stored.execution_result.status
+        == "completed"
+    )

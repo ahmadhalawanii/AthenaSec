@@ -1,4 +1,5 @@
 from app.schemas import (
+    DryRunExecutionResult,
     InvestigationResponse,
     ResponsePlan,
 )
@@ -46,6 +47,32 @@ class InMemoryInvestigationStore:
         updated = investigation.model_copy(
             update={
                 "response_plan": response_plan,
+            }
+        )
+
+        self._investigations[
+            alert_id
+        ] = updated
+
+        return updated
+
+    def update_execution_result(
+        self,
+        alert_id: str,
+        execution_result: DryRunExecutionResult,
+    ) -> InvestigationResponse:
+        investigation = self.get(
+            alert_id
+        )
+
+        if investigation is None:
+            raise KeyError(
+                f"Investigation {alert_id} was not found."
+            )
+
+        updated = investigation.model_copy(
+            update={
+                "execution_result": execution_result,
             }
         )
 

@@ -282,3 +282,136 @@ def test_second_analyst_decision_is_rejected():
     )
 
     assert second_response.status_code == 409
+
+def test_approved_investigation_can_execute_dry_run():
+    client = make_client()
+
+    submit_investigation(
+        client
+    )
+
+    approval_response = client.post(
+        (
+            "/api/v1/investigations/"
+            "ALT-API-001/decision"
+        ),
+        json={
+            "decision": "approve",
+            "analyst_id": "analyst-001",
+            "reason": "Containment approved.",
+        },
+    )
+
+    assert approval_response.status_code == 200
+
+    response = client.post(
+        (
+            "/api/v1/investigations/"
+            "ALT-API-001/execute"
+        )
+    )
+
+    assert response.status_code == 200
+
+    data = response.json()
+
+    assert data["status"] == "completed"
+
+    assert (
+        data["execution_mode"]
+        == "dry_run"
+    )
+
+    assert len(
+        data["action_results"]
+    ) == 3
+
+    assert all(
+        result["status"] == "simulated"
+        for result in data["action_results"]
+    )
+
+    stored_response = client.get(
+        "/api/v1/investigations/ALT-API-001"
+    )
+
+    assert stored_response.status_code == 200
+
+    stored_data = stored_response.json()
+
+    assert (
+        stored_data["execution_result"]["status"]
+        == "completed"
+    )
+
+
+def test_pending_investigation_cannot_execute():
+    client = make_client()
+
+    submit_investigation(
+        client
+    )
+
+    response = client.post(
+        (
+            "/api/v1/investigations/"
+            "ALT-API-001/execute"
+        )
+    )
+
+    assert response.status_code == 409
+
+
+def test_missing_investigation_cannot_execute():
+    client = make_client()
+
+    response = client.post(
+        (
+            "/api/v1/investigations/"
+            "ALT-MISSING/execute"
+        )
+    )
+
+    assert response.status_code == 404
+
+
+def test_repeated_execute_returns_saved_result():
+    client = make_client()
+
+    submit_investigation(
+        client
+    )
+
+    client.post(
+        (
+            "/api/v1/investigations/"
+            "ALT-API-001/decision"
+        ),
+        json={
+            "decision": "approve",
+            "analyst_id": "analyst-001",
+            "reason": "Approved.",
+        },
+    )
+
+    first_response = client.post(
+        (
+            "/api/v1/investigations/"
+            "ALT-API-001/execute"
+        )
+    )
+
+    second_response = client.post(
+        (
+            "/api/v1/investigations/"
+            "ALT-API-001/execute"
+        )
+    )
+
+    assert first_response.status_code == 200
+    assert second_response.status_code == 200
+
+    assert (
+        second_response.json()
+        == first_response.json()
+    )

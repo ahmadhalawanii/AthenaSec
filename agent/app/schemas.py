@@ -354,4 +354,8 @@ class InvestigationResponse(BaseModel):
 
     response_plan: ResponsePlan
 
+    execution_result: (
+        DryRunExecutionResult | None
+    ) = None
+
     investigation_iteration: int

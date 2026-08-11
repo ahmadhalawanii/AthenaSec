@@ -10,11 +10,15 @@ from app.graph.graph import (
 )
 from app.schemas import (
     AnalystDecision,
+    DryRunExecutionResult,
     InvestigationResponse,
     SecurityAlertInput,
 )
 from app.services.approval_service import (
     apply_analyst_decision,
+)
+from app.services.dry_run_executor import (
+    execute_dry_run,
 )
 from app.services.investigation_store import (
     InMemoryInvestigationStore,
@@ -29,7 +33,7 @@ def create_app(
 ) -> FastAPI:
     app = FastAPI(
         title="AthenaSec Agent API",
-        version="0.2.0",
+        version="0.3.0",
         description=(
             "Agentic cybersecurity investigation "
             "service for AthenaSec."
@@ -170,6 +174,50 @@ def create_app(
             alert_id,
             updated_plan,
         )
+
+    @app.post(
+        (
+            "/api/v1/investigations/"
+            "{alert_id}/execute"
+        ),
+        response_model=DryRunExecutionResult,
+    )
+    def execute_investigation(
+        alert_id: str,
+    ) -> DryRunExecutionResult:
+        investigation = store.get(
+            alert_id
+        )
+
+        if investigation is None:
+            raise HTTPException(
+                status_code=404,
+                detail=(
+                    f"Investigation {alert_id} "
+                    "was not found."
+                ),
+            )
+
+        if investigation.execution_result is not None:
+            return investigation.execution_result
+
+        try:
+            execution_result = execute_dry_run(
+                investigation.response_plan
+            )
+
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=409,
+                detail=str(exc),
+            ) from exc
+
+        store.update_execution_result(
+            alert_id,
+            execution_result,
+        )
+
+        return execution_result
 
     return app
 
