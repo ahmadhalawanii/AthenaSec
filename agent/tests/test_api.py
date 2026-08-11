@@ -9,6 +9,9 @@ from app.schemas import (
     RiskAssessment,
     SecurityAlertInput,
 )
+from app.services.investigation_store import (
+    InMemoryInvestigationStore,
+)
 
 
 class FakeInvestigationGraph:
@@ -80,11 +83,35 @@ class FakeInvestigationGraph:
 
 
 def make_client() -> TestClient:
+    store = InMemoryInvestigationStore()
+
     app = create_app(
-        investigation_graph=FakeInvestigationGraph()
+        investigation_graph=FakeInvestigationGraph(),
+        investigation_store=store,
     )
 
     return TestClient(app)
+
+
+def submit_investigation(
+    client: TestClient,
+):
+    return client.post(
+        "/api/v1/analyze",
+        json={
+            "alert_id": "ALT-API-001",
+            "source": "manual",
+            "event_text": (
+                "148 failed SSH login attempts "
+                "against root."
+            ),
+            "metadata": {
+                "failed_attempts": 148,
+                "privileged_target": True,
+                "asset_criticality": "medium",
+            },
+        },
+    )
 
 
 def test_health_endpoint():
@@ -105,21 +132,8 @@ def test_health_endpoint():
 def test_analyze_endpoint_returns_investigation():
     client = make_client()
 
-    response = client.post(
-        "/api/v1/analyze",
-        json={
-            "alert_id": "ALT-API-001",
-            "source": "manual",
-            "event_text": (
-                "148 failed SSH login attempts "
-                "against root."
-            ),
-            "metadata": {
-                "failed_attempts": 148,
-                "privileged_target": True,
-                "asset_criticality": "medium",
-            },
-        },
+    response = submit_investigation(
+        client
     )
 
     assert response.status_code == 200
@@ -150,3 +164,121 @@ def test_analyze_endpoint_returns_investigation():
         data["response_plan"]["status"]
         == "pending_approval"
     )
+
+
+def test_analyzed_investigation_can_be_retrieved():
+    client = make_client()
+
+    submit_response = submit_investigation(
+        client
+    )
+
+    assert submit_response.status_code == 200
+
+    response = client.get(
+        "/api/v1/investigations/ALT-API-001"
+    )
+
+    assert response.status_code == 200
+
+    data = response.json()
+
+    assert (
+        data["alert_id"]
+        == "ALT-API-001"
+    )
+
+    assert (
+        data["response_plan"]["status"]
+        == "pending_approval"
+    )
+
+
+def test_analyst_can_approve_investigation():
+    client = make_client()
+
+    submit_investigation(
+        client
+    )
+
+    response = client.post(
+        (
+            "/api/v1/investigations/"
+            "ALT-API-001/decision"
+        ),
+        json={
+            "decision": "approve",
+            "analyst_id": "analyst-001",
+            "reason": (
+                "Evidence supports containment."
+            ),
+        },
+    )
+
+    assert response.status_code == 200
+
+    data = response.json()
+
+    assert (
+        data["response_plan"]["status"]
+        == "approved"
+    )
+
+    stored_response = client.get(
+        "/api/v1/investigations/ALT-API-001"
+    )
+
+    assert stored_response.status_code == 200
+
+    assert (
+        stored_response.json()[
+            "response_plan"
+        ]["status"]
+        == "approved"
+    )
+
+
+def test_missing_investigation_returns_404():
+    client = make_client()
+
+    response = client.get(
+        "/api/v1/investigations/ALT-MISSING"
+    )
+
+    assert response.status_code == 404
+
+
+def test_second_analyst_decision_is_rejected():
+    client = make_client()
+
+    submit_investigation(
+        client
+    )
+
+    first_response = client.post(
+        (
+            "/api/v1/investigations/"
+            "ALT-API-001/decision"
+        ),
+        json={
+            "decision": "approve",
+            "analyst_id": "analyst-001",
+            "reason": "Approved.",
+        },
+    )
+
+    assert first_response.status_code == 200
+
+    second_response = client.post(
+        (
+            "/api/v1/investigations/"
+            "ALT-API-001/decision"
+        ),
+        json={
+            "decision": "reject",
+            "analyst_id": "analyst-002",
+            "reason": "Reject after approval.",
+        },
+    )
+
+    assert second_response.status_code == 409
