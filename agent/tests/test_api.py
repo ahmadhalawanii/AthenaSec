@@ -9,8 +9,10 @@ from app.schemas import (
     RiskAssessment,
     SecurityAlertInput,
 )
+
 from app.services.investigation_store import (
     InMemoryInvestigationStore,
+    SQLiteInvestigationStore,
 )
 
 
@@ -414,4 +416,55 @@ def test_repeated_execute_returns_saved_result():
     assert (
         second_response.json()
         == first_response.json()
+    )
+
+def test_sqlite_investigation_survives_app_restart(
+    tmp_path,
+):
+    database_path = (
+        tmp_path
+        / "athenasec-api.db"
+    )
+
+    first_store = SQLiteInvestigationStore(
+        database_path
+    )
+
+    first_app = create_app(
+        investigation_graph=FakeInvestigationGraph(),
+        investigation_store=first_store,
+    )
+
+    first_client = TestClient(
+        first_app
+    )
+
+    response = submit_investigation(
+        first_client
+    )
+
+    assert response.status_code == 200
+
+    second_store = SQLiteInvestigationStore(
+        database_path
+    )
+
+    second_app = create_app(
+        investigation_graph=FakeInvestigationGraph(),
+        investigation_store=second_store,
+    )
+
+    second_client = TestClient(
+        second_app
+    )
+
+    stored_response = second_client.get(
+        "/api/v1/investigations/ALT-API-001"
+    )
+
+    assert stored_response.status_code == 200
+
+    assert (
+        stored_response.json()["alert_id"]
+        == "ALT-API-001"
     )

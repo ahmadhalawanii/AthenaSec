@@ -12,6 +12,7 @@ from app.schemas import (
 
 from app.services.investigation_store import (
     InMemoryInvestigationStore,
+    SQLiteInvestigationStore,
 )
 
 
@@ -184,6 +185,140 @@ def test_store_updates_execution_result():
     )
 
     stored = store.get(
+        "ALT-STORE-001"
+    )
+
+    assert stored is not None
+
+    assert stored.execution_result is not None
+
+    assert (
+        stored.execution_result.status
+        == "completed"
+    )
+
+
+def test_sqlite_store_persists_across_instances(
+    tmp_path,
+):
+    database_path = (
+        tmp_path
+        / "athenasec-test.db"
+    )
+
+    first_store = SQLiteInvestigationStore(
+        database_path
+    )
+
+    investigation = make_investigation()
+
+    first_store.save(
+        investigation
+    )
+
+    second_store = SQLiteInvestigationStore(
+        database_path
+    )
+
+    stored = second_store.get(
+        "ALT-STORE-001"
+    )
+
+    assert stored is not None
+
+    assert (
+        stored.alert_id
+        == "ALT-STORE-001"
+    )
+
+    assert (
+        stored.response_plan.status
+        == "pending_approval"
+    )
+
+
+def test_sqlite_store_persists_response_plan_update(
+    tmp_path,
+):
+    database_path = (
+        tmp_path
+        / "athenasec-test.db"
+    )
+
+    store = SQLiteInvestigationStore(
+        database_path
+    )
+
+    investigation = make_investigation()
+
+    store.save(
+        investigation
+    )
+
+    approved_plan = (
+        investigation.response_plan.model_copy(
+            update={
+                "status": "approved",
+            }
+        )
+    )
+
+    store.update_response_plan(
+        "ALT-STORE-001",
+        approved_plan,
+    )
+
+    restarted_store = SQLiteInvestigationStore(
+        database_path
+    )
+
+    stored = restarted_store.get(
+        "ALT-STORE-001"
+    )
+
+    assert stored is not None
+
+    assert (
+        stored.response_plan.status
+        == "approved"
+    )
+
+
+def test_sqlite_store_persists_execution_result(
+    tmp_path,
+):
+    database_path = (
+        tmp_path
+        / "athenasec-test.db"
+    )
+
+    store = SQLiteInvestigationStore(
+        database_path
+    )
+
+    investigation = make_investigation()
+
+    store.save(
+        investigation
+    )
+
+    execution = DryRunExecutionResult(
+        policy_id="POL-BF-HIGH",
+        execution_mode="dry_run",
+        status="completed",
+        action_results=[],
+    )
+
+    store.update_execution_result(
+        "ALT-STORE-001",
+        execution,
+    )
+
+    restarted_store = SQLiteInvestigationStore(
+        database_path
+    )
+
+    stored = restarted_store.get(
         "ALT-STORE-001"
     )
 

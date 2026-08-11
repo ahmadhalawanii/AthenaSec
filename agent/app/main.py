@@ -1,3 +1,4 @@
+import os
 from typing import Any
 
 from fastapi import (
@@ -21,14 +22,15 @@ from app.services.dry_run_executor import (
     execute_dry_run,
 )
 from app.services.investigation_store import (
-    InMemoryInvestigationStore,
+    InvestigationStore,
+    SQLiteInvestigationStore,
 )
 
 
 def create_app(
     investigation_graph: Any = None,
     investigation_store: (
-        InMemoryInvestigationStore | None
+        InvestigationStore | None
     ) = None,
 ) -> FastAPI:
     app = FastAPI(
@@ -49,7 +51,12 @@ def create_app(
     store = (
         investigation_store
         if investigation_store is not None
-        else InMemoryInvestigationStore()
+        else SQLiteInvestigationStore(
+            os.getenv(
+                "ATHENASEC_DB_PATH",
+                "data/athenasec.db",
+            )
+        )
     )
 
     @app.get(
