@@ -1,0 +1,20 @@
+services:
+  athenasec-agent:
+    build:
+      context: .
+      dockerfile: Dockerfile
+
+    container_name: athenasec-agent
+
+    ports:
+      - "8000:8000"
+
+    environment:
+      OLLAMA_BASE_URL: http://host.docker.internal:11434
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-qwen3:4b}
+      ATHENASEC_DB_PATH: /app/data/athenasec.db
+
+    volumes:
+      - ./data:/app/data
+
+    restart: unless-stopped
