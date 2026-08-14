@@ -38,8 +38,9 @@ from app.schemas import (
     EvidenceRequest,
     SecurityAlertInput,
 )
-from app.tools.mock_wazuh import (
-    gather_requested_evidence,
+
+from app.tools.evidence_provider import (
+    create_evidence_provider,
 )
 
 
@@ -60,10 +61,15 @@ EvidenceProvider = Callable[
 
 def build_investigation_graph(
     analyzer: Analyzer = analyze_security_event,
-    evidence_provider: EvidenceProvider = (
-        gather_requested_evidence
-    ),
+    evidence_provider: (
+        EvidenceProvider | None
+    ) = None,
 ):
+    if evidence_provider is None:
+        evidence_provider = (
+            create_evidence_provider()
+        )
+
     builder = StateGraph(
         InvestigationState
     )
