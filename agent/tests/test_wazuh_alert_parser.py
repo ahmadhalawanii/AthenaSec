@@ -1,0 +1,134 @@
+import pytest
+
+from app.tools.wazuh_alert_parser import (
+    parse_wazuh_alert,
+)
+
+
+RAW_WAZUH_ALERT = {
+    "timestamp": "2026-08-14T18:30:00.000+0000",
+    "rule": {
+        "level": 10,
+        "description": (
+            "sshd: Multiple authentication failures."
+        ),
+        "id": "5712",
+        "groups": [
+            "authentication_failures",
+            "sshd",
+        ],
+    },
+    "agent": {
+        "id": "007",
+        "name": "workstation-07",
+        "ip": "192.168.1.20",
+    },
+    "id": "1716206454.722325",
+    "full_log": (
+        "Failed password for root from "
+        "192.168.1.45 port 55122 ssh2"
+    ),
+    "data": {
+        "srcip": "192.168.1.45",
+        "dstuser": "root",
+        "srcport": "55122",
+    },
+    "location": "/var/log/auth.log",
+}
+
+
+def test_parses_raw_wazuh_alert():
+    alert = parse_wazuh_alert(
+        RAW_WAZUH_ALERT
+    )
+
+    assert alert.alert_id == (
+        "wazuh:1716206454.722325"
+    )
+
+    assert alert.source == "wazuh"
+
+    assert (
+        "Failed password for root"
+        in alert.event_text
+    )
+
+    assert alert.metadata[
+        "source_ip"
+    ] == "192.168.1.45"
+
+    assert alert.metadata[
+        "target_user"
+    ] == "root"
+
+    assert alert.metadata[
+        "agent_id"
+    ] == "007"
+
+    assert alert.metadata[
+        "rule_id"
+    ] == "5712"
+
+    assert alert.metadata[
+        "rule_level"
+    ] == 10
+
+
+def test_parses_wazuh_indexer_hit():
+    hit = {
+        "_id": "index-document-123",
+        "_index": (
+            "wazuh-alerts-4.x-2026.08.14"
+        ),
+        "_source": RAW_WAZUH_ALERT,
+    }
+
+    alert = parse_wazuh_alert(
+        hit
+    )
+
+    assert alert.alert_id == (
+        "wazuh-alerts-4.x-2026.08.14:"
+        "index-document-123"
+    )
+
+    assert alert.metadata[
+        "wazuh_document_id"
+    ] == "index-document-123"
+
+    assert alert.metadata[
+        "wazuh_index"
+    ] == (
+        "wazuh-alerts-4.x-2026.08.14"
+    )
+
+
+def test_rule_description_is_used_when_full_log_missing():
+    payload = {
+        **RAW_WAZUH_ALERT,
+        "full_log": None,
+    }
+
+    alert = parse_wazuh_alert(
+        payload
+    )
+
+    assert alert.event_text == (
+        "sshd: Multiple authentication failures."
+    )
+
+
+def test_alert_without_identifier_is_rejected():
+    payload = {
+        "rule": {
+            "description": "Test alert",
+        }
+    }
+
+    with pytest.raises(
+        ValueError,
+        match="identifier",
+    ):
+        parse_wazuh_alert(
+            payload
+        )

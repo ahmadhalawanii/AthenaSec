@@ -66,6 +66,26 @@ class WazuhIndexerClient:
             .get("hits", [])
         )
 
+    def health(
+        self,
+    ) -> dict[str, Any]:
+        response = requests.get(
+            (
+                f"{self.base_url}/"
+                "_cluster/health"
+            ),
+            auth=(
+                self.username,
+                self.password,
+            ),
+            verify=self.verify_ssl,
+            timeout=self.timeout,
+        )
+
+        response.raise_for_status()
+
+        return response.json()
+
 
 def _get_alert_scope(
     alert: SecurityAlertInput,

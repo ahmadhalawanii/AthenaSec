@@ -223,3 +223,62 @@ def test_indexer_client_calls_wazuh_search(
         "athenasec",
         "secret",
     )
+
+def test_indexer_client_checks_cluster_health(
+    monkeypatch,
+):
+    captured = {}
+
+    class FakeResponse:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {
+                "cluster_name": (
+                    "wazuh-cluster"
+                ),
+                "status": "green",
+            }
+
+    def fake_get(
+        url,
+        *,
+        auth,
+        verify,
+        timeout,
+    ):
+        captured["url"] = url
+        captured["auth"] = auth
+        captured["verify"] = verify
+        captured["timeout"] = timeout
+
+        return FakeResponse()
+
+    monkeypatch.setattr(
+        "app.tools.wazuh_indexer.requests.get",
+        fake_get,
+    )
+
+    client = WazuhIndexerClient(
+        base_url=(
+            "https://wazuh-indexer:9200"
+        ),
+        username="athenasec",
+        password="secret",
+        verify_ssl=False,
+    )
+
+    health = client.health()
+
+    assert health["status"] == "green"
+
+    assert captured["url"] == (
+        "https://wazuh-indexer:9200/"
+        "_cluster/health"
+    )
+
+    assert captured["auth"] == (
+        "athenasec",
+        "secret",
+    )
