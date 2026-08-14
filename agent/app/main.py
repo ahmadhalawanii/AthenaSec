@@ -1,8 +1,10 @@
 import os
+import secrets
 from typing import Any
 
 from fastapi import (
     FastAPI,
+    Header,
     HTTPException,
 )
 
@@ -25,6 +27,9 @@ from app.services.investigation_store import (
     InvestigationStore,
     SQLiteInvestigationStore,
 )
+from app.tools.wazuh_alert_parser import (
+    parse_wazuh_alert,
+)
 
 
 def create_app(
@@ -32,10 +37,11 @@ def create_app(
     investigation_store: (
         InvestigationStore | None
     ) = None,
+    wazuh_ingest_key: str | None = None,
 ) -> FastAPI:
     app = FastAPI(
         title="AthenaSec Agent API",
-        version="0.3.0",
+        version="0.4.0",
         description=(
             "Agentic cybersecurity investigation "
             "service for AthenaSec."
@@ -59,20 +65,15 @@ def create_app(
         )
     )
 
-    @app.get(
-        "/health"
+    configured_wazuh_ingest_key = (
+        wazuh_ingest_key
+        if wazuh_ingest_key is not None
+        else os.getenv(
+            "ATHENASEC_WAZUH_INGEST_KEY"
+        )
     )
-    def health():
-        return {
-            "status": "ok",
-            "service": "athenasec-agent",
-        }
 
-    @app.post(
-        "/api/v1/analyze",
-        response_model=InvestigationResponse,
-    )
-    def analyze_alert(
+    def run_investigation(
         alert: SecurityAlertInput,
     ) -> InvestigationResponse:
         result = graph.invoke(
@@ -115,6 +116,77 @@ def create_app(
         )
 
         return investigation
+
+    @app.get(
+        "/health"
+    )
+    def health():
+        return {
+            "status": "ok",
+            "service": "athenasec-agent",
+        }
+
+    @app.post(
+        "/api/v1/analyze",
+        response_model=InvestigationResponse,
+    )
+    def analyze_alert(
+        alert: SecurityAlertInput,
+    ) -> InvestigationResponse:
+        return run_investigation(
+            alert
+        )
+
+    @app.post(
+        "/api/v1/integrations/wazuh/alerts",
+        response_model=InvestigationResponse,
+    )
+    def ingest_wazuh_alert(
+        payload: dict[str, Any],
+        x_athenasec_integration_key: (
+            str | None
+        ) = Header(
+            default=None
+        ),
+    ) -> InvestigationResponse:
+        if not configured_wazuh_ingest_key:
+            raise HTTPException(
+                status_code=503,
+                detail=(
+                    "Wazuh ingestion is not configured."
+                ),
+            )
+
+        provided_key = (
+            x_athenasec_integration_key
+            or ""
+        )
+
+        if not secrets.compare_digest(
+            provided_key,
+            configured_wazuh_ingest_key,
+        ):
+            raise HTTPException(
+                status_code=401,
+                detail=(
+                    "Invalid Wazuh integration key."
+                ),
+            )
+
+        try:
+            alert = parse_wazuh_alert(
+                payload
+            )
+
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=400,
+                detail=str(exc),
+            ) from exc
+
+        return run_investigation(
+            alert
+        )
 
     @app.get(
         (
@@ -205,7 +277,10 @@ def create_app(
                 ),
             )
 
-        if investigation.execution_result is not None:
+        if (
+            investigation.execution_result
+            is not None
+        ):
             return investigation.execution_result
 
         try:
