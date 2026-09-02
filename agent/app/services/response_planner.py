@@ -7,27 +7,21 @@ from app.schemas import (
 def create_response_plan(
     policy: PolicyDecision,
 ) -> ResponsePlan:
-    if not policy.matched:
+    if policy.response_allowed:
         return ResponsePlan(
             policy_id=policy.policy_id,
-            actions=[],
-            approval_type="none",
-            execution_mode=policy.execution_mode,
-            status="no_action",
+            actions=list(
+                policy.actions
+            ),
+            response_allowed=True,
+            status="ready_for_execution",
             reason=policy.reason,
         )
 
-    if policy.approval_type == "analyst":
-        status = "pending_approval"
-
-    else:
-        status = "ready_for_dry_run"
-
     return ResponsePlan(
         policy_id=policy.policy_id,
-        actions=policy.actions,
-        approval_type=policy.approval_type,
-        execution_mode=policy.execution_mode,
-        status=status,
+        actions=[],
+        response_allowed=False,
+        status="create_case",
         reason=policy.reason,
     )

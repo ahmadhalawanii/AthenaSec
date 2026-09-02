@@ -1,5 +1,8 @@
-from app.schemas import SecurityAlertInput
 from app.graph.state import InvestigationState
+from app.schemas import (
+    AttackPrediction,
+    SecurityAlertInput,
+)
 
 
 def test_investigation_state_accepts_security_alert():
@@ -16,6 +19,31 @@ def test_investigation_state_accepts_security_alert():
         "gathered_evidence": [],
     }
 
-    assert state["alert"].alert_id == "ALT-TEST-001"
-    assert state["status"] == "received"
-    assert state["investigation_iteration"] == 0
+    assert (
+        state["alert"].alert_id
+        == "ALT-TEST-001"
+    )
+
+    assert (
+        state["status"]
+        == "received"
+    )
+
+    assert (
+        state["investigation_iteration"]
+        == 0
+    )
+
+
+def test_investigation_state_declares_ml_prediction():
+    assert (
+        "ml_prediction"
+        in InvestigationState.__annotations__
+    )
+
+    assert (
+        InvestigationState.__annotations__[
+            "ml_prediction"
+        ]
+        is AttackPrediction
+    )

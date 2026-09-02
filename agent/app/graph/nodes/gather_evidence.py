@@ -18,17 +18,63 @@ EvidenceProvider = Callable[
 ]
 
 
+DEFAULT_WAZUH_EVIDENCE: dict[
+    str,
+    list[EvidenceRequest],
+] = {
+    "brute_force": [
+        "authentication_history",
+        "source_endpoint_context",
+        "related_security_events",
+    ],
+    "privilege_misuse": [
+        "privilege_activity",
+        "authentication_history",
+        "related_security_events",
+    ],
+    "privilege_escalation": [
+        "privilege_activity",
+        "authentication_history",
+        "related_security_events",
+    ],
+}
+
+
+def _resolve_evidence_requests(
+    state: InvestigationState,
+) -> list[EvidenceRequest]:
+    analysis = state["analysis"]
+    alert = state["alert"]
+
+    if analysis.requested_evidence:
+        return list(
+            analysis.requested_evidence
+        )
+
+    if alert.source != "wazuh":
+        return []
+
+    return list(
+        DEFAULT_WAZUH_EVIDENCE.get(
+            analysis.classification,
+            [],
+        )
+    )
+
+
 def make_gather_evidence_node(
     evidence_provider: EvidenceProvider,
 ):
     def gather_evidence(
         state: InvestigationState,
     ) -> InvestigationState:
-        analysis = state["analysis"]
+        requests = _resolve_evidence_requests(
+            state
+        )
 
         observations = evidence_provider(
             state["alert"],
-            analysis.requested_evidence,
+            requests,
         )
 
         existing_records = state.get(

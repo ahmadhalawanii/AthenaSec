@@ -2,7 +2,7 @@ import pytest
 
 from app.schemas import (
     AlertAnalysis,
-    DryRunExecutionResult,
+    ResponseExecutionResult,
     EvidenceRecord,
     InvestigationResponse,
     PolicyDecision,
@@ -50,28 +50,22 @@ def make_investigation() -> InvestigationResponse:
         ),
         policy_decision=PolicyDecision(
             policy_id="POL-BF-HIGH",
-            policy_name="High-Risk Brute Force Review",
+            policy_name="High-Risk Brute Force",
             matched=True,
-            approval_type="analyst",
-            execution_mode="dry_run",
-            actions=[
-                "block_ip",
-                "notify_administrator",
-                "create_case",
-            ],
-            reason="Analyst approval required.",
+            response_allowed=False,
+            actions=[],
+            reason=(
+                "Automatic containment is not permitted."
+            ),
         ),
         response_plan=ResponsePlan(
             policy_id="POL-BF-HIGH",
-            actions=[
-                "block_ip",
-                "notify_administrator",
-                "create_case",
-            ],
-            approval_type="analyst",
-            execution_mode="dry_run",
-            status="pending_approval",
-            reason="Analyst approval required.",
+            actions=[],
+            response_allowed=False,
+            status="create_case",
+            reason=(
+                "Automatic containment is not permitted."
+            ),
         ),
         investigation_iteration=1,
     )
@@ -99,7 +93,7 @@ def test_store_saves_and_retrieves_investigation():
 
     assert (
         stored.response_plan.status
-        == "pending_approval"
+        == "create_case"
     )
 
 
@@ -112,22 +106,31 @@ def test_store_updates_response_plan():
         investigation
     )
 
-    approved_plan = (
+    execution_plan = (
         investigation.response_plan.model_copy(
             update={
-                "status": "approved",
+                "response_allowed": True,
+                "status": "ready_for_execution",
+                "actions": [
+                    "block_ip",
+                ],
             }
         )
     )
 
     updated = store.update_response_plan(
         "ALT-STORE-001",
-        approved_plan,
+        execution_plan,
     )
 
     assert (
         updated.response_plan.status
-        == "approved"
+        == "ready_for_execution"
+    )
+
+    assert (
+        updated.response_plan.response_allowed
+        is True
     )
 
     stored = store.get(
@@ -138,7 +141,12 @@ def test_store_updates_response_plan():
 
     assert (
         stored.response_plan.status
-        == "approved"
+        == "ready_for_execution"
+    )
+
+    assert (
+        stored.response_plan.response_allowed
+        is True
     )
 
 
@@ -156,6 +164,7 @@ def test_updating_missing_investigation_fails():
             plan,
         )
 
+
 def test_store_updates_execution_result():
     store = InMemoryInvestigationStore()
 
@@ -165,9 +174,9 @@ def test_store_updates_execution_result():
         investigation
     )
 
-    execution = DryRunExecutionResult(
+    execution = ResponseExecutionResult(
         policy_id="POL-BF-HIGH",
-        execution_mode="dry_run",
+        executor="cortex",
         status="completed",
         action_results=[],
     )
@@ -233,7 +242,7 @@ def test_sqlite_store_persists_across_instances(
 
     assert (
         stored.response_plan.status
-        == "pending_approval"
+        == "create_case"
     )
 
 
@@ -255,17 +264,21 @@ def test_sqlite_store_persists_response_plan_update(
         investigation
     )
 
-    approved_plan = (
+    execution_plan = (
         investigation.response_plan.model_copy(
             update={
-                "status": "approved",
+                "response_allowed": True,
+                "status": "ready_for_execution",
+                "actions": [
+                    "block_ip",
+                ],
             }
         )
     )
 
     store.update_response_plan(
         "ALT-STORE-001",
-        approved_plan,
+        execution_plan,
     )
 
     restarted_store = SQLiteInvestigationStore(
@@ -280,7 +293,12 @@ def test_sqlite_store_persists_response_plan_update(
 
     assert (
         stored.response_plan.status
-        == "approved"
+        == "ready_for_execution"
+    )
+
+    assert (
+        stored.response_plan.response_allowed
+        is True
     )
 
 
@@ -302,9 +320,9 @@ def test_sqlite_store_persists_execution_result(
         investigation
     )
 
-    execution = DryRunExecutionResult(
+    execution = ResponseExecutionResult(
         policy_id="POL-BF-HIGH",
-        execution_mode="dry_run",
+        executor="cortex",
         status="completed",
         action_results=[],
     )

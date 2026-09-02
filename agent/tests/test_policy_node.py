@@ -47,18 +47,8 @@ def test_policy_node_evaluates_high_brute_force():
     )
 
     assert (
-        decision.approval_type
-        == "analyst"
+        decision.response_allowed
+        is False
     )
 
-    assert (
-        decision.execution_mode
-        == "dry_run"
-    )
-
-    assert "block_ip" in decision.actions
-
-    assert (
-        result["status"]
-        == "policy_evaluated"
-    )
+    assert decision.actions == []

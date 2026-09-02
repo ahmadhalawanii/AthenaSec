@@ -9,6 +9,9 @@ from langgraph.graph import (
 from app.graph.nodes.analyze import (
     make_analyze_alert_node,
 )
+from app.graph.nodes.classify_ml import (
+    make_ml_classification_node,
+)
 from app.graph.nodes.finalize import (
     finalize_investigation,
 )
@@ -27,6 +30,9 @@ from app.graph.nodes.response_plan import (
 from app.graph.nodes.risk import (
     calculate_investigation_risk,
 )
+from app.graph.nodes.misp_enrichment import (
+    make_misp_enrichment_node,
+)
 from app.graph.routing import (
     route_after_analysis,
 )
@@ -34,11 +40,17 @@ from app.graph.state import InvestigationState
 from app.llm import analyze_security_event
 from app.schemas import (
     AlertAnalysis,
+    AttackPrediction,
     EvidenceObservation,
     EvidenceRequest,
     SecurityAlertInput,
 )
-
+from app.services.ml_classifier import (
+    MLClassifier,
+)
+from app.services.misp_client import (
+    MISPClient,
+)
 from app.tools.evidence_provider import (
     create_evidence_provider,
 )
@@ -64,6 +76,12 @@ def build_investigation_graph(
     evidence_provider: (
         EvidenceProvider | None
     ) = None,
+    ml_classifier: (
+        MLClassifier | None
+    ) = None,
+    misp_client: (
+        MISPClient | None
+    ) = None,
 ):
     if evidence_provider is None:
         evidence_provider = (
@@ -78,6 +96,22 @@ def build_investigation_graph(
         "normalize_alert",
         normalize_alert,
     )
+
+    if ml_classifier is not None:
+        builder.add_node(
+            "classify_with_ml",
+            make_ml_classification_node(
+                ml_classifier.classify
+            ),
+        )
+
+    if misp_client is not None:
+        builder.add_node(
+            "enrich_with_misp",
+            make_misp_enrichment_node(
+                misp_client
+            ),
+        )
 
     builder.add_node(
         "analyze_alert",
@@ -118,10 +152,45 @@ def build_investigation_graph(
         "normalize_alert",
     )
 
-    builder.add_edge(
-        "normalize_alert",
-        "analyze_alert",
-    )
+    if ml_classifier is not None:
+        builder.add_edge(
+            "normalize_alert",
+            "classify_with_ml",
+        )
+
+        if misp_client is not None:
+            builder.add_edge(
+                "classify_with_ml",
+                "enrich_with_misp",
+            )
+
+            builder.add_edge(
+                "enrich_with_misp",
+                "analyze_alert",
+            )
+
+        else:
+            builder.add_edge(
+                "classify_with_ml",
+                "analyze_alert",
+            )
+
+    elif misp_client is not None:
+        builder.add_edge(
+            "normalize_alert",
+            "enrich_with_misp",
+        )
+
+        builder.add_edge(
+            "enrich_with_misp",
+            "analyze_alert",
+        )
+
+    else:
+        builder.add_edge(
+            "normalize_alert",
+            "analyze_alert",
+        )
 
     builder.add_conditional_edges(
         "analyze_alert",

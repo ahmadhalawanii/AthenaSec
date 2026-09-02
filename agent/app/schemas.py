@@ -7,8 +7,8 @@ from pydantic import (
     Field,
     field_validator,
 )
-
-
+from datetime import datetime, timezone
+from typing import Literal
 class SecurityAlertInput(BaseModel):
     alert_id: str
 
@@ -37,6 +37,14 @@ AttackClassification = Literal[
     "benign",
     "unknown",
 ]
+
+class AttackPrediction(BaseModel):
+    classification: AttackClassification
+    confidence: float = Field(
+        ge=0.0,
+        le=1.0,
+    )
+    model_version: str
 
 
 SeverityAssessment = Literal[
@@ -82,8 +90,6 @@ EvidenceSource = Literal[
 ]
 
 
-# Keep this as a plain string for Ollama's JSON Schema.
-# We validate the E001 format locally in Python instead.
 EvidenceReference = str
 
 
@@ -233,18 +239,6 @@ AllowedAction = Literal[
 ]
 
 
-ApprovalType = Literal[
-    "none",
-    "analyst",
-    "automatic",
-]
-
-
-ExecutionMode = Literal[
-    "dry_run",
-]
-
-
 class PolicyDecision(BaseModel):
     policy_id: str
 
@@ -252,9 +246,7 @@ class PolicyDecision(BaseModel):
 
     matched: bool
 
-    approval_type: ApprovalType
-
-    execution_mode: ExecutionMode = "dry_run"
+    response_allowed: bool
 
     actions: list[AllowedAction]
 
@@ -263,10 +255,8 @@ class PolicyDecision(BaseModel):
 
 ResponsePlanStatus = Literal[
     "no_action",
-    "pending_approval",
-    "approved",
-    "rejected",
-    "ready_for_dry_run",
+    "create_case",
+    "ready_for_execution",
 ]
 
 
@@ -275,40 +265,27 @@ class ResponsePlan(BaseModel):
 
     actions: list[AllowedAction]
 
-    approval_type: ApprovalType
-
-    execution_mode: ExecutionMode
+    response_allowed: bool
 
     status: ResponsePlanStatus
 
     reason: str
 
 
-AnalystDecisionType = Literal[
-    "approve",
-    "reject",
-]
-
-
-class AnalystDecision(BaseModel):
-    decision: AnalystDecisionType
-
-    analyst_id: str = Field(
-        min_length=1,
-    )
-
-    reason: str = Field(
-        min_length=1,
-    )
-
-
 ActionExecutionStatus = Literal[
-    "simulated",
+    "completed",
+    "failed",
 ]
 
 
 ExecutionStatus = Literal[
     "completed",
+    "failed",
+]
+
+
+ExecutionProvider = Literal[
+    "cortex",
 ]
 
 
@@ -319,30 +296,93 @@ class ActionExecutionResult(BaseModel):
 
     message: str
 
+    details: dict[str, object] = Field(
+        default_factory=dict,
+    )
 
-class DryRunExecutionResult(BaseModel):
+
+class ResponseExecutionResult(BaseModel):
     policy_id: str
 
-    execution_mode: ExecutionMode
+    executor: ExecutionProvider
 
     status: ExecutionStatus
 
     action_results: list[ActionExecutionResult]
 
+CaseStatus = Literal[
+    "open",
+]
+
+
+class CaseRecord(BaseModel):
+    case_id: str
+
+    alert_id: str
+
+    policy_id: str
+
+    classification: AttackClassification
+
+    risk_score: int
+
+    risk_band: RiskBand
+
+    status: CaseStatus
+
+    reason: str
+
+
+AuditEventType = Literal[
+    "investigation_created",
+    "ml_classification_completed",
+    "ml_classification_failed",
+    "misp_enrichment_completed",
+    "misp_enrichment_failed",
+    "policy_evaluated",
+    "case_created",
+    "autonomous_response_blocked",
+    "cortex_execution_started",
+    "cortex_execution_completed",
+    "cortex_execution_failed",
+]
+class AuditRecord(BaseModel):
+    audit_id: str
+    alert_id: str
+    timestamp: datetime = Field(
+        default_factory=lambda: (
+            datetime.now(
+                timezone.utc
+            )
+        )
+    )
+    event_type: AuditEventType
+    message: str
+    details: dict[str, object] = Field(
+        default_factory=dict,
+    )
 
 class InvestigationResponse(BaseModel):
     alert_id: str
 
-    source: Literal[
-        "manual",
-        "mock",
-        "wazuh",
-        "dataset",
-    ]
+    source: str
+
+    alert_metadata: dict[str, object] = Field(
+        default_factory=dict,
+    )
 
     status: str
 
     normalized_event: str
+
+    ml_prediction: (
+        AttackPrediction | None
+    ) = None
+
+    ml_error: str | None = None
+
+    misp_enrichment: MISPEnrichment | None = None
+    misp_error: str | None = None
 
     analysis: AlertAnalysis
 
@@ -355,7 +395,28 @@ class InvestigationResponse(BaseModel):
     response_plan: ResponsePlan
 
     execution_result: (
-        DryRunExecutionResult | None
+        ResponseExecutionResult | None
     ) = None
 
     investigation_iteration: int
+
+
+MISPThreatLevel = Literal[
+    "low",
+    "medium",
+    "high",
+    "unknown",
+]
+
+
+class MISPMatch(BaseModel):
+    indicator_type: str
+    indicator_value: str
+    event_id: str
+    event_info: str
+    threat_level: MISPThreatLevel
+
+
+class MISPEnrichment(BaseModel):
+    queried_indicators: list[str]
+    matches: list[MISPMatch]

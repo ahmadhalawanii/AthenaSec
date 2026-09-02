@@ -2,7 +2,9 @@ from typing import Literal, TypedDict
 
 from app.schemas import (
     AlertAnalysis,
+    AttackPrediction,
     EvidenceRecord,
+    MISPEnrichment,
     PolicyDecision,
     ResponsePlan,
     RiskAssessment,
@@ -30,6 +32,14 @@ class InvestigationState(TypedDict, total=False):
     alert: SecurityAlertInput
 
     normalized_event: str
+
+    ml_prediction: AttackPrediction
+
+    ml_error: str
+
+    misp_enrichment: MISPEnrichment
+
+    misp_error: str
 
     evidence_records: list[EvidenceRecord]
 

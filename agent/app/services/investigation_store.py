@@ -3,8 +3,9 @@ from pathlib import Path
 from typing import Protocol
 
 from app.schemas import (
-    DryRunExecutionResult,
+    CaseRecord,
     InvestigationResponse,
+    ResponseExecutionResult,
     ResponsePlan,
 )
 
@@ -32,8 +33,26 @@ class InvestigationStore(Protocol):
     def update_execution_result(
         self,
         alert_id: str,
-        execution_result: DryRunExecutionResult,
+        execution_result: ResponseExecutionResult,
     ) -> InvestigationResponse:
+        ...
+
+    def save_case(
+        self,
+        case: CaseRecord,
+    ) -> CaseRecord:
+        ...
+
+    def get_case(
+        self,
+        case_id: str,
+    ) -> CaseRecord | None:
+        ...
+
+    def get_case_by_alert_id(
+        self,
+        alert_id: str,
+    ) -> CaseRecord | None:
         ...
 
 
@@ -42,6 +61,11 @@ class InMemoryInvestigationStore:
         self._investigations: dict[
             str,
             InvestigationResponse,
+        ] = {}
+
+        self._cases: dict[
+            str,
+            CaseRecord,
         ] = {}
 
     def save(
@@ -91,7 +115,7 @@ class InMemoryInvestigationStore:
     def update_execution_result(
         self,
         alert_id: str,
-        execution_result: DryRunExecutionResult,
+        execution_result: ResponseExecutionResult,
     ) -> InvestigationResponse:
         investigation = self.get(
             alert_id
@@ -113,6 +137,34 @@ class InMemoryInvestigationStore:
         ] = updated
 
         return updated
+
+    def save_case(
+        self,
+        case: CaseRecord,
+    ) -> CaseRecord:
+        self._cases[
+            case.case_id
+        ] = case
+
+        return case
+
+    def get_case(
+        self,
+        case_id: str,
+    ) -> CaseRecord | None:
+        return self._cases.get(
+            case_id
+        )
+
+    def get_case_by_alert_id(
+        self,
+        alert_id: str,
+    ) -> CaseRecord | None:
+        for case in self._cases.values():
+            if case.alert_id == alert_id:
+                return case
+
+        return None
 
 
 class SQLiteInvestigationStore:
@@ -146,6 +198,16 @@ class SQLiteInvestigationStore:
                 """
                 CREATE TABLE IF NOT EXISTS investigations (
                     alert_id TEXT PRIMARY KEY,
+                    payload TEXT NOT NULL
+                )
+                """
+            )
+
+            connection.execute(
+                """
+                CREATE TABLE IF NOT EXISTS cases (
+                    case_id TEXT PRIMARY KEY,
+                    alert_id TEXT NOT NULL UNIQUE,
                     payload TEXT NOT NULL
                 )
                 """
@@ -224,7 +286,7 @@ class SQLiteInvestigationStore:
     def update_execution_result(
         self,
         alert_id: str,
-        execution_result: DryRunExecutionResult,
+        execution_result: ResponseExecutionResult,
     ) -> InvestigationResponse:
         investigation = self.get(
             alert_id
@@ -243,4 +305,75 @@ class SQLiteInvestigationStore:
 
         return self.save(
             updated
+        )
+
+    def save_case(
+        self,
+        case: CaseRecord,
+    ) -> CaseRecord:
+        payload = case.model_dump_json()
+
+        with self._connect() as connection:
+            connection.execute(
+                """
+                INSERT OR REPLACE INTO cases (
+                    case_id,
+                    alert_id,
+                    payload
+                )
+                VALUES (?, ?, ?)
+                """,
+                (
+                    case.case_id,
+                    case.alert_id,
+                    payload,
+                ),
+            )
+
+        return case
+
+    def get_case(
+        self,
+        case_id: str,
+    ) -> CaseRecord | None:
+        with self._connect() as connection:
+            row = connection.execute(
+                """
+                SELECT payload
+                FROM cases
+                WHERE case_id = ?
+                """,
+                (
+                    case_id,
+                ),
+            ).fetchone()
+
+        if row is None:
+            return None
+
+        return CaseRecord.model_validate_json(
+            row[0]
+        )
+
+    def get_case_by_alert_id(
+        self,
+        alert_id: str,
+    ) -> CaseRecord | None:
+        with self._connect() as connection:
+            row = connection.execute(
+                """
+                SELECT payload
+                FROM cases
+                WHERE alert_id = ?
+                """,
+                (
+                    alert_id,
+                ),
+            ).fetchone()
+
+        if row is None:
+            return None
+
+        return CaseRecord.model_validate_json(
+            row[0]
         )

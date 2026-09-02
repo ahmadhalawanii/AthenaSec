@@ -10,10 +10,9 @@ def no_policy_match(
 ) -> PolicyDecision:
     return PolicyDecision(
         policy_id="NONE",
-        policy_name="No Response Policy",
+        policy_name="No Autonomous Response Policy",
         matched=False,
-        approval_type="none",
-        execution_mode="dry_run",
+        response_allowed=False,
         actions=[],
         reason=reason,
     )
@@ -25,7 +24,8 @@ def evaluate_policy(
 ) -> PolicyDecision:
     if analysis.classification == "benign":
         return no_policy_match(
-            "Benign events do not trigger response policies."
+            "Benign events do not trigger "
+            "autonomous response policies."
         )
 
     if (
@@ -38,17 +38,13 @@ def evaluate_policy(
                 "Critical Brute Force Containment"
             ),
             matched=True,
-            approval_type="automatic",
-            execution_mode="dry_run",
+            response_allowed=True,
             actions=[
                 "block_ip",
-                "notify_administrator",
-                "create_case",
-                "record_response",
             ],
             reason=(
-                "Critical brute-force risk reached "
-                "the automatic containment threshold."
+                "Critical brute-force activity met "
+                "the autonomous containment threshold."
             ),
         )
 
@@ -59,19 +55,16 @@ def evaluate_policy(
         return PolicyDecision(
             policy_id="POL-BF-HIGH",
             policy_name=(
-                "High-Risk Brute Force Review"
+                "High-Risk Brute Force"
             ),
             matched=True,
-            approval_type="analyst",
-            execution_mode="dry_run",
-            actions=[
-                "block_ip",
-                "notify_administrator",
-                "create_case",
-            ],
+            response_allowed=False,
+            actions=[],
             reason=(
-                "High-risk brute-force activity requires "
-                "analyst approval before containment."
+                "High-risk brute-force activity was "
+                "confirmed, but the configured policy "
+                "does not permit autonomous containment "
+                "at this risk level."
             ),
         )
 
@@ -83,24 +76,19 @@ def evaluate_policy(
         return PolicyDecision(
             policy_id="POL-PM-HIGH",
             policy_name=(
-                "Privilege Misuse Containment"
+                "High-Risk Privilege Misuse"
             ),
             matched=True,
-            approval_type="analyst",
-            execution_mode="dry_run",
-            actions=[
-                "lock_account",
-                "capture_telemetry",
-                "notify_administrator",
-                "create_case",
-            ],
+            response_allowed=False,
+            actions=[],
             reason=(
-                "High-risk privilege misuse requires "
-                "analyst-approved containment."
+                "High-risk privilege misuse was "
+                "identified, but automatic account "
+                "containment is not currently permitted."
             ),
         )
 
     return no_policy_match(
         "The investigation did not reach a configured "
-        "response-policy threshold."
+        "autonomous-response threshold."
     )

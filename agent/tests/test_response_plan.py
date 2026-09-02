@@ -1,65 +1,86 @@
-from app.schemas import (
-    PolicyDecision,
-)
-from app.services.response_planner import (
-    create_response_plan,
-)
+from app.schemas import PolicyDecision
+from app.services.response_planner import create_response_plan
 
 
-def test_analyst_policy_creates_pending_plan():
-    policy = PolicyDecision(
-        policy_id="POL-BF-HIGH",
-        policy_name="High-Risk Brute Force Review",
+def test_allowed_policy_creates_automatic_execution_plan():
+    decision = PolicyDecision(
+        policy_id="POL-BF-CRITICAL",
+        policy_name=(
+            "Critical Brute Force Containment"
+        ),
         matched=True,
-        approval_type="analyst",
-        execution_mode="dry_run",
+        response_allowed=True,
         actions=[
             "block_ip",
-            "notify_administrator",
-            "create_case",
         ],
-        reason="Analyst approval required.",
+        reason=(
+            "Critical brute-force activity met "
+            "the autonomous containment threshold."
+        ),
     )
 
     plan = create_response_plan(
-        policy
+        decision
     )
 
-    assert plan.policy_id == "POL-BF-HIGH"
-
-    assert (
-        plan.status
-        == "pending_approval"
+    assert plan.policy_id == (
+        "POL-BF-CRITICAL"
     )
-
-    assert (
-        plan.approval_type
-        == "analyst"
-    )
-
-    assert plan.execution_mode == "dry_run"
 
     assert plan.actions == [
         "block_ip",
-        "notify_administrator",
-        "create_case",
     ]
 
+    assert plan.response_allowed is True
 
-def test_automatic_policy_is_ready_for_dry_run():
-    policy = PolicyDecision(
-        policy_id="POL-BF-CRITICAL",
-        policy_name="Critical Brute Force Containment",
+    assert (
+        plan.status
+        == "ready_for_execution"
+    )
+
+
+def test_not_allowed_policy_creates_case_plan():
+    decision = PolicyDecision(
+        policy_id="POL-BF-HIGH",
+        policy_name=(
+            "High-Risk Brute Force"
+        ),
         matched=True,
-        approval_type="automatic",
-        execution_mode="dry_run",
-        actions=[
-            "block_ip",
-            "notify_administrator",
-            "create_case",
-            "record_response",
-        ],
-        reason="Automatic policy threshold reached.",
+        response_allowed=False,
+        actions=[],
+        reason=(
+            "Automatic containment "
+            "is not permitted."
+        ),
+    )
+
+    plan = create_response_plan(
+        decision
+    )
+
+    assert plan.response_allowed is False
+
+    assert (
+        plan.status
+        == "create_case"
+    )
+
+    assert plan.actions == []
+
+
+def test_unmatched_policy_creates_case_plan():
+    policy = PolicyDecision(
+        policy_id="NONE",
+        policy_name=(
+            "No Autonomous Response Policy"
+        ),
+        matched=False,
+        response_allowed=False,
+        actions=[],
+        reason=(
+            "No autonomous response "
+            "policy matched."
+        ),
     )
 
     plan = create_response_plan(
@@ -67,26 +88,37 @@ def test_automatic_policy_is_ready_for_dry_run():
     )
 
     assert (
-        plan.status
-        == "ready_for_dry_run"
+        plan.response_allowed
+        is False
     )
 
+    assert (
+        plan.status
+        == "create_case"
+    )
 
-def test_unmatched_policy_creates_no_action_plan():
-    policy = PolicyDecision(
-        policy_id="NONE",
-        policy_name="No Response Policy",
-        matched=False,
-        approval_type="none",
-        execution_mode="dry_run",
-        actions=[],
-        reason="No policy matched.",
+    assert plan.actions == []
+
+
+def test_response_plan_has_no_approval_type():
+    decision = PolicyDecision(
+        policy_id="POL-BF-CRITICAL",
+        policy_name=(
+            "Critical Brute Force Containment"
+        ),
+        matched=True,
+        response_allowed=True,
+        actions=[
+            "block_ip",
+        ],
+        reason="Allowed.",
     )
 
     plan = create_response_plan(
-        policy
+        decision
     )
 
-    assert plan.status == "no_action"
-
-    assert plan.actions == []
+    assert not hasattr(
+        plan,
+        "approval_type",
+    )

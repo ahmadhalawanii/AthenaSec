@@ -58,29 +58,25 @@ class FakeWazuhGraph:
             "policy_decision": PolicyDecision(
                 policy_id="POL-BF-HIGH",
                 policy_name=(
-                    "High-Risk Brute Force Review"
+                    "High-Risk Brute Force"
                 ),
                 matched=True,
-                approval_type="analyst",
-                execution_mode="dry_run",
-                actions=[
-                    "block_ip",
-                    "notify_administrator",
-                    "create_case",
-                ],
-                reason="Analyst approval required.",
+                response_allowed=False,
+                actions=[],
+                reason=(
+                    "Automatic containment "
+                    "is not permitted."
+                ),
             ),
             "response_plan": ResponsePlan(
                 policy_id="POL-BF-HIGH",
-                actions=[
-                    "block_ip",
-                    "notify_administrator",
-                    "create_case",
-                ],
-                approval_type="analyst",
-                execution_mode="dry_run",
-                status="pending_approval",
-                reason="Analyst approval required.",
+                actions=[],
+                response_allowed=False,
+                status="create_case",
+                reason=(
+                    "Automatic containment "
+                    "is not permitted."
+                ),
             ),
             "investigation_iteration": 0,
             "status": "complete",
@@ -195,7 +191,12 @@ def test_wazuh_ingestion_creates_investigation():
 
     assert (
         data["response_plan"]["status"]
-        == "pending_approval"
+        == "create_case"
+    )
+
+    assert (
+        data["response_plan"]["response_allowed"]
+        is False
     )
 
     assert graph.last_alert is not None

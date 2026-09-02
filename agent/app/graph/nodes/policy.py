@@ -12,6 +12,26 @@ def evaluate_investigation_policy(
         state["risk_assessment"],
     )
 
+    ml_error = state.get(
+        "ml_error"
+    )
+
+    if ml_error is not None:
+        policy_decision = (
+            policy_decision.model_copy(
+                update={
+                    "response_allowed": False,
+                    "actions": [],
+                    "reason": (
+                        "Autonomous response denied "
+                        "because ML classification "
+                        "failed: "
+                        f"{ml_error}"
+                    ),
+                }
+            )
+        )
+
     return {
         "policy_decision": policy_decision,
         "status": "policy_evaluated",

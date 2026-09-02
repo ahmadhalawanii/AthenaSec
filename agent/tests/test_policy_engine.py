@@ -2,9 +2,7 @@ from app.schemas import (
     AlertAnalysis,
     RiskAssessment,
 )
-from app.services.policy_engine import (
-    evaluate_policy,
-)
+from app.services.policy_engine import evaluate_policy
 
 
 def make_analysis(
@@ -14,10 +12,8 @@ def make_analysis(
         classification=classification,
         confidence=0.95,
         severity_assessment="high",
-        summary="Test investigation.",
-        evidence_refs=[
-            "E001",
-        ],
+        summary="Test analysis",
+        evidence_refs=["E001"],
         uncertainties=[],
         recommended_investigation_steps=[],
         recommended_response_actions=[],
@@ -28,8 +24,16 @@ def make_analysis(
 
 def make_risk(
     score: int,
-    band: str,
 ) -> RiskAssessment:
+    if score >= 90:
+        band = "critical"
+    elif score >= 70:
+        band = "high"
+    elif score >= 40:
+        band = "medium"
+    else:
+        band = "low"
+
     return RiskAssessment(
         score=score,
         band=band,
@@ -37,44 +41,10 @@ def make_risk(
     )
 
 
-def test_high_brute_force_requires_analyst_approval():
+def test_critical_brute_force_allows_autonomous_response():
     decision = evaluate_policy(
-        make_analysis(
-            "brute_force"
-        ),
-        make_risk(
-            75,
-            "high",
-        ),
-    )
-
-    assert decision.matched is True
-
-    assert (
-        decision.policy_id
-        == "POL-BF-HIGH"
-    )
-
-    assert (
-        decision.approval_type
-        == "analyst"
-    )
-
-    assert decision.execution_mode == "dry_run"
-
-    assert "block_ip" in decision.actions
-    assert "create_case" in decision.actions
-
-
-def test_critical_brute_force_matches_critical_policy():
-    decision = evaluate_policy(
-        make_analysis(
-            "brute_force"
-        ),
-        make_risk(
-            95,
-            "critical",
-        ),
+        make_analysis("brute_force"),
+        make_risk(92),
     )
 
     assert decision.matched is True
@@ -85,29 +55,42 @@ def test_critical_brute_force_matches_critical_policy():
     )
 
     assert (
-        decision.approval_type
-        == "automatic"
+        decision.response_allowed
+        is True
     )
-
-    assert decision.execution_mode == "dry_run"
 
     assert decision.actions == [
         "block_ip",
-        "notify_administrator",
-        "create_case",
-        "record_response",
     ]
 
 
-def test_high_privilege_misuse_requires_approval():
+def test_high_brute_force_does_not_allow_autonomous_response():
+    decision = evaluate_policy(
+        make_analysis("brute_force"),
+        make_risk(78),
+    )
+
+    assert decision.matched is True
+
+    assert (
+        decision.policy_id
+        == "POL-BF-HIGH"
+    )
+
+    assert (
+        decision.response_allowed
+        is False
+    )
+
+    assert decision.actions == []
+
+
+def test_privilege_misuse_does_not_automatically_lock_account():
     decision = evaluate_policy(
         make_analysis(
             "privilege_misuse"
         ),
-        make_risk(
-            85,
-            "high",
-        ),
+        make_risk(85),
     )
 
     assert decision.matched is True
@@ -118,49 +101,54 @@ def test_high_privilege_misuse_requires_approval():
     )
 
     assert (
-        decision.approval_type
-        == "analyst"
+        decision.response_allowed
+        is False
     )
 
-    assert "lock_account" in decision.actions
-
-    assert (
-        "capture_telemetry"
-        in decision.actions
-    )
+    assert decision.actions == []
 
 
-def test_low_risk_does_not_match_response_policy():
+def test_low_risk_has_no_authorized_response():
     decision = evaluate_policy(
-        make_analysis(
-            "brute_force"
-        ),
-        make_risk(
-            35,
-            "low",
-        ),
+        make_analysis("brute_force"),
+        make_risk(45),
     )
 
     assert decision.matched is False
-
     assert decision.policy_id == "NONE"
 
-    assert decision.approval_type == "none"
+    assert (
+        decision.response_allowed
+        is False
+    )
 
     assert decision.actions == []
 
 
-def test_benign_event_never_matches_response_policy():
+def test_benign_event_has_no_authorized_response():
     decision = evaluate_policy(
-        make_analysis(
-            "benign"
-        ),
-        make_risk(
-            0,
-            "low",
-        ),
+        make_analysis("benign"),
+        make_risk(0),
     )
 
     assert decision.matched is False
+    assert decision.policy_id == "NONE"
+
+    assert (
+        decision.response_allowed
+        is False
+    )
 
     assert decision.actions == []
+
+
+def test_policy_decision_has_no_human_approval_field():
+    decision = evaluate_policy(
+        make_analysis("brute_force"),
+        make_risk(92),
+    )
+
+    assert not hasattr(
+        decision,
+        "approval_type",
+    )
