@@ -246,6 +246,9 @@ def parse_wazuh_alert(
             "dstport"
         ),
 
+        "command": data.get("command"),
+        "target_group": data.get("group"),
+
         "failed_attempts": failed_attempts,
         "privileged_target": (
             privileged_target

@@ -229,3 +229,50 @@ def test_alert_without_identifier_is_rejected():
         parse_wazuh_alert(
             payload
         )
+
+def test_preserves_command_from_wazuh_data():
+    payload = {
+        **RAW_WAZUH_ALERT,
+        "id": "sudo-test-001",
+        "data": {
+            "srcuser": "daniel",
+            "dstuser": "root",
+            "command": "/bin/bash",
+        },
+        "decoder": {
+            "name": "sudo",
+            "parent": "sudo",
+        },
+    }
+
+    alert = parse_wazuh_alert(
+        payload
+    )
+
+    assert alert.metadata[
+        "command"
+    ] == "/bin/bash"
+
+
+def test_preserves_target_group_from_wazuh_data():
+    payload = {
+        **RAW_WAZUH_ALERT,
+        "id": "gpasswd-test-001",
+        "data": {
+            "srcuser": "root",
+            "dstuser": "backdooruser",
+            "group": "sudo",
+        },
+        "decoder": {
+            "name": "gpasswd",
+            "parent": "gpasswd",
+        },
+    }
+
+    alert = parse_wazuh_alert(
+        payload
+    )
+
+    assert alert.metadata[
+        "target_group"
+    ] == "sudo"

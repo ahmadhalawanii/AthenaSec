@@ -1,0 +1,164 @@
+from training.data_contract import (
+    TrainingRow,
+)
+from training.train_classifier import (
+    train_classifier,
+)
+
+
+def _row(
+    value: float,
+    label: str,
+    source_dataset: str,
+    source_row_id: str,
+) -> TrainingRow:
+    return TrainingRow(
+        rule_level=value,
+        rule_frequency=value,
+        failed_attempts=value,
+        privileged_target=(
+            1.0
+            if label == "privilege_misuse"
+            else 0.0
+        ),
+        source_port=value,
+        destination_port=value,
+        has_source_ip=1.0,
+        has_target_user=1.0,
+        has_agent=1.0,
+        mitre_id_count=value,
+        rule_group_count=value,
+        is_sudo_event=(
+            1.0
+            if label == "privilege_misuse"
+            else 0.0
+        ),
+        is_account_change_event=0.0,
+        is_privilege_group_change=0.0,
+        has_command=(
+            1.0
+            if label == "privilege_misuse"
+            else 0.0
+        ),
+        label=label,
+        source_dataset=source_dataset,
+        source_row_id=source_row_id,
+    )
+
+
+def _training_rows() -> list[TrainingRow]:
+    rows = []
+
+    for index in range(40):
+        rows.append(
+            _row(
+                value=float(index + 1),
+                label="benign",
+                source_dataset="cic_ids_2017",
+                source_row_id=f"benign-{index}",
+            )
+        )
+
+    for index in range(40):
+        rows.append(
+            _row(
+                value=float(index + 101),
+                label="brute_force",
+                source_dataset="cic_ids_2018",
+                source_row_id=f"brute-{index}",
+            )
+        )
+
+    for index in range(40):
+        rows.append(
+            _row(
+                value=float(index + 201),
+                label="privilege_misuse",
+                source_dataset="adfa_ld",
+                source_row_id=f"privilege-{index}",
+            )
+        )
+
+    return rows
+
+
+def test_training_runs_both_models():
+    result = train_classifier(
+        rows=_training_rows(),
+        random_state=42,
+    )
+
+    assert (
+        "logistic_regression"
+        in result.model_metrics
+    )
+
+    assert (
+        "random_forest"
+        in result.model_metrics
+    )
+
+
+def test_training_returns_fitted_random_forest():
+    result = train_classifier(
+        rows=_training_rows(),
+        random_state=42,
+    )
+
+    assert hasattr(
+        result.random_forest_model,
+        "classes_",
+    )
+
+    assert set(
+        result.random_forest_model.classes_
+    ) == {
+        "benign",
+        "brute_force",
+        "privilege_misuse",
+    }
+
+
+def test_training_reports_test_metrics():
+    result = train_classifier(
+        rows=_training_rows(),
+        random_state=42,
+    )
+
+    random_forest_metrics = (
+        result.model_metrics[
+            "random_forest"
+        ]
+    )
+
+    assert "validation" in (
+        random_forest_metrics
+    )
+
+    assert "test" in (
+        random_forest_metrics
+    )
+
+    assert "macro_f1" in (
+        random_forest_metrics[
+            "test"
+        ]
+    )
+
+
+def test_training_tracks_duplicate_count():
+    rows = _training_rows()
+
+    rows.append(
+        rows[0]
+    )
+
+    result = train_classifier(
+        rows=rows,
+        random_state=42,
+    )
+
+    assert (
+        result.duplicate_count
+        == 1
+    )

@@ -110,6 +110,10 @@ def test_runtime_classifier_returns_attack_prediction():
         1.0,
         1.0,
         2.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
     ]
 
     assert model.predict_calls == [

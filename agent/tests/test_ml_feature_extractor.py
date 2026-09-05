@@ -1,13 +1,10 @@
 from app.ml.feature_extractor import (
     ML_FEATURE_NAMES,
     extract_ml_features,
-)
-from app.schemas import SecurityAlertInput
-from app.ml.feature_extractor import (
-    ML_FEATURE_NAMES,
-    extract_ml_features,
     feature_vector_from_alert,
 )
+from app.schemas import SecurityAlertInput
+
 
 def test_extract_ml_features_uses_wazuh_metadata():
     alert = SecurityAlertInput(
@@ -33,6 +30,8 @@ def test_extract_ml_features_uses_wazuh_metadata():
             "destination_port": 22,
             "failed_attempts": 148,
             "privileged_target": True,
+            "decoder_name": "sshd",
+            "decoder_parent": "sshd",
         },
     )
 
@@ -52,6 +51,10 @@ def test_extract_ml_features_uses_wazuh_metadata():
         "has_agent": 1.0,
         "mitre_id_count": 1.0,
         "rule_group_count": 2.0,
+        "is_sudo_event": 0.0,
+        "is_account_change_event": 0.0,
+        "is_privilege_group_change": 0.0,
+        "has_command": 0.0,
     }
 
 
@@ -79,7 +82,12 @@ def test_extract_ml_features_handles_missing_metadata():
         "has_agent": 0.0,
         "mitre_id_count": 0.0,
         "rule_group_count": 0.0,
+        "is_sudo_event": 0.0,
+        "is_account_change_event": 0.0,
+        "is_privilege_group_change": 0.0,
+        "has_command": 0.0,
     }
+
 
 def test_ml_feature_order_is_stable():
     alert = SecurityAlertInput(
@@ -97,7 +105,9 @@ def test_ml_feature_order_is_stable():
             "target_user": "root",
             "agent_id": "007",
             "mitre_ids": ["T1110"],
-            "rule_groups": ["authentication_failed"],
+            "rule_groups": [
+                "authentication_failed"
+            ],
         },
     )
 
@@ -119,7 +129,12 @@ def test_ml_feature_order_is_stable():
         "has_agent",
         "mitre_id_count",
         "rule_group_count",
+        "is_sudo_event",
+        "is_account_change_event",
+        "is_privilege_group_change",
+        "has_command",
     ]
+
 
 def test_ml_feature_names_match_runtime_feature_order():
     assert ML_FEATURE_NAMES == [
@@ -134,7 +149,12 @@ def test_ml_feature_names_match_runtime_feature_order():
         "has_agent",
         "mitre_id_count",
         "rule_group_count",
+        "is_sudo_event",
+        "is_account_change_event",
+        "is_privilege_group_change",
+        "has_command",
     ]
+
 
 def test_feature_vector_matches_feature_name_order():
     alert = SecurityAlertInput(
@@ -159,6 +179,9 @@ def test_feature_vector_matches_feature_name_order():
                 "authentication_failed",
                 "sshd",
             ],
+            "decoder_name": "sudo",
+            "decoder_parent": "sudo",
+            "command": "/bin/bash",
         },
     )
 
@@ -178,8 +201,135 @@ def test_feature_vector_matches_feature_name_order():
         1.0,
         2.0,
         2.0,
+        1.0,
+        0.0,
+        0.0,
+        1.0,
     ]
 
     assert len(vector) == len(
         ML_FEATURE_NAMES
+    )
+
+
+def test_extract_ml_features_derives_privilege_semantics():
+    sudo_alert = SecurityAlertInput(
+        alert_id="ALT-ML-SEMANTIC-001",
+        source="wazuh",
+        event_text=(
+            "Successful sudo to ROOT executed."
+        ),
+        metadata={
+            "decoder_name": "sudo",
+            "decoder_parent": "sudo",
+            "target_user": "root",
+            "command": "/bin/bash",
+        },
+    )
+
+    sudo_features = extract_ml_features(
+        sudo_alert
+    )
+
+    assert (
+        sudo_features[
+            "is_sudo_event"
+        ]
+        == 1.0
+    )
+
+    assert (
+        sudo_features[
+            "is_account_change_event"
+        ]
+        == 0.0
+    )
+
+    assert (
+        sudo_features[
+            "is_privilege_group_change"
+        ]
+        == 0.0
+    )
+
+    assert (
+        sudo_features[
+            "has_command"
+        ]
+        == 1.0
+    )
+
+    group_alert = SecurityAlertInput(
+        alert_id="ALT-ML-SEMANTIC-002",
+        source="wazuh",
+        event_text="User added to group sudo.",
+        metadata={
+            "decoder_name": "gpasswd",
+            "decoder_parent": "gpasswd",
+            "target_user": "backdooruser",
+            "target_group": "sudo",
+        },
+    )
+
+    group_features = extract_ml_features(
+        group_alert
+    )
+
+    assert (
+        group_features[
+            "is_sudo_event"
+        ]
+        == 0.0
+    )
+
+    assert (
+        group_features[
+            "is_account_change_event"
+        ]
+        == 1.0
+    )
+
+    assert (
+        group_features[
+            "is_privilege_group_change"
+        ]
+        == 1.0
+    )
+
+    assert (
+        group_features[
+            "has_command"
+        ]
+        == 0.0
+    )
+
+    account_alert = SecurityAlertInput(
+        alert_id="ALT-ML-SEMANTIC-003",
+        source="wazuh",
+        event_text=(
+            "New user added to the system."
+        ),
+        metadata={
+            "decoder_name": "useradd",
+            "decoder_parent": "useradd",
+            "target_user": "backdooruser",
+        },
+    )
+
+    account_features = extract_ml_features(
+        account_alert
+    )
+
+    assert (
+        account_features[
+            "is_account_change_event"
+        ]
+        == 1.0
+    )
+
+    assert (
+        account_features[
+            "is_privilege_group_change"
+        ]
+        == 0.0
     )
