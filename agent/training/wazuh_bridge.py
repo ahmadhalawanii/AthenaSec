@@ -155,3 +155,39 @@ def training_rows_from_behavior_replay_alert_batches(
         )
 
     return rows
+
+
+def training_row_from_behavior_replay_capture(
+    *,
+    capture: dict[str, Any],
+) -> TrainingRow:
+    replay = BehaviorReplay(
+        label=str(
+            capture["label"]
+        ),
+        source_dataset=str(
+            capture["source_dataset"]
+        ),
+        source_row_id=str(
+            capture["source_row_id"]
+        ),
+        source_behavior=str(
+            capture["source_behavior"]
+        ),
+        scenario_name=str(
+            capture["scenario_name"]
+        ),
+    )
+
+    event = capture[
+        "event"
+    ]
+
+    return (
+        training_row_from_behavior_replay_alerts(
+            replay=replay,
+            alerts=[
+                event,
+            ],
+        )
+    )

@@ -380,3 +380,85 @@ def test_behavior_replay_alert_batches_identify_missing_replay():
                 ]
             )
         )
+
+
+def test_behavior_replay_capture_becomes_training_row():
+    capture = {
+        "event": {
+            "id": "captured-alert",
+            "rule": {
+                "id": "5763",
+                "level": 12,
+                "frequency": 10,
+                "groups": [
+                    "authentication_failures",
+                    "sshd",
+                    "syslog",
+                ],
+                "mitre": {
+                    "id": [
+                        "T1110",
+                    ],
+                },
+            },
+            "data": {
+                "srcip": "198.51.100.25",
+                "srcport": "49152",
+                "dstport": "22",
+                "dstuser": "root",
+            },
+            "agent": {
+                "id": "000",
+                "name": "wazuh.manager",
+            },
+        },
+        "label": "brute_force",
+        "source_dataset": "cic_ids_2017",
+        "source_row_id": (
+            "Tuesday-WorkingHours."
+            "pcap_ISCX.csv:12345"
+        ),
+        "source_behavior": "SSH-Patator",
+        "scenario_name": (
+            "ssh_root_password_bruteforce"
+        ),
+        "wazuh_source_dataset": "wazuh_lab",
+        "wazuh_source_row_id": (
+            "ssh_root_password_"
+            "bruteforce_002"
+        ),
+    }
+
+    row = (
+        wazuh_bridge
+        .training_row_from_behavior_replay_capture(
+            capture=capture,
+        )
+    )
+
+    assert row.rule_level == 12.0
+    assert row.rule_frequency == 10.0
+    assert row.failed_attempts == 10.0
+    assert row.privileged_target == 1.0
+    assert row.source_port == 49152.0
+    assert row.destination_port == 22.0
+    assert row.has_source_ip == 1.0
+    assert row.has_target_user == 1.0
+    assert row.has_agent == 1.0
+    assert row.mitre_id_count == 1.0
+    assert row.rule_group_count == 3.0
+
+    assert row.label == "brute_force"
+
+    assert (
+        row.source_dataset
+        == "cic_ids_2017"
+    )
+
+    assert (
+        row.source_row_id
+        == (
+            "Tuesday-WorkingHours."
+            "pcap_ISCX.csv:12345"
+        )
+    )
