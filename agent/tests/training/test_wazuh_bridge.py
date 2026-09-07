@@ -201,3 +201,182 @@ def test_behavior_replay_alert_rejects_scenario_label_mismatch():
                 alerts=alerts,
             )
         )
+
+def test_behavior_replay_alert_batches_become_training_rows():
+    first_replay = BehaviorReplay(
+        label="brute_force",
+        source_dataset="cic_ids_2017",
+        source_row_id="cic2017:100",
+        source_behavior="SSH-Patator",
+        scenario_name=(
+            "ssh_invalid_user_bruteforce"
+        ),
+    )
+
+    first_alerts = [
+        {
+            "id": "alert-invalid-user",
+            "rule": {
+                "id": "5712",
+                "level": 10,
+                "frequency": 8,
+                "groups": [
+                    "authentication_failures",
+                    "sshd",
+                ],
+            },
+            "data": {
+                "srcip": "203.0.113.50",
+                "dstport": "22",
+                "dstuser": "invalid-user",
+            },
+            "agent": {
+                "id": "000",
+                "name": "wazuh.manager",
+            },
+        },
+    ]
+
+    second_replay = BehaviorReplay(
+        label="brute_force",
+        source_dataset="cic_ids_2018",
+        source_row_id="cic2018:200",
+        source_behavior="SSH-Bruteforce",
+        scenario_name=(
+            "ssh_root_password_bruteforce"
+        ),
+    )
+
+    second_alerts = [
+        {
+            "id": "alert-root-password",
+            "rule": {
+                "id": "5763",
+                "level": 12,
+                "frequency": 10,
+                "groups": [
+                    "authentication_failures",
+                    "sshd",
+                ],
+            },
+            "data": {
+                "srcip": "198.51.100.25",
+                "dstport": "22",
+                "dstuser": "root",
+            },
+            "agent": {
+                "id": "000",
+                "name": "wazuh.manager",
+            },
+        },
+    ]
+
+    rows = (
+        wazuh_bridge
+        .training_rows_from_behavior_replay_alert_batches(
+            replay_alert_batches=[
+                (
+                    first_replay,
+                    first_alerts,
+                ),
+                (
+                    second_replay,
+                    second_alerts,
+                ),
+            ]
+        )
+    )
+
+    assert len(rows) == 2
+
+    assert (
+        rows[0].source_dataset
+        == "cic_ids_2017"
+    )
+    assert (
+        rows[0].source_row_id
+        == "cic2017:100"
+    )
+    assert rows[0].rule_level == 10.0
+    assert rows[0].failed_attempts == 8.0
+
+    assert (
+        rows[1].source_dataset
+        == "cic_ids_2018"
+    )
+    assert (
+        rows[1].source_row_id
+        == "cic2018:200"
+    )
+    assert rows[1].rule_level == 12.0
+    assert rows[1].failed_attempts == 10.0
+    assert rows[1].privileged_target == 1.0
+
+
+def test_behavior_replay_alert_batches_identify_missing_replay():
+    first_replay = BehaviorReplay(
+        label="brute_force",
+        source_dataset="cic_ids_2017",
+        source_row_id="cic2017:100",
+        source_behavior="SSH-Patator",
+        scenario_name=(
+            "ssh_invalid_user_bruteforce"
+        ),
+    )
+
+    first_alerts = [
+        {
+            "id": "alert-invalid-user",
+            "rule": {
+                "id": "5712",
+                "level": 10,
+                "frequency": 8,
+                "groups": [
+                    "authentication_failures",
+                    "sshd",
+                ],
+            },
+            "data": {
+                "srcip": "203.0.113.50",
+                "dstport": "22",
+            },
+            "agent": {
+                "id": "000",
+                "name": "wazuh.manager",
+            },
+        },
+    ]
+
+    missing_replay = BehaviorReplay(
+        label="brute_force",
+        source_dataset="cic_ids_2018",
+        source_row_id="cic2018:missing",
+        source_behavior="SSH-Bruteforce",
+        scenario_name=(
+            "ssh_root_password_bruteforce"
+        ),
+    )
+
+    with pytest.raises(
+        ValueError,
+        match=(
+            "Failed behavior replay "
+            "cic_ids_2018 "
+            "cic2018:missing"
+        ),
+    ):
+        (
+            wazuh_bridge
+            .training_rows_from_behavior_replay_alert_batches(
+                replay_alert_batches=[
+                    (
+                        first_replay,
+                        first_alerts,
+                    ),
+                    (
+                        missing_replay,
+                        [],
+                    ),
+                ]
+            )
+        )

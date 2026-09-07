@@ -122,3 +122,36 @@ def training_row_from_behavior_replay_alerts(
             replay.source_row_id
         ),
     )
+
+def training_rows_from_behavior_replay_alert_batches(
+    *,
+    replay_alert_batches: list[
+        tuple[
+            BehaviorReplay,
+            list[dict[str, Any]],
+        ]
+    ],
+) -> list[TrainingRow]:
+    rows: list[TrainingRow] = []
+
+    for replay, alerts in replay_alert_batches:
+        try:
+            row = (
+                training_row_from_behavior_replay_alerts(
+                    replay=replay,
+                    alerts=alerts,
+                )
+            )
+        except ValueError as exc:
+            raise ValueError(
+                "Failed behavior replay "
+                f"{replay.source_dataset} "
+                f"{replay.source_row_id}: "
+                f"{exc}"
+            ) from exc
+
+        rows.append(
+            row
+        )
+
+    return rows
