@@ -1,6 +1,10 @@
 import json
 
 import pytest
+from training import wazuh_lab_capture
+from training.behavior_manifest import (
+    BehaviorReplay,
+)
 
 from training.wazuh_lab_capture import (
     build_labeled_record,
@@ -228,3 +232,163 @@ def test_find_latest_matching_alert_allows_empty_source_ip_filter():
     )
 
     assert result["id"] == "latest"
+
+
+def test_export_behavior_replay_capture_preserves_raw_alert_and_provenance(
+    tmp_path,
+):
+    replay = BehaviorReplay(
+        label="brute_force",
+        source_dataset="cic_ids_2017",
+        source_row_id=(
+            "Tuesday-WorkingHours."
+            "pcap_ISCX.csv:12345"
+        ),
+        source_behavior="SSH-Patator",
+        scenario_name=(
+            "ssh_root_password_bruteforce"
+        ),
+    )
+
+    alerts_path = (
+        tmp_path
+        / "alerts.json"
+    )
+
+    output_path = (
+        tmp_path
+        / "replay_capture.jsonl"
+    )
+
+    alerts = [
+        _alert(
+            alert_id="unrelated",
+            rule_id="5712",
+            source_ip="203.0.113.50",
+        ),
+        _alert(
+            alert_id="matching",
+            rule_id="5763",
+            source_ip="198.51.100.25",
+        ),
+    ]
+
+    alerts_path.write_text(
+        "\n".join(
+            json.dumps(alert)
+            for alert in alerts
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    (
+        wazuh_lab_capture
+        .export_behavior_replay_capture(
+            replay=replay,
+            alerts_path=alerts_path,
+            output_path=output_path,
+        )
+    )
+
+    record = json.loads(
+        output_path.read_text(
+            encoding="utf-8",
+        )
+    )
+
+    assert (
+        record["event"]["id"]
+        == "matching"
+    )
+
+    assert (
+        record["label"]
+        == "brute_force"
+    )
+
+    assert (
+        record["source_dataset"]
+        == "cic_ids_2017"
+    )
+
+    assert (
+        record["source_row_id"]
+        == replay.source_row_id
+    )
+
+    assert (
+        record["source_behavior"]
+        == "SSH-Patator"
+    )
+
+    assert (
+        record["scenario_name"]
+        == "ssh_root_password_bruteforce"
+    )
+
+    assert (
+        record["wazuh_source_dataset"]
+        == "wazuh_lab"
+    )
+
+    assert (
+        record["wazuh_source_row_id"]
+        == (
+            "ssh_root_password_"
+            "bruteforce_002"
+        )
+    )
+
+
+def test_export_behavior_replay_capture_rejects_scenario_label_mismatch(
+    tmp_path,
+):
+    replay = BehaviorReplay(
+        label="benign",
+        source_dataset="cic_ids_2017",
+        source_row_id="cic2017:mismatch",
+        source_behavior="BENIGN",
+        scenario_name=(
+            "ssh_root_password_bruteforce"
+        ),
+    )
+
+    alerts_path = (
+        tmp_path
+        / "alerts.json"
+    )
+
+    output_path = (
+        tmp_path
+        / "replay_capture.jsonl"
+    )
+
+    alerts_path.write_text(
+        json.dumps(
+            _alert(
+                alert_id="matching",
+                rule_id="5763",
+                source_ip="198.51.100.25",
+            )
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(
+        ValueError,
+        match=(
+            "Wazuh scenario label mismatch"
+        ),
+    ):
+        (
+            wazuh_lab_capture
+            .export_behavior_replay_capture(
+                replay=replay,
+                alerts_path=alerts_path,
+                output_path=output_path,
+            )
+        )
+
+    assert not output_path.exists()
