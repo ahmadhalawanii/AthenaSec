@@ -6,8 +6,17 @@ from app.ml.feature_extractor import (
 from app.tools.wazuh_alert_parser import (
     parse_wazuh_alert,
 )
+from training.behavior_manifest import (
+    BehaviorReplay,
+)
 from training.data_contract import (
     TrainingRow,
+)
+from training.wazuh_lab_capture import (
+    find_latest_matching_alert,
+)
+from training.wazuh_lab_scenarios import (
+    get_scenario_by_name,
 )
 
 
@@ -74,4 +83,42 @@ def training_row_from_wazuh_event(
         label=label,
         source_dataset=source_dataset,
         source_row_id=source_row_id,
+    )
+
+
+def training_row_from_behavior_replay_alerts(
+    *,
+    replay: BehaviorReplay,
+    alerts: list[dict[str, Any]],
+) -> TrainingRow:
+    scenario = get_scenario_by_name(
+        replay.scenario_name
+    )
+
+    if scenario.label != replay.label:
+        raise ValueError(
+            "Wazuh scenario label mismatch: "
+            f"manifest label={replay.label}, "
+            f"scenario label={scenario.label}"
+        )
+
+    event = find_latest_matching_alert(
+        alerts=alerts,
+        rule_id=(
+            scenario.expected_rule_id
+        ),
+        source_ip=(
+            scenario.source_ip
+        ),
+    )
+
+    return training_row_from_wazuh_event(
+        event=event,
+        label=replay.label,
+        source_dataset=(
+            replay.source_dataset
+        ),
+        source_row_id=(
+            replay.source_row_id
+        ),
     )
