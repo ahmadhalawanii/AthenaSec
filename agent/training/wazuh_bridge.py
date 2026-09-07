@@ -1,3 +1,5 @@
+import json
+from pathlib import Path
 from typing import Any
 
 from app.ml.feature_extractor import (
@@ -191,3 +193,48 @@ def training_row_from_behavior_replay_capture(
             ],
         )
     )
+
+
+def training_rows_from_behavior_replay_capture_file(
+    *,
+    captures_path: str | Path,
+) -> list[TrainingRow]:
+    path = Path(
+        captures_path
+    )
+
+    rows: list[
+        TrainingRow
+    ] = []
+
+    with path.open(
+        "r",
+        encoding="utf-8-sig",
+    ) as file:
+        for line_number, line in enumerate(
+            file,
+            start=1,
+        ):
+            stripped = line.strip()
+
+            if not stripped:
+                continue
+
+            try:
+                capture = json.loads(
+                    stripped
+                )
+            except json.JSONDecodeError as exc:
+                raise ValueError(
+                    "Failed behavior replay capture "
+                    f"line {line_number}: "
+                    f"{exc}"
+                ) from exc
+
+            rows.append(
+                training_row_from_behavior_replay_capture(
+                    capture=capture,
+                )
+            )
+
+    return rows

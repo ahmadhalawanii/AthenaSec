@@ -1,3 +1,5 @@
+import json
+
 import pytest
 from training import wazuh_bridge
 from training.behavior_manifest import (
@@ -462,3 +464,189 @@ def test_behavior_replay_capture_becomes_training_row():
             "pcap_ISCX.csv:12345"
         )
     )
+
+
+def test_behavior_replay_capture_file_becomes_training_rows(
+    tmp_path,
+):
+    captures_path = (
+        tmp_path
+        / "replay_captures.jsonl"
+    )
+
+    captures = [
+        {
+            "event": {
+                "id": "brute-force-alert",
+                "rule": {
+                    "id": "5763",
+                    "level": 12,
+                    "frequency": 10,
+                    "groups": [
+                        "authentication_failures",
+                        "sshd",
+                    ],
+                },
+                "data": {
+                    "srcip": "198.51.100.25",
+                    "dstport": "22",
+                    "dstuser": "root",
+                },
+                "agent": {
+                    "id": "000",
+                    "name": "wazuh.manager",
+                },
+            },
+            "label": "brute_force",
+            "source_dataset": "cic_ids_2017",
+            "source_row_id": "cic2017:100",
+            "source_behavior": "SSH-Patator",
+            "scenario_name": (
+                "ssh_root_password_bruteforce"
+            ),
+            "wazuh_source_dataset": "wazuh_lab",
+            "wazuh_source_row_id": (
+                "ssh_root_password_"
+                "bruteforce_002"
+            ),
+        },
+        {
+            "event": {
+                "id": "benign-alert",
+                "rule": {
+                    "id": "5715",
+                    "level": 3,
+                    "groups": [
+                        "authentication_success",
+                        "sshd",
+                    ],
+                },
+                "data": {
+                    "srcip": "203.0.113.90",
+                    "dstport": "22",
+                    "dstuser": "normaluser",
+                },
+                "agent": {
+                    "id": "000",
+                    "name": "wazuh.manager",
+                },
+            },
+            "label": "benign",
+            "source_dataset": "cic_ids_2018",
+            "source_row_id": "cic2018:200",
+            "source_behavior": "Benign",
+            "scenario_name": (
+                "ssh_authentication_success"
+            ),
+            "wazuh_source_dataset": "wazuh_lab",
+            "wazuh_source_row_id": (
+                "ssh_authentication_success_001"
+            ),
+        },
+    ]
+
+    captures_path.write_text(
+        "\n".join(
+            json.dumps(capture)
+            for capture in captures
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    rows = (
+        wazuh_bridge
+        .training_rows_from_behavior_replay_capture_file(
+            captures_path=captures_path,
+        )
+    )
+
+    assert len(rows) == 2
+
+    assert rows[0].label == "brute_force"
+    assert (
+        rows[0].source_dataset
+        == "cic_ids_2017"
+    )
+    assert (
+        rows[0].source_row_id
+        == "cic2017:100"
+    )
+    assert rows[0].rule_level == 12.0
+    assert rows[0].failed_attempts == 10.0
+    assert rows[0].privileged_target == 1.0
+
+    assert rows[1].label == "benign"
+    assert (
+        rows[1].source_dataset
+        == "cic_ids_2018"
+    )
+    assert (
+        rows[1].source_row_id
+        == "cic2018:200"
+    )
+    assert rows[1].rule_level == 3.0
+
+
+def test_behavior_replay_capture_file_identifies_invalid_line(
+    tmp_path,
+):
+    captures_path = (
+        tmp_path
+        / "replay_captures.jsonl"
+    )
+
+    valid_capture = {
+        "event": {
+            "id": "valid-alert",
+            "rule": {
+                "id": "5715",
+                "level": 3,
+                "groups": [
+                    "authentication_success",
+                    "sshd",
+                ],
+            },
+            "data": {
+                "srcip": "203.0.113.90",
+            },
+            "agent": {
+                "id": "000",
+                "name": "wazuh.manager",
+            },
+        },
+        "label": "benign",
+        "source_dataset": "cic_ids_2018",
+        "source_row_id": "cic2018:valid",
+        "source_behavior": "Benign",
+        "scenario_name": (
+            "ssh_authentication_success"
+        ),
+        "wazuh_source_dataset": "wazuh_lab",
+        "wazuh_source_row_id": (
+            "ssh_authentication_success_001"
+        ),
+    }
+
+    captures_path.write_text(
+        json.dumps(
+            valid_capture
+        )
+        + "\n"
+        + "{invalid-json}\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(
+        ValueError,
+        match=(
+            "Failed behavior replay capture "
+            "line 2"
+        ),
+    ):
+        (
+            wazuh_bridge
+            .training_rows_from_behavior_replay_capture_file(
+                captures_path=captures_path,
+            )
+        )
