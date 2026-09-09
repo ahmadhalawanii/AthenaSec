@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 from collections.abc import Callable
 
@@ -75,11 +76,13 @@ def execute_prepared_behavior_replay_batch(
         set[str],
     ] | None = None,
     post_observation_fn: Callable | None = None,
-) -> None:
+) -> list[object]:
     last_fired_at_by_rule: dict[
         str,
         float,
     ] = {}
+
+    observed_events: list[object] = []
 
     for run in runs:
         rule_id = str(
@@ -113,15 +116,23 @@ def execute_prepared_behavior_replay_batch(
         )
 
         if before_alert_ids is None:
-            alert_observer(
-                run
+            observed_event = (
+                alert_observer(
+                    run
+                )
             )
 
         else:
-            alert_observer(
-                run,
-                before_alert_ids,
+            observed_event = (
+                alert_observer(
+                    run,
+                    before_alert_ids,
+                )
             )
+
+        observed_events.append(
+            observed_event
+        )
 
         observed_at = clock_fn()
 
@@ -134,6 +145,8 @@ def execute_prepared_behavior_replay_batch(
                 run,
                 before_alert_ids,
             )
+
+    return observed_events
 
 def wait_for_wazuh_replay_alert_drain(
     *,
@@ -389,3 +402,179 @@ def run_powershell_injection_command(
         ],
         check=True,
     )
+
+def prepare_behavior_replay_manifest_runs(
+    *,
+    manifest_path: str | Path,
+    container_name: str,
+    log_path: str,
+) -> list[dict[str, str]]:
+    from training.behavior_manifest import (
+        BehaviorReplay,
+        prepare_behavior_replay_run,
+    )
+
+    path = Path(manifest_path)
+
+    runs = []
+
+    with path.open(
+        "r",
+        encoding="utf-8",
+    ) as handle:
+        for line in handle:
+            if not line.strip():
+                continue
+
+            record = json.loads(line)
+
+            replay = BehaviorReplay(
+                label=record["label"],
+                source_dataset=(
+                    record["source_dataset"]
+                ),
+                source_row_id=(
+                    record["source_row_id"]
+                ),
+                source_behavior=(
+                    record["source_behavior"]
+                ),
+                scenario_name=(
+                    record["scenario_name"]
+                ),
+            )
+
+            runs.append(
+                prepare_behavior_replay_run(
+                    replay,
+                    container_name=(
+                        container_name
+                    ),
+                    log_path=log_path,
+                )
+            )
+
+    return runs
+
+def behavior_replay_capture_record(
+    *,
+    run: dict,
+    event: dict,
+) -> dict:
+    return {
+        "event": event,
+        "label": run["label"],
+        "source_dataset": (
+            run["source_dataset"]
+        ),
+        "source_row_id": (
+            run["source_row_id"]
+        ),
+        "source_behavior": (
+            run["source_behavior"]
+        ),
+        "scenario_name": (
+            run["scenario_name"]
+        ),
+        "wazuh_source_dataset": (
+            run["wazuh_source_dataset"]
+        ),
+        "wazuh_source_row_id": (
+            run["wazuh_source_row_id"]
+        ),
+    }
+
+def append_behavior_replay_capture(
+    *,
+    output_path: str | Path,
+    record: dict,
+) -> None:
+    output = Path(output_path)
+
+    output.parent.mkdir(
+        parents=True,
+        exist_ok=True,
+    )
+
+    with output.open(
+        "a",
+        encoding="utf-8",
+        newline="\n",
+    ) as handle:
+        handle.write(
+            json.dumps(
+                record,
+                separators=(",", ":"),
+            )
+        )
+        handle.write("\n")
+
+def execute_behavior_replay_manifest(
+    *,
+    manifest_path: str | Path,
+    output_path: str | Path,
+    container_name: str,
+    log_path: str,
+    clock_fn: Callable[[], float],
+    sleep_fn: Callable[[float], None],
+    command_runner: Callable[[str], object],
+    alert_snapshot_fn: Callable[
+        [],
+        set[str],
+    ],
+    alert_observer: Callable,
+    post_observation_fn: Callable | None = None,
+) -> list[dict]:
+    runs = prepare_behavior_replay_manifest_runs(
+        manifest_path=manifest_path,
+        container_name=container_name,
+        log_path=log_path,
+    )
+
+    observed_events = (
+        execute_prepared_behavior_replay_batch(
+            runs=runs,
+            clock_fn=clock_fn,
+            sleep_fn=sleep_fn,
+            command_runner=command_runner,
+            alert_snapshot_fn=(
+                alert_snapshot_fn
+            ),
+            alert_observer=alert_observer,
+            post_observation_fn=(
+                post_observation_fn
+            ),
+        )
+    )
+
+    records = [
+        behavior_replay_capture_record(
+            run=run,
+            event=event,
+        )
+        for run, event in zip(
+            runs,
+            observed_events,
+            strict=True,
+        )
+    ]
+
+    output = Path(output_path)
+
+    output.parent.mkdir(
+        parents=True,
+        exist_ok=True,
+    )
+
+    output.write_text(
+        "",
+        encoding="utf-8",
+    )
+
+    for record in records:
+        append_behavior_replay_capture(
+            output_path=output,
+            record=record,
+        )
+
+    return records

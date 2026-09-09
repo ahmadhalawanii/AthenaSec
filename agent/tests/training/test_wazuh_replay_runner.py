@@ -876,3 +876,336 @@ def test_wait_for_wazuh_behavior_replay_drain_only_drains_ssh_bruteforce():
         len(loader_calls)
         == calls_after_ssh
     )
+
+def test_prepare_behavior_replay_manifest_runs_reads_jsonl(
+    tmp_path,
+):
+    import json
+
+    from training import wazuh_replay_runner
+
+    manifest_path = (
+        tmp_path
+        / "behavior_replay_manifest.jsonl"
+    )
+
+    records = [
+        {
+            "label": "benign",
+            "source_dataset": "cic_ids_2018",
+            "source_row_id": "sample.csv:1",
+            "source_behavior": "Benign",
+            "scenario_name": (
+                "ssh_authentication_success"
+            ),
+        },
+        {
+            "label": "privilege_misuse",
+            "source_dataset": "adfa_ld",
+            "source_row_id": (
+                "Attack_Data_Master/"
+                "Adduser_1/trace.txt"
+            ),
+            "source_behavior": "Adduser_1",
+            "scenario_name": (
+                "user_added_to_sudo_group"
+            ),
+        },
+    ]
+
+    manifest_path.write_text(
+        "\n".join(
+            json.dumps(record)
+            for record in records
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    runs = (
+        wazuh_replay_runner
+        .prepare_behavior_replay_manifest_runs(
+            manifest_path=manifest_path,
+            container_name=(
+                "single-node-wazuh.manager-1"
+            ),
+            log_path=(
+                "/var/ossec/logs/"
+                "athenasec-test.log"
+            ),
+        )
+    )
+
+    assert len(runs) == 2
+
+    assert runs[0]["label"] == "benign"
+    assert (
+        runs[0]["source_dataset"]
+        == "cic_ids_2018"
+    )
+    assert (
+        runs[0]["scenario_name"]
+        == "ssh_authentication_success"
+    )
+
+    assert (
+        runs[1]["label"]
+        == "privilege_misuse"
+    )
+    assert (
+        runs[1]["source_dataset"]
+        == "adfa_ld"
+    )
+    assert (
+        runs[1]["scenario_name"]
+        == "user_added_to_sudo_group"
+    )
+
+def test_behavior_replay_capture_record_preserves_run_provenance():
+    from training import wazuh_replay_runner
+
+    run = {
+        "label": "brute_force",
+        "source_dataset": "cic_ids_2017",
+        "source_row_id": "Tuesday.csv:100",
+        "source_behavior": "SSH-Patator",
+        "scenario_name": (
+            "ssh_root_password_bruteforce"
+        ),
+        "wazuh_source_dataset": "wazuh_lab",
+        "wazuh_source_row_id": (
+            "ssh_root_password_bruteforce_001"
+        ),
+    }
+
+    event = {
+        "id": "wazuh-alert-1",
+        "rule": {
+            "id": "5763",
+            "level": 10,
+        },
+        "data": {
+            "srcip": "198.18.20.30",
+        },
+    }
+
+    record = (
+        wazuh_replay_runner
+        .behavior_replay_capture_record(
+            run=run,
+            event=event,
+        )
+    )
+
+    assert record == {
+        "event": event,
+        "label": "brute_force",
+        "source_dataset": "cic_ids_2017",
+        "source_row_id": "Tuesday.csv:100",
+        "source_behavior": "SSH-Patator",
+        "scenario_name": (
+            "ssh_root_password_bruteforce"
+        ),
+        "wazuh_source_dataset": "wazuh_lab",
+        "wazuh_source_row_id": (
+            "ssh_root_password_bruteforce_001"
+        ),
+    }
+
+def test_append_behavior_replay_capture_writes_jsonl(
+    tmp_path,
+):
+    import json
+
+    from training import wazuh_replay_runner
+
+    output_path = (
+        tmp_path
+        / "replay_captures.jsonl"
+    )
+
+    first = {
+        "event": {
+            "id": "alert-1",
+        },
+        "label": "benign",
+    }
+
+    second = {
+        "event": {
+            "id": "alert-2",
+        },
+        "label": "brute_force",
+    }
+
+    wazuh_replay_runner.append_behavior_replay_capture(
+        output_path=output_path,
+        record=first,
+    )
+
+    wazuh_replay_runner.append_behavior_replay_capture(
+        output_path=output_path,
+        record=second,
+    )
+
+    written = [
+        json.loads(line)
+        for line in output_path.read_text(
+            encoding="utf-8"
+        ).splitlines()
+    ]
+
+    assert written == [
+        first,
+        second,
+    ]
+
+def test_execute_prepared_behavior_replay_batch_returns_observed_events():
+    from training.wazuh_replay_runner import (
+        execute_prepared_behavior_replay_batch,
+    )
+
+    run = {
+        "expected_rule_id": "5715",
+        "source_ip": "198.18.1.10",
+        "injection_command": "inject-test",
+    }
+
+    observed_event = {
+        "id": "alert-1",
+        "rule": {
+            "id": "5715",
+        },
+        "data": {
+            "srcip": "198.18.1.10",
+        },
+    }
+
+    events = (
+        execute_prepared_behavior_replay_batch(
+            runs=[run],
+            clock_fn=lambda: 100.0,
+            sleep_fn=lambda seconds: None,
+            command_runner=lambda command: None,
+            alert_snapshot_fn=lambda: set(),
+            alert_observer=(
+                lambda run, before_alert_ids:
+                observed_event
+            ),
+        )
+    )
+
+    assert events == [
+        observed_event,
+    ]
+
+def test_execute_behavior_replay_manifest_writes_capture_records(
+    tmp_path,
+):
+    import json
+
+    from training import wazuh_replay_runner
+
+    manifest_path = (
+        tmp_path
+        / "behavior_replay_manifest.jsonl"
+    )
+
+    output_path = (
+        tmp_path
+        / "replay_captures.jsonl"
+    )
+
+    manifest_record = {
+        "label": "benign",
+        "source_dataset": "cic_ids_2018",
+        "source_row_id": "sample.csv:1",
+        "source_behavior": "Benign",
+        "scenario_name": (
+            "ssh_authentication_success"
+        ),
+    }
+
+    manifest_path.write_text(
+        json.dumps(manifest_record)
+        + "\n",
+        encoding="utf-8",
+    )
+
+    executed_commands = []
+
+    observed_event = {
+        "id": "new-alert-1",
+        "rule": {
+            "id": "5715",
+            "level": 3,
+        },
+        "data": {},
+    }
+
+    records = (
+        wazuh_replay_runner
+        .execute_behavior_replay_manifest(
+            manifest_path=manifest_path,
+            output_path=output_path,
+            container_name=(
+                "single-node-wazuh.manager-1"
+            ),
+            log_path=(
+                "/var/ossec/logs/"
+                "athenasec-test.log"
+            ),
+            clock_fn=lambda: 100.0,
+            sleep_fn=lambda seconds: None,
+            command_runner=(
+                executed_commands.append
+            ),
+            alert_snapshot_fn=lambda: set(),
+            alert_observer=(
+                lambda run, before_alert_ids:
+                observed_event
+            ),
+        )
+    )
+
+    assert len(records) == 1
+
+    assert records[0]["event"] == (
+        observed_event
+    )
+
+    assert (
+        records[0]["label"]
+        == "benign"
+    )
+
+    assert (
+        records[0]["source_dataset"]
+        == "cic_ids_2018"
+    )
+
+    assert (
+        records[0]["source_row_id"]
+        == "sample.csv:1"
+    )
+
+    assert (
+        records[0]["source_behavior"]
+        == "Benign"
+    )
+
+    assert (
+        records[0]["scenario_name"]
+        == "ssh_authentication_success"
+    )
+
+    written = [
+        json.loads(line)
+        for line in output_path.read_text(
+            encoding="utf-8"
+        ).splitlines()
+    ]
+
+    assert written == records
+
+    assert len(executed_commands) == 1
