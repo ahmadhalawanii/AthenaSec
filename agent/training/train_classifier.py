@@ -1,3 +1,4 @@
+from pathlib import Path
 from dataclasses import dataclass
 from typing import Any
 
@@ -24,6 +25,9 @@ from training.splitting import (
 )
 from training.validation import (
     validate_training_rows,
+)
+from training.wazuh_bridge import (
+    training_rows_from_behavior_replay_capture_file,
 )
 
 
@@ -154,4 +158,21 @@ def train_classifier(
         ),
         model_metrics=model_metrics,
         duplicate_count=duplicate_count,
+    )
+
+
+def train_classifier_from_behavior_replay_capture_file(
+    *,
+    captures_path: str | Path,
+    random_state: int = 42,
+) -> TrainingResult:
+    rows = (
+        training_rows_from_behavior_replay_capture_file(
+            captures_path=captures_path,
+        )
+    )
+
+    return train_classifier(
+        rows=rows,
+        random_state=random_state,
     )

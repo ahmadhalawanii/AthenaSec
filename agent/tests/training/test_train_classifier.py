@@ -1,3 +1,7 @@
+from pathlib import Path
+
+import training.train_classifier as train_classifier_module
+
 from training.data_contract import (
     TrainingRow,
 )
@@ -161,4 +165,63 @@ def test_training_tracks_duplicate_count():
     assert (
         result.duplicate_count
         == 1
+    )
+
+
+def test_training_from_replay_capture_file_uses_loaded_rows(
+    tmp_path: Path,
+    monkeypatch,
+):
+    captures_path = (
+        tmp_path
+        / "replay_captures.jsonl"
+    )
+
+    loaded_paths = []
+
+    def fake_load_capture_rows(
+        *,
+        captures_path,
+    ):
+        loaded_paths.append(
+            captures_path
+        )
+
+        return _training_rows()
+
+    monkeypatch.setattr(
+        train_classifier_module,
+        "training_rows_from_behavior_replay_capture_file",
+        fake_load_capture_rows,
+        raising=False,
+    )
+
+    result = (
+        train_classifier_module
+        .train_classifier_from_behavior_replay_capture_file(
+            captures_path=captures_path,
+            random_state=42,
+        )
+    )
+
+    assert loaded_paths == [
+        captures_path
+    ]
+
+    assert set(
+        result.random_forest_model.classes_
+    ) == {
+        "benign",
+        "brute_force",
+        "privilege_misuse",
+    }
+
+    assert (
+        "random_forest"
+        in result.model_metrics
+    )
+
+    assert (
+        "logistic_regression"
+        in result.model_metrics
     )
