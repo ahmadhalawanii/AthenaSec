@@ -231,10 +231,23 @@ def training_rows_from_behavior_replay_capture_file(
                     f"{exc}"
                 ) from exc
 
-            rows.append(
-                training_row_from_behavior_replay_capture(
-                    capture=capture,
+            try:
+                row = (
+                    training_row_from_behavior_replay_capture(
+                        capture=capture,
+                    )
                 )
+            except ValueError as exc:
+                raise ValueError(
+                    "Failed behavior replay capture "
+                    f"line {line_number} "
+                    f"{capture.get('source_dataset', 'unknown')} "
+                    f"{capture.get('source_row_id', 'unknown')}: "
+                    f"{exc}"
+                ) from exc
+
+            rows.append(
+                row
             )
 
     return rows

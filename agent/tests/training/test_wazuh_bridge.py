@@ -650,3 +650,110 @@ def test_behavior_replay_capture_file_identifies_invalid_line(
                 captures_path=captures_path,
             )
         )
+
+
+def test_behavior_replay_capture_file_identifies_semantic_failure(
+    tmp_path,
+):
+    captures_path = (
+        tmp_path
+        / "replay_captures.jsonl"
+    )
+
+    valid_capture = {
+        "event": {
+            "id": "valid-alert",
+            "rule": {
+                "id": "5715",
+                "level": 3,
+                "groups": [
+                    "authentication_success",
+                    "sshd",
+                ],
+            },
+            "data": {
+                "srcip": "203.0.113.90",
+            },
+            "agent": {
+                "id": "000",
+                "name": "wazuh.manager",
+            },
+        },
+        "label": "benign",
+        "source_dataset": "cic_ids_2018",
+        "source_row_id": "cic2018:valid",
+        "source_behavior": "Benign",
+        "scenario_name": (
+            "ssh_authentication_success"
+        ),
+        "wazuh_source_dataset": "wazuh_lab",
+        "wazuh_source_row_id": (
+            "ssh_authentication_success_001"
+        ),
+    }
+
+    invalid_capture = {
+        "event": {
+            "id": "mismatched-alert",
+            "rule": {
+                "id": "5763",
+                "level": 12,
+                "frequency": 10,
+                "groups": [
+                    "authentication_failures",
+                    "sshd",
+                ],
+            },
+            "data": {
+                "srcip": "198.51.100.25",
+                "dstuser": "root",
+            },
+            "agent": {
+                "id": "000",
+                "name": "wazuh.manager",
+            },
+        },
+        "label": "benign",
+        "source_dataset": "cic_ids_2018",
+        "source_row_id": "cic2018:mismatch",
+        "source_behavior": "Benign",
+        "scenario_name": (
+            "ssh_root_password_bruteforce"
+        ),
+        "wazuh_source_dataset": "wazuh_lab",
+        "wazuh_source_row_id": (
+            "ssh_root_password_"
+            "bruteforce_002"
+        ),
+    }
+
+    captures_path.write_text(
+        "\n".join(
+            [
+                json.dumps(
+                    valid_capture
+                ),
+                json.dumps(
+                    invalid_capture
+                ),
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(
+        ValueError,
+        match=(
+            "Failed behavior replay capture "
+            "line 2 "
+            "cic_ids_2018 "
+            "cic2018:mismatch"
+        ),
+    ):
+        (
+            wazuh_bridge
+            .training_rows_from_behavior_replay_capture_file(
+                captures_path=captures_path,
+            )
+        )
