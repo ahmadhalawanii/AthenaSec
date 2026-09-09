@@ -4,11 +4,45 @@ from typing import Any
 
 from training.behavior_manifest import (
     BehaviorReplay,
+    behavior_replay_variation,
 )
 from training.wazuh_lab_scenarios import (
     get_scenario_by_name,
 )
 
+
+def wazuh_replay_rule_cooldown_seconds(
+    rule_id: str,
+) -> int:
+    cooldowns = {
+        "5712": 60,
+        "5763": 60,
+    }
+
+    return cooldowns.get(
+        str(rule_id),
+        0,
+    )
+
+def wazuh_replay_remaining_cooldown_seconds(
+    rule_id: str,
+    elapsed_seconds: float,
+) -> float:
+    cooldown_seconds = (
+        wazuh_replay_rule_cooldown_seconds(
+            rule_id
+        )
+    )
+
+    remaining_seconds = (
+        cooldown_seconds
+        - elapsed_seconds
+    )
+
+    return max(
+        remaining_seconds,
+        0,
+    )
 
 def find_latest_matching_alert(
     alerts: list[dict[str, Any]],
@@ -180,14 +214,25 @@ def export_behavior_replay_capture(
                 )
             )
 
+    variation = (
+        behavior_replay_variation(
+            replay
+        )
+    )
+
+    source_ip = (
+        variation.get(
+            "source_ip",
+            scenario.source_ip,
+        )
+    )
+
     event = find_latest_matching_alert(
         alerts=alerts,
         rule_id=(
             scenario.expected_rule_id
         ),
-        source_ip=(
-            scenario.source_ip
-        ),
+        source_ip=source_ip,
     )
 
     record = {

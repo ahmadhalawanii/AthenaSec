@@ -449,6 +449,33 @@ def test_build_replay_from_adfa_record():
     )
 
 
+def test_adfa_adduser_replays_as_privilege_group_change():
+    record = ADFARecord(
+        label="privilege_misuse",
+        source_dataset="adfa_ld",
+        source_row_id=(
+            "Attack_Data_Master/"
+            "Adduser_6/"
+            "UAD-Adduser-6-2462.txt"
+        ),
+        raw_family="Adduser_6",
+        trace="1 2 3",
+    )
+
+    replay = (
+        behavior_manifest
+        .build_behavior_replay_from_record(
+            record,
+            seed=42,
+        )
+    )
+
+    assert (
+        replay.scenario_name
+        == "user_added_to_sudo_group"
+    )
+
+
 def test_build_replay_from_cmu_scenario():
     record = CMUInsiderScenario(
         label="privilege_misuse",
@@ -929,6 +956,25 @@ def test_build_behavior_manifest_is_deterministic():
     assert first == second
 
 
+def test_behavior_manifest_excludes_ftp_without_approved_replay_scenario():
+    record = _make_cic2017_record(
+        row_number=1,
+        raw_label="FTP-Patator",
+        label="brute_force",
+    )
+
+    manifest = (
+        behavior_manifest
+        .build_behavior_manifest(
+            [record],
+            per_group_limit=10,
+            seed=42,
+        )
+    )
+
+    assert manifest == []
+
+
 def test_build_behavior_manifest_preserves_exact_provenance():
     record = ADFARecord(
         label="privilege_misuse",
@@ -1059,7 +1105,10 @@ def test_prepare_behavior_replay_run_preserves_external_provenance():
 
     assert (
         run["source_ip"]
-        == "198.51.100.25"
+        == behavior_manifest
+        .behavior_replay_variation(
+            replay
+        )["source_ip"]
     )
 
     assert (
@@ -1134,3 +1183,182 @@ def test_prepare_behavior_replay_run_rejects_label_mismatch():
                 ),
             )
         )
+
+
+def test_prepare_behavior_replay_run_varies_ssh_observation_by_provenance():
+    first_replay = BehaviorReplay(
+        label="brute_force",
+        source_dataset="cic_ids_2017",
+        source_row_id="sample.csv:100",
+        source_behavior="SSH-Patator",
+        scenario_name=(
+            "ssh_invalid_user_bruteforce"
+        ),
+    )
+
+    second_replay = BehaviorReplay(
+        label="brute_force",
+        source_dataset="cic_ids_2017",
+        source_row_id="sample.csv:200",
+        source_behavior="SSH-Patator",
+        scenario_name=(
+            "ssh_invalid_user_bruteforce"
+        ),
+    )
+
+    first_run = (
+        behavior_manifest
+        .prepare_behavior_replay_run(
+            first_replay,
+            container_name=(
+                "single-node-wazuh.manager-1"
+            ),
+            log_path=(
+                "/var/ossec/logs/"
+                "athenasec-test.log"
+            ),
+        )
+    )
+
+    second_run = (
+        behavior_manifest
+        .prepare_behavior_replay_run(
+            second_replay,
+            container_name=(
+                "single-node-wazuh.manager-1"
+            ),
+            log_path=(
+                "/var/ossec/logs/"
+                "athenasec-test.log"
+            ),
+        )
+    )
+
+    assert (
+        first_run["expected_rule_id"]
+        == "5712"
+    )
+
+    assert (
+        second_run["expected_rule_id"]
+        == "5712"
+    )
+
+    assert (
+        first_run["source_ip"]
+        != second_run["source_ip"]
+    )
+
+    assert (
+        first_run["injection_command"]
+        != second_run["injection_command"]
+    )
+
+    assert (
+        first_run["source_ip"]
+        in first_run[
+            "injection_command"
+        ]
+    )
+
+    assert (
+        second_run["source_ip"]
+        in second_run[
+            "injection_command"
+        ]
+    )
+
+def test_prepare_behavior_replay_run_varies_sudo_observation_by_provenance():
+    first_replay = BehaviorReplay(
+        label="privilege_misuse",
+        source_dataset="adfa_ld",
+        source_row_id="sample:1",
+        source_behavior="Adduser_1",
+        scenario_name=(
+            "sudo_three_failed_attempts"
+        ),
+    )
+
+    second_replay = BehaviorReplay(
+        label="privilege_misuse",
+        source_dataset="adfa_ld",
+        source_row_id="sample:3",
+        source_behavior="Adduser_1",
+        scenario_name=(
+            "sudo_three_failed_attempts"
+        ),
+    )
+
+    first_run = (
+        behavior_manifest
+        .prepare_behavior_replay_run(
+            first_replay,
+            container_name=(
+                "single-node-wazuh.manager-1"
+            ),
+            log_path=(
+                "/var/ossec/logs/"
+                "athenasec-test.log"
+            ),
+        )
+    )
+
+    second_run = (
+        behavior_manifest
+        .prepare_behavior_replay_run(
+            second_replay,
+            container_name=(
+                "single-node-wazuh.manager-1"
+            ),
+            log_path=(
+                "/var/ossec/logs/"
+                "athenasec-test.log"
+            ),
+        )
+    )
+
+    assert (
+        first_run["expected_rule_id"]
+        == "5404"
+    )
+
+    assert (
+        second_run["expected_rule_id"]
+        == "5404"
+    )
+
+    assert (
+        first_run["injection_command"]
+        != second_run["injection_command"]
+    )
+
+    commands = {
+        first_run[
+            "injection_command"
+        ],
+        second_run[
+            "injection_command"
+        ],
+    }
+
+    assert any(
+        "USER=root" in command
+        for command in commands
+    )
+
+    assert any(
+        "USER=backupuser" in command
+        for command in commands
+    )
+
+    assert any(
+        "COMMAND=/bin/bash"
+        in command
+        for command in commands
+    )
+
+    assert any(
+        "COMMAND=/bin/bash"
+        not in command
+        for command in commands
+    )

@@ -4,11 +4,11 @@ import pytest
 from training import wazuh_bridge
 from training.behavior_manifest import (
     BehaviorReplay,
+    behavior_replay_variation,
 )
 from training.wazuh_bridge import (
     training_row_from_wazuh_event,
 )
-
 
 def test_wazuh_event_becomes_canonical_training_row():
     event = {
@@ -67,7 +67,6 @@ def test_wazuh_event_becomes_canonical_training_row():
         == "row-123"
     )
 
-
 def test_behavior_replay_alert_becomes_training_row():
     replay = BehaviorReplay(
         label="brute_force",
@@ -80,6 +79,11 @@ def test_behavior_replay_alert_becomes_training_row():
         scenario_name=(
             "ssh_root_password_bruteforce"
         ),
+    )
+    replay_source_ip = (
+        behavior_replay_variation(
+            replay
+        )["source_ip"]
     )
 
     alerts = [
@@ -116,7 +120,7 @@ def test_behavior_replay_alert_becomes_training_row():
                 },
             },
             "data": {
-                "srcip": "198.51.100.25",
+                "srcip": replay_source_ip,
                 "srcport": "49152",
                 "dstport": "22",
                 "dstuser": "root",
@@ -214,6 +218,11 @@ def test_behavior_replay_alert_batches_become_training_rows():
             "ssh_invalid_user_bruteforce"
         ),
     )
+    first_source_ip = (
+        behavior_replay_variation(
+            first_replay
+        )["source_ip"]
+    )
 
     first_alerts = [
         {
@@ -228,7 +237,7 @@ def test_behavior_replay_alert_batches_become_training_rows():
                 ],
             },
             "data": {
-                "srcip": "203.0.113.50",
+                "srcip": first_source_ip,
                 "dstport": "22",
                 "dstuser": "invalid-user",
             },
@@ -248,6 +257,11 @@ def test_behavior_replay_alert_batches_become_training_rows():
             "ssh_root_password_bruteforce"
         ),
     )
+    second_source_ip = (
+        behavior_replay_variation(
+            second_replay
+        )["source_ip"]
+    )
 
     second_alerts = [
         {
@@ -262,7 +276,7 @@ def test_behavior_replay_alert_batches_become_training_rows():
                 ],
             },
             "data": {
-                "srcip": "198.51.100.25",
+                "srcip": second_source_ip,
                 "dstport": "22",
                 "dstuser": "root",
             },
@@ -314,7 +328,6 @@ def test_behavior_replay_alert_batches_become_training_rows():
     assert rows[1].failed_attempts == 10.0
     assert rows[1].privileged_target == 1.0
 
-
 def test_behavior_replay_alert_batches_identify_missing_replay():
     first_replay = BehaviorReplay(
         label="brute_force",
@@ -324,6 +337,11 @@ def test_behavior_replay_alert_batches_identify_missing_replay():
         scenario_name=(
             "ssh_invalid_user_bruteforce"
         ),
+    )
+    first_source_ip = (
+        behavior_replay_variation(
+            first_replay
+        )["source_ip"]
     )
 
     first_alerts = [
@@ -339,7 +357,7 @@ def test_behavior_replay_alert_batches_identify_missing_replay():
                 ],
             },
             "data": {
-                "srcip": "203.0.113.50",
+                "srcip": first_source_ip,
                 "dstport": "22",
             },
             "agent": {
@@ -383,8 +401,25 @@ def test_behavior_replay_alert_batches_identify_missing_replay():
             )
         )
 
-
 def test_behavior_replay_capture_becomes_training_row():
+    replay = BehaviorReplay(
+        label="brute_force",
+        source_dataset="cic_ids_2017",
+        source_row_id=(
+            "Tuesday-WorkingHours."
+            "pcap_ISCX.csv:12345"
+        ),
+        source_behavior="SSH-Patator",
+        scenario_name=(
+            "ssh_root_password_bruteforce"
+        ),
+    )
+    replay_source_ip = (
+        behavior_replay_variation(
+            replay
+        )["source_ip"]
+    )
+
     capture = {
         "event": {
             "id": "captured-alert",
@@ -404,7 +439,7 @@ def test_behavior_replay_capture_becomes_training_row():
                 },
             },
             "data": {
-                "srcip": "198.51.100.25",
+                "srcip": replay_source_ip,
                 "srcport": "49152",
                 "dstport": "22",
                 "dstuser": "root",
@@ -465,13 +500,42 @@ def test_behavior_replay_capture_becomes_training_row():
         )
     )
 
-
 def test_behavior_replay_capture_file_becomes_training_rows(
     tmp_path,
 ):
     captures_path = (
         tmp_path
         / "replay_captures.jsonl"
+    )
+
+    first_replay = BehaviorReplay(
+        label="brute_force",
+        source_dataset="cic_ids_2017",
+        source_row_id="cic2017:100",
+        source_behavior="SSH-Patator",
+        scenario_name=(
+            "ssh_root_password_bruteforce"
+        ),
+    )
+    second_replay = BehaviorReplay(
+        label="benign",
+        source_dataset="cic_ids_2018",
+        source_row_id="cic2018:200",
+        source_behavior="Benign",
+        scenario_name=(
+            "ssh_authentication_success"
+        ),
+    )
+
+    first_source_ip = (
+        behavior_replay_variation(
+            first_replay
+        )["source_ip"]
+    )
+    second_source_ip = (
+        behavior_replay_variation(
+            second_replay
+        )["source_ip"]
     )
 
     captures = [
@@ -488,7 +552,7 @@ def test_behavior_replay_capture_file_becomes_training_rows(
                     ],
                 },
                 "data": {
-                    "srcip": "198.51.100.25",
+                    "srcip": first_source_ip,
                     "dstport": "22",
                     "dstuser": "root",
                 },
@@ -522,7 +586,7 @@ def test_behavior_replay_capture_file_becomes_training_rows(
                     ],
                 },
                 "data": {
-                    "srcip": "203.0.113.90",
+                    "srcip": second_source_ip,
                     "dstport": "22",
                     "dstuser": "normaluser",
                 },
@@ -587,13 +651,27 @@ def test_behavior_replay_capture_file_becomes_training_rows(
     )
     assert rows[1].rule_level == 3.0
 
-
 def test_behavior_replay_capture_file_identifies_invalid_line(
     tmp_path,
 ):
     captures_path = (
         tmp_path
         / "replay_captures.jsonl"
+    )
+
+    valid_replay = BehaviorReplay(
+        label="benign",
+        source_dataset="cic_ids_2018",
+        source_row_id="cic2018:valid",
+        source_behavior="Benign",
+        scenario_name=(
+            "ssh_authentication_success"
+        ),
+    )
+    valid_source_ip = (
+        behavior_replay_variation(
+            valid_replay
+        )["source_ip"]
     )
 
     valid_capture = {
@@ -608,7 +686,7 @@ def test_behavior_replay_capture_file_identifies_invalid_line(
                 ],
             },
             "data": {
-                "srcip": "203.0.113.90",
+                "srcip": valid_source_ip,
             },
             "agent": {
                 "id": "000",
@@ -651,13 +729,27 @@ def test_behavior_replay_capture_file_identifies_invalid_line(
             )
         )
 
-
 def test_behavior_replay_capture_file_identifies_semantic_failure(
     tmp_path,
 ):
     captures_path = (
         tmp_path
         / "replay_captures.jsonl"
+    )
+
+    valid_replay = BehaviorReplay(
+        label="benign",
+        source_dataset="cic_ids_2018",
+        source_row_id="cic2018:valid",
+        source_behavior="Benign",
+        scenario_name=(
+            "ssh_authentication_success"
+        ),
+    )
+    valid_source_ip = (
+        behavior_replay_variation(
+            valid_replay
+        )["source_ip"]
     )
 
     valid_capture = {
@@ -672,7 +764,7 @@ def test_behavior_replay_capture_file_identifies_semantic_failure(
                 ],
             },
             "data": {
-                "srcip": "203.0.113.90",
+                "srcip": valid_source_ip,
             },
             "agent": {
                 "id": "000",
@@ -757,3 +849,77 @@ def test_behavior_replay_capture_file_identifies_semantic_failure(
                 captures_path=captures_path,
             )
         )
+
+def test_behavior_replay_alert_uses_deterministic_replay_source_ip():
+    replay = BehaviorReplay(
+        label="benign",
+        source_dataset="adfa_ld",
+        source_row_id=(
+            "Training_Data_Master/"
+            "UTD-0465.txt"
+        ),
+        source_behavior="Benign",
+        scenario_name=(
+            "ssh_authentication_success"
+        ),
+    )
+
+    variation = (
+        behavior_replay_variation(
+            replay
+        )
+    )
+
+    replay_source_ip = variation[
+        "source_ip"
+    ]
+
+    alerts = [
+        {
+            "id": "deterministic-ip-alert",
+            "rule": {
+                "id": "5715",
+                "level": 3,
+                "groups": [
+                    "authentication_success",
+                    "sshd",
+                ],
+            },
+            "data": {
+                "srcip": replay_source_ip,
+                "srcport": "50638",
+                "dstport": "22",
+                "dstuser": "normaluser",
+            },
+            "agent": {
+                "id": "000",
+                "name": "wazuh.manager",
+            },
+        },
+    ]
+
+    row = (
+        wazuh_bridge
+        .training_row_from_behavior_replay_alerts(
+            replay=replay,
+            alerts=alerts,
+        )
+    )
+
+    assert row.label == "benign"
+
+    assert (
+        row.source_dataset
+        == "adfa_ld"
+    )
+
+    assert (
+        row.source_row_id
+        == (
+            "Training_Data_Master/"
+            "UTD-0465.txt"
+        )
+    )
+
+    assert row.has_source_ip == 1.0
+    assert row.destination_port == 22.0

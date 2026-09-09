@@ -132,3 +132,36 @@ def test_held_out_results_include_required_metrics():
             "brute_force": 10,
             "privilege_misuse": 10,
         }
+
+def test_held_out_dataset_is_deduplicated_after_holdout():
+    rows = _rows()
+
+    rows.append(
+        _row(
+            value=0.0,
+            label="benign",
+            source_dataset="cic_ids_2017",
+            source_row_id=(
+                "cic_ids_2017-"
+                "benign-duplicate"
+            ),
+        )
+    )
+
+    results = (
+        evaluate_leave_one_dataset_out(
+            rows=rows,
+            random_state=42,
+        )
+    )
+
+    assert (
+        results[
+            "cic_ids_2017"
+        ]["support"]
+        == {
+            "benign": 10,
+            "brute_force": 10,
+            "privilege_misuse": 10,
+        }
+    )

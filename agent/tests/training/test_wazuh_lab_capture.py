@@ -4,8 +4,8 @@ import pytest
 from training import wazuh_lab_capture
 from training.behavior_manifest import (
     BehaviorReplay,
+    behavior_replay_variation,
 )
-
 from training.wazuh_lab_capture import (
     build_labeled_record,
     export_latest_matching_alert,
@@ -269,9 +269,19 @@ def test_export_behavior_replay_capture_preserves_raw_alert_and_provenance(
         _alert(
             alert_id="matching",
             rule_id="5763",
-            source_ip="198.51.100.25",
+            source_ip=(
+                __import__(
+                    "training.behavior_manifest",
+                    fromlist=[
+                        "behavior_replay_variation"
+                    ],
+                )
+                .behavior_replay_variation(
+                    replay
+                )["source_ip"]
+            ),
         ),
-    ]
+            ]
 
     alerts_path.write_text(
         "\n".join(
@@ -392,3 +402,148 @@ def test_export_behavior_replay_capture_rejects_scenario_label_mismatch(
         )
 
     assert not output_path.exists()
+
+
+def test_export_behavior_replay_capture_uses_deterministic_ssh_variation(
+    tmp_path,
+):
+    replay = BehaviorReplay(
+        label="brute_force",
+        source_dataset="cic_ids_2017",
+        source_row_id="sample.csv:100",
+        source_behavior="SSH-Patator",
+        scenario_name=(
+            "ssh_invalid_user_bruteforce"
+        ),
+    )
+
+    variation = (
+        behavior_replay_variation(
+            replay
+        )
+    )
+
+    alerts_path = (
+        tmp_path
+        / "alerts.json"
+    )
+
+    output_path = (
+        tmp_path
+        / "replay_capture.jsonl"
+    )
+
+    varied_source_ip = (
+        variation["source_ip"]
+    )
+
+    alerts_path.write_text(
+        json.dumps(
+            _alert(
+                alert_id="varied-match",
+                rule_id="5712",
+                source_ip=(
+                    varied_source_ip
+                ),
+            )
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    (
+        wazuh_lab_capture
+        .export_behavior_replay_capture(
+            replay=replay,
+            alerts_path=alerts_path,
+            output_path=output_path,
+        )
+    )
+
+    record = json.loads(
+        output_path.read_text(
+            encoding="utf-8",
+        )
+    )
+
+    assert (
+        record["event"]["id"]
+        == "varied-match"
+    )
+
+    assert (
+        record["event"]["data"]["srcip"]
+        == varied_source_ip
+    )
+
+def test_wazuh_replay_rule_cooldown_matches_known_lab_rules():
+    from training.wazuh_lab_capture import (
+        wazuh_replay_rule_cooldown_seconds,
+    )
+
+    assert (
+        wazuh_replay_rule_cooldown_seconds("5712")
+        == 60
+    )
+    assert (
+        wazuh_replay_rule_cooldown_seconds("5763")
+        == 60
+    )
+    assert (
+        wazuh_replay_rule_cooldown_seconds("5720")
+        == 0
+    )
+
+
+def test_wazuh_replay_remaining_cooldown_seconds():
+    from training.wazuh_lab_capture import (
+        wazuh_replay_remaining_cooldown_seconds,
+    )
+
+    assert (
+        wazuh_replay_remaining_cooldown_seconds(
+            rule_id="5712",
+            elapsed_seconds=0,
+        )
+        == 60
+    )
+
+    assert (
+        wazuh_replay_remaining_cooldown_seconds(
+            rule_id="5712",
+            elapsed_seconds=25,
+        )
+        == 35
+    )
+
+    assert (
+        wazuh_replay_remaining_cooldown_seconds(
+            rule_id="5763",
+            elapsed_seconds=59,
+        )
+        == 1
+    )
+
+    assert (
+        wazuh_replay_remaining_cooldown_seconds(
+            rule_id="5763",
+            elapsed_seconds=60,
+        )
+        == 0
+    )
+
+    assert (
+        wazuh_replay_remaining_cooldown_seconds(
+            rule_id="5720",
+            elapsed_seconds=0,
+        )
+        == 0
+    )
+
+    assert (
+        wazuh_replay_remaining_cooldown_seconds(
+            rule_id="5712",
+            elapsed_seconds=90,
+        )
+        == 0
+    )

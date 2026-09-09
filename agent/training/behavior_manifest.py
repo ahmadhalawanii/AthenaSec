@@ -188,6 +188,32 @@ def build_behavior_replay_from_record(
             f"{type(record).__name__}"
         )
 
+    if (
+        isinstance(
+            record,
+            ADFARecord,
+        )
+        and behavior_family_for_record(
+            record
+        )
+        == "Adduser"
+    ):
+        return BehaviorReplay(
+            label=record.label,
+            source_dataset=(
+                record.source_dataset
+            ),
+            source_row_id=(
+                record.source_row_id
+            ),
+            source_behavior=(
+                source_behavior
+            ),
+            scenario_name=(
+                "user_added_to_sudo_group"
+            ),
+        )
+
     return build_behavior_replay(
         label=record.label,
         source_dataset=(
@@ -352,13 +378,102 @@ def build_behavior_manifest(
         )
     )
 
+    unsupported_families = {
+        "FTP-Patator",
+        "FTP-BruteForce",
+        "Hydra_FTP",
+    }
+
     return [
         build_behavior_replay_from_record(
             record,
             seed=seed,
         )
         for record in sampled_records
+        if behavior_family_for_record(
+            record
+        )
+        not in unsupported_families
     ]
+
+def behavior_replay_variation(
+    replay: BehaviorReplay,
+) -> dict[str, str]:
+    variation_key = (
+        f"{replay.label}|"
+        f"{replay.source_dataset}|"
+        f"{replay.source_row_id}|"
+        f"{replay.source_behavior}|"
+        f"{replay.scenario_name}"
+    )
+
+    digest = hashlib.sha256(
+        variation_key.encode(
+            "utf-8"
+        )
+    ).digest()
+
+    if replay.scenario_name.startswith(
+        "ssh_"
+    ):
+        source_ip = (
+            f"198."
+            f"{18 + (digest[0] % 2)}."
+            f"{digest[1]}."
+            f"{1 + (digest[2] % 254)}"
+        )
+
+        source_port = (
+            49152
+            + (
+                int.from_bytes(
+                    digest[3:5],
+                    byteorder="big",
+                )
+                % 16384
+            )
+        )
+
+        return {
+            "source_ip": source_ip,
+            "source_port": str(
+                source_port
+            ),
+        }
+
+    sudo_misuse_scenarios = {
+        "sudo_three_failed_attempts",
+        "sudo_unauthorized_user",
+        "sudo_command_not_allowed",
+    }
+
+    if (
+        replay.scenario_name
+        in sudo_misuse_scenarios
+    ):
+        target_user = (
+            "root"
+            if digest[0] % 2 == 0
+            else "backupuser"
+        )
+
+        include_command = (
+            digest[1] % 2 == 0
+        )
+
+        return {
+            "target_user": (
+                target_user
+            ),
+            "include_command": (
+                "true"
+                if include_command
+                else "false"
+            ),
+        }
+
+    return {}
+
 
 def prepare_behavior_replay_run(
     replay: BehaviorReplay,
@@ -378,6 +493,93 @@ def prepare_behavior_replay_run(
             f"manifest label={replay.label}, "
             f"scenario label={run['label']}"
         )
+
+    variation = (
+        behavior_replay_variation(
+            replay
+        )
+    )
+
+    if (
+        "source_ip"
+        in variation
+    ):
+        source_ip = variation[
+            "source_ip"
+        ]
+
+        source_port = variation[
+            "source_port"
+        ]
+
+        injection_command = (
+            run["injection_command"]
+            .replace(
+                (
+                    f"from "
+                    f"{run['source_ip']} "
+                ),
+                (
+                    f"from "
+                    f"{source_ip} "
+                ),
+            )
+        )
+
+        injection_command = re.sub(
+            r" port \d+ ssh2",
+            (
+                f" port "
+                f"{source_port} ssh2"
+            ),
+            injection_command,
+            count=1,
+        )
+
+        run = {
+            **run,
+            "source_ip": source_ip,
+            "injection_command": (
+                injection_command
+            ),
+        }
+
+    if (
+        "target_user"
+        in variation
+    ):
+        target_user = variation[
+            "target_user"
+        ]
+
+        injection_command = (
+            run["injection_command"]
+            .replace(
+                "USER=root",
+                f"USER={target_user}",
+            )
+        )
+
+        if (
+            variation[
+                "include_command"
+            ]
+            == "false"
+        ):
+            injection_command = (
+                injection_command
+                .replace(
+                    " ; COMMAND=/bin/bash",
+                    "",
+                )
+            )
+
+        run = {
+            **run,
+            "injection_command": (
+                injection_command
+            ),
+        }
 
     return {
         **run,

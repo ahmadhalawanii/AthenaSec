@@ -1,3 +1,6 @@
+from training.deduplication import (
+    deduplicate_rows,
+)
 from training.balancing import (
     class_weight_map,
     undersample_benign,
@@ -48,6 +51,17 @@ def evaluate_leave_one_dataset_out(
             leave_one_dataset_out(
                 rows,
                 held_out_dataset=dataset,
+            )
+        )
+        training_rows, _ = (
+            deduplicate_rows(
+                training_rows
+            )
+        )
+
+        held_out_rows, _ = (
+            deduplicate_rows(
+                held_out_rows
             )
         )
 

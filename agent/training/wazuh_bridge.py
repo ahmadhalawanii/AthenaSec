@@ -10,6 +10,7 @@ from app.tools.wazuh_alert_parser import (
 )
 from training.behavior_manifest import (
     BehaviorReplay,
+    behavior_replay_variation,
 )
 from training.data_contract import (
     TrainingRow,
@@ -104,14 +105,23 @@ def training_row_from_behavior_replay_alerts(
             f"scenario label={scenario.label}"
         )
 
+    variation = (
+        behavior_replay_variation(
+            replay
+        )
+    )
+
+    source_ip = variation.get(
+        "source_ip",
+        scenario.source_ip,
+    )
+
     event = find_latest_matching_alert(
         alerts=alerts,
         rule_id=(
             scenario.expected_rule_id
         ),
-        source_ip=(
-            scenario.source_ip
-        ),
+        source_ip=source_ip,
     )
 
     return training_row_from_wazuh_event(
