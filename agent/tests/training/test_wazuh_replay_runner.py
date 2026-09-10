@@ -972,6 +972,7 @@ def test_behavior_replay_capture_record_preserves_run_provenance():
         "scenario_name": (
             "ssh_root_password_bruteforce"
         ),
+        "variant_index": 0,
         "wazuh_source_dataset": "wazuh_lab",
         "wazuh_source_row_id": (
             "ssh_root_password_bruteforce_001"
@@ -999,6 +1000,7 @@ def test_behavior_replay_capture_record_preserves_run_provenance():
 
     assert record == {
         "event": event,
+        "variant_index": 0,
         "label": "brute_force",
         "source_dataset": "cic_ids_2017",
         "source_row_id": "Tuesday.csv:100",
@@ -1209,3 +1211,110 @@ def test_execute_behavior_replay_manifest_writes_capture_records(
     assert written == records
 
     assert len(executed_commands) == 1
+
+def test_prepare_behavior_replay_manifest_runs_expands_sudo_variants(
+    tmp_path,
+):
+    import json
+
+    from training import wazuh_replay_runner
+
+    manifest_path = (
+        tmp_path
+        / "behavior_replay_manifest.jsonl"
+    )
+
+    record = {
+        "label": "privilege_misuse",
+        "source_dataset": "cmu_cert_r4_2",
+        "source_row_id": (
+            "answers/r4.2-3/"
+            "r4.2-3-BBS0039.csv"
+        ),
+        "source_behavior": "scenario_3",
+        "scenario_name": (
+            "sudo_command_not_allowed"
+        ),
+    }
+
+    manifest_path.write_text(
+        json.dumps(record) + "\n",
+        encoding="utf-8",
+    )
+
+    runs = (
+        wazuh_replay_runner
+        .prepare_behavior_replay_manifest_runs(
+            manifest_path=manifest_path,
+            container_name=(
+                "single-node-wazuh.manager-1"
+            ),
+            log_path=(
+                "/var/ossec/logs/"
+                "athenasec-test.log"
+            ),
+        )
+    )
+
+    assert len(runs) == 4
+
+    assert {
+        run["variant_index"]
+        for run in runs
+    } == {
+        0,
+        1,
+        2,
+        3,
+    }
+
+    assert all(
+        run["source_row_id"]
+        == record["source_row_id"]
+        for run in runs
+    )
+
+    assert all(
+        run["source_dataset"]
+        == "cmu_cert_r4_2"
+        for run in runs
+    )
+
+def test_behavior_replay_capture_record_preserves_variant_index():
+    from training import wazuh_replay_runner
+
+    run = {
+        "label": "privilege_misuse",
+        "source_dataset": "cmu_cert_r4_2",
+        "source_row_id": (
+            "answers/r4.2-3/"
+            "r4.2-3-BBS0039.csv"
+        ),
+        "source_behavior": "scenario_3",
+        "scenario_name": (
+            "sudo_command_not_allowed"
+        ),
+        "variant_index": 2,
+        "wazuh_source_dataset": "wazuh_lab",
+        "wazuh_source_row_id": (
+            "sudo_command_not_allowed_003"
+        ),
+    }
+
+    event = {
+        "id": "wazuh-alert-variant-2",
+        "rule": {
+            "id": "5406",
+            "level": 5,
+        },
+    }
+
+    record = (
+        wazuh_replay_runner
+        .behavior_replay_capture_record(
+            run=run,
+            event=event,
+        )
+    )
+
+    assert record["variant_index"] == 2

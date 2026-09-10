@@ -398,6 +398,8 @@ def build_behavior_manifest(
 
 def behavior_replay_variation(
     replay: BehaviorReplay,
+    *,
+    variant_index: int = 0,
 ) -> dict[str, str]:
     variation_key = (
         f"{replay.label}|"
@@ -451,24 +453,42 @@ def behavior_replay_variation(
         replay.scenario_name
         in sudo_misuse_scenarios
     ):
-        target_user = (
-            "root"
-            if digest[0] % 2 == 0
-            else "backupuser"
+        baseline_index = (
+            (
+                0
+                if digest[0] % 2 == 0
+                else 2
+            )
+            + (
+                0
+                if digest[1] % 2 == 0
+                else 1
+            )
         )
 
-        include_command = (
-            digest[1] % 2 == 0
+        combination_index = (
+            baseline_index
+            + variant_index
+        ) % 4
+
+        combinations = (
+            ("root", "true"),
+            ("root", "false"),
+            ("backupuser", "true"),
+            ("backupuser", "false"),
         )
+
+        (
+            target_user,
+            include_command,
+        ) = combinations[
+            combination_index
+        ]
 
         return {
-            "target_user": (
-                target_user
-            ),
+            "target_user": target_user,
             "include_command": (
-                "true"
-                if include_command
-                else "false"
+                include_command
             ),
         }
 
@@ -480,7 +500,8 @@ def prepare_behavior_replay_run(
     *,
     container_name: str,
     log_path: str,
-) -> dict[str, str]:
+    variant_index: int = 0,
+) -> dict[str, str | int]:
     run = prepare_scenario_run(
         name=replay.scenario_name,
         container_name=container_name,
@@ -496,7 +517,8 @@ def prepare_behavior_replay_run(
 
     variation = (
         behavior_replay_variation(
-            replay
+            replay,
+            variant_index=variant_index,
         )
     )
 
@@ -583,6 +605,7 @@ def prepare_behavior_replay_run(
 
     return {
         **run,
+        "variant_index": variant_index,
         "wazuh_source_dataset": (
             run["source_dataset"]
         ),

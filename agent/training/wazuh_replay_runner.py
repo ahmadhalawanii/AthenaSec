@@ -408,7 +408,7 @@ def prepare_behavior_replay_manifest_runs(
     manifest_path: str | Path,
     container_name: str,
     log_path: str,
-) -> list[dict[str, str]]:
+) -> list[dict[str, str | int]]:
     from training.behavior_manifest import (
         BehaviorReplay,
         prepare_behavior_replay_run,
@@ -444,15 +444,32 @@ def prepare_behavior_replay_manifest_runs(
                 ),
             )
 
-            runs.append(
-                prepare_behavior_replay_run(
-                    replay,
-                    container_name=(
-                        container_name
-                    ),
-                    log_path=log_path,
-                )
+            sudo_variant_scenarios = {
+                "sudo_three_failed_attempts",
+                "sudo_unauthorized_user",
+                "sudo_command_not_allowed",
+            }
+
+            variant_indices = (
+                range(4)
+                if replay.scenario_name
+                in sudo_variant_scenarios
+                else range(1)
             )
+
+            for variant_index in variant_indices:
+                runs.append(
+                    prepare_behavior_replay_run(
+                        replay,
+                        container_name=(
+                            container_name
+                        ),
+                        log_path=log_path,
+                        variant_index=(
+                            variant_index
+                        ),
+                    )
+                )
 
     return runs
 
@@ -463,6 +480,9 @@ def behavior_replay_capture_record(
 ) -> dict:
     return {
         "event": event,
+        "variant_index": (
+            run["variant_index"]
+        ),
         "label": run["label"],
         "source_dataset": (
             run["source_dataset"]

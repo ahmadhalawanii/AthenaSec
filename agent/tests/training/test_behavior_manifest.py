@@ -1362,3 +1362,139 @@ def test_prepare_behavior_replay_run_varies_sudo_observation_by_provenance():
         not in command
         for command in commands
     )
+
+
+def test_behavior_replay_variant_index_expands_sudo_feature_diversity():
+    replay = BehaviorReplay(
+        label="privilege_misuse",
+        source_dataset="cmu_cert_r4_2",
+        source_row_id=(
+            "answers/r4.2-3/"
+            "r4.2-3-BBS0039.csv"
+        ),
+        source_behavior="scenario_3",
+        scenario_name=(
+            "sudo_command_not_allowed"
+        ),
+    )
+
+    variations = [
+        behavior_manifest
+        .behavior_replay_variation(
+            replay,
+            variant_index=variant_index,
+        )
+        for variant_index in range(4)
+    ]
+
+    observed_combinations = {
+        (
+            variation["target_user"],
+            variation["include_command"],
+        )
+        for variation in variations
+    }
+
+    assert observed_combinations == {
+        ("root", "true"),
+        ("root", "false"),
+        ("backupuser", "true"),
+        ("backupuser", "false"),
+    }
+
+def test_prepare_behavior_replay_run_accepts_variant_index():
+    replay = BehaviorReplay(
+        label="privilege_misuse",
+        source_dataset="cmu_cert_r4_2",
+        source_row_id=(
+            "answers/r4.2-3/"
+            "r4.2-3-BBS0039.csv"
+        ),
+        source_behavior="scenario_3",
+        scenario_name=(
+            "sudo_command_not_allowed"
+        ),
+    )
+
+    run = (
+        behavior_manifest
+        .prepare_behavior_replay_run(
+            replay,
+            container_name=(
+                "single-node-wazuh.manager-1"
+            ),
+            log_path=(
+                "/var/ossec/logs/"
+                "athenasec-test.log"
+            ),
+            variant_index=1,
+        )
+    )
+
+    variation = (
+        behavior_manifest
+        .behavior_replay_variation(
+            replay,
+            variant_index=1,
+        )
+    )
+
+    assert (
+        f"USER={variation['target_user']}"
+        in run["injection_command"]
+    )
+
+    if (
+        variation["include_command"]
+        == "true"
+    ):
+        assert (
+            "COMMAND=/bin/bash"
+            in run["injection_command"]
+        )
+    else:
+        assert (
+            "COMMAND=/bin/bash"
+            not in run["injection_command"]
+        )
+
+    assert (
+        run["source_dataset"]
+        == "cmu_cert_r4_2"
+    )
+
+    assert (
+        run["source_row_id"]
+        == replay.source_row_id
+    )
+
+def test_prepare_behavior_replay_run_preserves_variant_index():
+    replay = BehaviorReplay(
+        label="privilege_misuse",
+        source_dataset="cmu_cert_r4_2",
+        source_row_id=(
+            "answers/r4.2-3/"
+            "r4.2-3-BBS0039.csv"
+        ),
+        source_behavior="scenario_3",
+        scenario_name=(
+            "sudo_command_not_allowed"
+        ),
+    )
+
+    run = (
+        behavior_manifest
+        .prepare_behavior_replay_run(
+            replay,
+            container_name=(
+                "single-node-wazuh.manager-1"
+            ),
+            log_path=(
+                "/var/ossec/logs/"
+                "athenasec-test.log"
+            ),
+            variant_index=3,
+        )
+    )
+
+    assert run["variant_index"] == 3
