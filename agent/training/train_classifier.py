@@ -160,6 +160,45 @@ def train_classifier(
         duplicate_count=duplicate_count,
     )
 
+def fit_deployment_random_forest(
+    rows: list[TrainingRow],
+    random_state: int = 42,
+):
+    validate_training_rows(
+        rows
+    )
+
+    deduplicated_rows, _ = (
+        deduplicate_rows(
+            rows
+        )
+    )
+
+    balanced_rows = undersample_benign(
+        deduplicated_rows,
+        random_state=random_state,
+    )
+
+    class_weights = class_weight_map(
+        balanced_rows
+    )
+
+    train_X, train_y = build_xy(
+        balanced_rows
+    )
+
+    model = build_random_forest(
+        class_weight=class_weights,
+        random_state=random_state,
+    )
+
+    model.fit(
+        train_X,
+        train_y,
+    )
+
+    return model
+
 
 def train_classifier_from_behavior_replay_capture_file(
     *,

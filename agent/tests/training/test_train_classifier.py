@@ -225,3 +225,54 @@ def test_training_from_replay_capture_file_uses_loaded_rows(
         "logistic_regression"
         in result.model_metrics
     )
+
+
+def test_deployment_random_forest_uses_all_deduplicated_rows(
+    monkeypatch,
+):
+    rows = _training_rows()
+
+    rows.append(
+        rows[0]
+    )
+
+    observed = {}
+
+    original_build_xy = (
+        train_classifier_module.build_xy
+    )
+
+    def recording_build_xy(
+        rows,
+    ):
+        observed["row_count"] = len(
+            rows
+        )
+
+        return original_build_xy(
+            rows
+        )
+
+    monkeypatch.setattr(
+        train_classifier_module,
+        "build_xy",
+        recording_build_xy,
+    )
+
+    model = (
+        train_classifier_module
+        .fit_deployment_random_forest(
+            rows=rows,
+            random_state=42,
+        )
+    )
+
+    assert observed["row_count"] == 120
+
+    assert set(
+        model.classes_
+    ) == {
+        "benign",
+        "brute_force",
+        "privilege_misuse",
+    }
