@@ -45,6 +45,9 @@ from app.tools.wazuh_alert_parser import (
 from app.services.misp_config import (
     build_live_misp_client,
 )
+from app.services.persistence_config import (
+    build_persistence_stores_from_env,
+)
 
 
 def _read_autonomous_response_enabled() -> bool:
@@ -102,25 +105,28 @@ def create_app(
             misp_client=misp_client,
         )
 
-    database_path = os.getenv(
-        "ATHENASEC_DB_PATH",
-        "data/athenasec.db",
-    )
+    default_investigation_store = None
+    default_audit_store = None
+
+    if (
+        investigation_store is None
+        or audit_store is None
+    ):
+        (
+            default_investigation_store,
+            default_audit_store,
+        ) = build_persistence_stores_from_env()
 
     store = (
         investigation_store
         if investigation_store is not None
-        else SQLiteInvestigationStore(
-            database_path
-        )
+        else default_investigation_store
     )
 
     configured_audit_store = (
         audit_store
         if audit_store is not None
-        else SQLiteAuditStore(
-            database_path
-        )
+        else default_audit_store
     )
 
     configured_wazuh_ingest_key = (
@@ -809,6 +815,3 @@ def create_app(
         )
 
     return app
-
-
-app = create_app()

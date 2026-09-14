@@ -12,6 +12,9 @@ from app.schemas import (
 from app.services.investigation_store import (
     InMemoryInvestigationStore,
 )
+from app.services.audit_store import (
+    InMemoryAuditStore,
+)
 
 
 class FakeWazuhGraph:
@@ -124,6 +127,9 @@ def make_client(
         investigation_graph=graph,
         investigation_store=(
             InMemoryInvestigationStore()
+        ),
+        audit_store=(
+            InMemoryAuditStore()
         ),
         wazuh_ingest_key=key,
     )

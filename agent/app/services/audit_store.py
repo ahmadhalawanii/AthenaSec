@@ -1,4 +1,5 @@
 import sqlite3
+import psycopg
 from datetime import (
     datetime,
     timezone,
@@ -7,7 +8,7 @@ from pathlib import Path
 from typing import Protocol
 
 from app.schemas import AuditRecord
-
+from psycopg.errors import UniqueViolation
 
 class AuditStore(Protocol):
     def save(
@@ -259,6 +260,146 @@ class SQLiteAuditStore:
                 SELECT payload
                 FROM audit_records
                 WHERE alert_id = ?
+                ORDER BY timestamp ASC
+                """,
+                (
+                    alert_id,
+                ),
+            ).fetchall()
+
+        return [
+            AuditRecord.model_validate_json(
+                row[0]
+            )
+            for row in rows
+        ]
+
+class PostgresAuditStore:
+    def __init__(
+        self,
+        database_url: str,
+        *,
+        connect=None,
+    ):
+        self.database_url = database_url
+
+        if connect is None:
+            connect = psycopg.connect
+
+        self._connect = connect
+
+        self._initialize_database()
+
+    def _initialize_database(
+        self,
+    ) -> None:
+        with self._connect(
+            self.database_url
+        ) as connection:
+            connection.execute(
+                """
+                CREATE TABLE IF NOT EXISTS audit_records (
+                    audit_id TEXT PRIMARY KEY,
+                    alert_id TEXT NOT NULL,
+                    timestamp TEXT NOT NULL,
+                    payload TEXT NOT NULL
+                )
+                """
+            )
+
+            connection.execute(
+                """
+                CREATE INDEX IF NOT EXISTS
+                idx_audit_records_alert_id
+                ON audit_records(alert_id)
+                """
+            )
+
+            connection.execute(
+                """
+                CREATE INDEX IF NOT EXISTS
+                idx_audit_records_timestamp
+                ON audit_records(timestamp)
+                """
+            )
+
+    def save(
+        self,
+        record: AuditRecord,
+    ) -> AuditRecord:
+        payload = record.model_dump_json()
+
+        try:
+            with self._connect(
+                self.database_url
+            ) as connection:
+                connection.execute(
+                    """
+                    INSERT INTO audit_records (
+                        audit_id,
+                        alert_id,
+                        timestamp,
+                        payload
+                    )
+                    VALUES (%s, %s, %s, %s)
+                    """,
+                    (
+                        record.audit_id,
+                        record.alert_id,
+                        record.timestamp.isoformat(),
+                        payload,
+                    ),
+                )
+
+        except UniqueViolation as exc:
+            raise ValueError(
+                "Audit record with audit_id "
+                f"{record.audit_id} "
+                "already exists."
+            ) from exc
+
+        return record
+
+    def get(
+        self,
+        audit_id: str,
+    ) -> AuditRecord | None:
+        with self._connect(
+            self.database_url
+        ) as connection:
+            row = connection.execute(
+                """
+                SELECT payload
+                FROM audit_records
+                WHERE audit_id = %s
+                """,
+                (
+                    audit_id,
+                ),
+            ).fetchone()
+
+        if row is None:
+            return None
+
+        return (
+            AuditRecord
+            .model_validate_json(
+                row[0]
+            )
+        )
+
+    def list_by_alert_id(
+        self,
+        alert_id: str,
+    ) -> list[AuditRecord]:
+        with self._connect(
+            self.database_url
+        ) as connection:
+            rows = connection.execute(
+                """
+                SELECT payload
+                FROM audit_records
+                WHERE alert_id = %s
                 ORDER BY timestamp ASC
                 """,
                 (

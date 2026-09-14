@@ -1,4 +1,5 @@
 import sqlite3
+import psycopg
 from pathlib import Path
 from typing import Protocol
 
@@ -376,4 +377,238 @@ class SQLiteInvestigationStore:
 
         return CaseRecord.model_validate_json(
             row[0]
+        )
+
+class PostgresInvestigationStore:
+    def __init__(
+        self,
+        database_url: str,
+        *,
+        connect=None,
+    ):
+        self.database_url = database_url
+
+        if connect is None:
+            connect = psycopg.connect
+
+        self._connect = connect
+
+        self._initialize_database()
+
+    def _initialize_database(
+        self,
+    ) -> None:
+        with self._connect(
+            self.database_url
+        ) as connection:
+            connection.execute(
+                """
+                CREATE TABLE IF NOT EXISTS investigations (
+                    alert_id TEXT PRIMARY KEY,
+                    payload TEXT NOT NULL
+                )
+                """
+            )
+
+            connection.execute(
+                """
+                CREATE TABLE IF NOT EXISTS cases (
+                    case_id TEXT PRIMARY KEY,
+                    alert_id TEXT NOT NULL UNIQUE,
+                    payload TEXT NOT NULL
+                )
+                """
+            )
+
+    def save(
+        self,
+        investigation: InvestigationResponse,
+    ) -> InvestigationResponse:
+        payload = (
+            investigation.model_dump_json()
+        )
+
+        with self._connect(
+            self.database_url
+        ) as connection:
+            connection.execute(
+                """
+                INSERT INTO investigations (
+                    alert_id,
+                    payload
+                )
+                VALUES (%s, %s)
+                ON CONFLICT (alert_id)
+                DO UPDATE SET
+                    payload = EXCLUDED.payload
+                """,
+                (
+                    investigation.alert_id,
+                    payload,
+                ),
+            )
+
+        return investigation
+
+    def get(
+        self,
+        alert_id: str,
+    ) -> InvestigationResponse | None:
+        with self._connect(
+            self.database_url
+        ) as connection:
+            row = connection.execute(
+                """
+                SELECT payload
+                FROM investigations
+                WHERE alert_id = %s
+                """,
+                (
+                    alert_id,
+                ),
+            ).fetchone()
+
+        if row is None:
+            return None
+
+        return (
+            InvestigationResponse
+            .model_validate_json(
+                row[0]
+            )
+        )
+
+    def update_response_plan(
+        self,
+        alert_id: str,
+        response_plan: ResponsePlan,
+    ) -> InvestigationResponse:
+        investigation = self.get(
+            alert_id
+        )
+
+        if investigation is None:
+            raise KeyError(
+                f"Investigation {alert_id} was not found."
+            )
+
+        updated = investigation.model_copy(
+            update={
+                "response_plan": response_plan,
+            }
+        )
+
+        return self.save(
+            updated
+        )
+
+    def update_execution_result(
+        self,
+        alert_id: str,
+        execution_result: ResponseExecutionResult,
+    ) -> InvestigationResponse:
+        investigation = self.get(
+            alert_id
+        )
+
+        if investigation is None:
+            raise KeyError(
+                f"Investigation {alert_id} was not found."
+            )
+
+        updated = investigation.model_copy(
+            update={
+                "execution_result": execution_result,
+            }
+        )
+
+        return self.save(
+            updated
+        )
+
+    def save_case(
+        self,
+        case: CaseRecord,
+    ) -> CaseRecord:
+        payload = case.model_dump_json()
+
+        with self._connect(
+            self.database_url
+        ) as connection:
+            connection.execute(
+                """
+                INSERT INTO cases (
+                    case_id,
+                    alert_id,
+                    payload
+                )
+                VALUES (%s, %s, %s)
+                ON CONFLICT (case_id)
+                DO UPDATE SET
+                    alert_id = EXCLUDED.alert_id,
+                    payload = EXCLUDED.payload
+                """,
+                (
+                    case.case_id,
+                    case.alert_id,
+                    payload,
+                ),
+            )
+
+        return case
+
+    def get_case(
+        self,
+        case_id: str,
+    ) -> CaseRecord | None:
+        with self._connect(
+            self.database_url
+        ) as connection:
+            row = connection.execute(
+                """
+                SELECT payload
+                FROM cases
+                WHERE case_id = %s
+                """,
+                (
+                    case_id,
+                ),
+            ).fetchone()
+
+        if row is None:
+            return None
+
+        return (
+            CaseRecord
+            .model_validate_json(
+                row[0]
+            )
+        )
+
+    def get_case_by_alert_id(
+        self,
+        alert_id: str,
+    ) -> CaseRecord | None:
+        with self._connect(
+            self.database_url
+        ) as connection:
+            row = connection.execute(
+                """
+                SELECT payload
+                FROM cases
+                WHERE alert_id = %s
+                """,
+                (
+                    alert_id,
+                ),
+            ).fetchone()
+
+        if row is None:
+            return None
+
+        return (
+            CaseRecord
+            .model_validate_json(
+                row[0]
+            )
         )

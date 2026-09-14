@@ -1,3 +1,5 @@
+import pytest
+
 from fastapi.testclient import TestClient
 import app.services.cortex_config as cortex_config
 from app.main import create_app
@@ -23,6 +25,29 @@ from app.services.investigation_store import (
 from app.services.audit_store import (
     InMemoryAuditStore,
 )
+
+@pytest.fixture(autouse=True)
+def configure_test_persistence(
+    monkeypatch,
+    tmp_path,
+):
+    monkeypatch.setenv(
+        "ATHENASEC_PERSISTENCE_BACKEND",
+        "sqlite",
+    )
+
+    monkeypatch.setenv(
+        "ATHENASEC_DB_PATH",
+        str(
+            tmp_path
+            / "athenasec-api-default.db"
+        ),
+    )
+
+    monkeypatch.delenv(
+        "ATHENASEC_DATABASE_URL",
+        raising=False,
+    )
 
 class FakeFailingResponseExecutor:
     def __init__(self):
