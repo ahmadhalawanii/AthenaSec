@@ -255,3 +255,81 @@ def test_leave_one_dataset_out_isolates_dataset():
         + len(held_out_rows)
         == len(rows)
     )
+
+def test_split_keeps_same_provenance_group_together():
+    from dataclasses import replace
+
+    base_rows = make_rows(
+        count_per_class=20
+    )
+
+    rows = []
+
+    for row in base_rows:
+        rows.extend(
+            [
+                row,
+                replace(
+                    row,
+                    source_port=(
+                        row.source_port
+                        + 100000
+                    ),
+                ),
+                replace(
+                    row,
+                    source_port=(
+                        row.source_port
+                        + 200000
+                    ),
+                ),
+                replace(
+                    row,
+                    source_port=(
+                        row.source_port
+                        + 300000
+                    ),
+                ),
+            ]
+        )
+
+    split = split_rows(
+        rows,
+        random_state=42,
+    )
+
+    train_groups = {
+        (
+            row.source_dataset,
+            row.source_row_id,
+        )
+        for row in split.train
+    }
+
+    validation_groups = {
+        (
+            row.source_dataset,
+            row.source_row_id,
+        )
+        for row in split.validation
+    }
+
+    test_groups = {
+        (
+            row.source_dataset,
+            row.source_row_id,
+        )
+        for row in split.test
+    }
+
+    assert train_groups.isdisjoint(
+        validation_groups
+    )
+
+    assert train_groups.isdisjoint(
+        test_groups
+    )
+
+    assert validation_groups.isdisjoint(
+        test_groups
+    )

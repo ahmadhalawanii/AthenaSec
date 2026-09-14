@@ -16,15 +16,6 @@ class DatasetSplit:
     test: list[TrainingRow]
 
 
-def _labels(
-    rows: list[TrainingRow],
-) -> list[str]:
-    return [
-        row.label
-        for row in rows
-    ]
-
-
 def split_rows(
     rows: list[TrainingRow],
     random_state: int = 42,
@@ -34,46 +25,114 @@ def split_rows(
             "Training rows must not be empty."
         )
 
-    try:
-        train_rows, temporary_rows = (
-            train_test_split(
-                rows,
-                test_size=0.30,
-                random_state=random_state,
-                stratify=_labels(
-                    rows
-                ),
-            )
+    grouped_rows: dict[
+        tuple[str, str],
+        list[TrainingRow],
+    ] = {}
+
+    for row in rows:
+        group_key = (
+            row.source_dataset,
+            row.source_row_id,
         )
 
-        validation_rows, test_rows = (
-            train_test_split(
-                temporary_rows,
-                test_size=0.50,
-                random_state=random_state,
-                stratify=_labels(
-                    temporary_rows
-                ),
+        grouped_rows.setdefault(
+            group_key,
+            [],
+        ).append(row)
+
+    group_labels: dict[
+        tuple[str, str],
+        str,
+    ] = {}
+
+    for group_key, group in (
+        grouped_rows.items()
+    ):
+        labels = {
+            row.label
+            for row in group
+        }
+
+        if len(labels) != 1:
+            raise ValueError(
+                "Rows sharing the same "
+                "provenance group must have "
+                "the same label."
             )
+
+        group_labels[group_key] = (
+            next(iter(labels))
+        )
+
+    group_keys = list(
+        grouped_rows
+    )
+
+    try:
+        (
+            train_group_keys,
+            temporary_group_keys,
+        ) = train_test_split(
+            group_keys,
+            test_size=0.30,
+            random_state=random_state,
+            stratify=[
+                group_labels[group_key]
+                for group_key in group_keys
+            ],
+        )
+
+        (
+            validation_group_keys,
+            test_group_keys,
+        ) = train_test_split(
+            temporary_group_keys,
+            test_size=0.50,
+            random_state=random_state,
+            stratify=[
+                group_labels[group_key]
+                for group_key
+                in temporary_group_keys
+            ],
         )
 
     except ValueError as exc:
         raise ValueError(
             "Unable to create a stratified "
             "70/15/15 split. Each class must "
-            "contain enough samples."
+            "contain enough independent "
+            "provenance groups."
         ) from exc
 
+    train_rows = [
+        row
+        for group_key
+        in train_group_keys
+        for row
+        in grouped_rows[group_key]
+    ]
+
+    validation_rows = [
+        row
+        for group_key
+        in validation_group_keys
+        for row
+        in grouped_rows[group_key]
+    ]
+
+    test_rows = [
+        row
+        for group_key
+        in test_group_keys
+        for row
+        in grouped_rows[group_key]
+    ]
+
     return DatasetSplit(
-        train=list(
-            train_rows
-        ),
-        validation=list(
-            validation_rows
-        ),
-        test=list(
-            test_rows
-        ),
+        train=train_rows,
+        validation=validation_rows,
+        test=test_rows,
     )
 
 
