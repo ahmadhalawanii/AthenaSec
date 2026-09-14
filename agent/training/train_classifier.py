@@ -83,20 +83,41 @@ def train_classifier(
         rows
     )
 
-    deduplicated_rows, duplicate_count = (
-        deduplicate_rows(
-            rows
-        )
+    split = split_rows(
+        rows,
+        random_state=random_state,
     )
 
-    split = split_rows(
-        deduplicated_rows,
-        random_state=random_state,
+    (
+        deduplicated_train_rows,
+        train_duplicate_count,
+    ) = deduplicate_rows(
+        split.train
+    )
+
+    (
+        deduplicated_validation_rows,
+        validation_duplicate_count,
+    ) = deduplicate_rows(
+        split.validation
+    )
+
+    (
+        deduplicated_test_rows,
+        test_duplicate_count,
+    ) = deduplicate_rows(
+        split.test
+    )
+
+    duplicate_count = (
+        train_duplicate_count
+        + validation_duplicate_count
+        + test_duplicate_count
     )
 
     balanced_train_rows = (
         undersample_benign(
-            split.train,
+            deduplicated_train_rows,
             random_state=random_state,
         )
     )
@@ -136,15 +157,15 @@ def train_classifier(
         "logistic_regression": (
             _evaluate_model(
                 logistic_model,
-                split.validation,
-                split.test,
+                deduplicated_validation_rows,
+                deduplicated_test_rows,
             )
         ),
         "random_forest": (
             _evaluate_model(
                 random_forest_model,
-                split.validation,
-                split.test,
+                deduplicated_validation_rows,
+                deduplicated_test_rows,
             )
         ),
     }

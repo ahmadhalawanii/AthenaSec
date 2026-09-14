@@ -276,3 +276,72 @@ def test_deployment_random_forest_uses_all_deduplicated_rows(
         "brute_force",
         "privilege_misuse",
     }
+
+def test_training_splits_before_deduplication(
+    monkeypatch,
+):
+    rows = _training_rows()
+
+    rows.append(
+        rows[0]
+    )
+
+    actions = []
+
+    original_split_rows = (
+        train_classifier_module.split_rows
+    )
+
+    original_deduplicate_rows = (
+        train_classifier_module
+        .deduplicate_rows
+    )
+
+    def recording_split_rows(
+        rows,
+        random_state=42,
+    ):
+        actions.append(
+            (
+                "split",
+                len(rows),
+            )
+        )
+
+        return original_split_rows(
+            rows,
+            random_state=random_state,
+        )
+
+    def recording_deduplicate_rows(
+        rows,
+    ):
+        actions.append(
+            (
+                "deduplicate",
+                len(rows),
+            )
+        )
+
+        return original_deduplicate_rows(
+            rows
+        )
+
+    monkeypatch.setattr(
+        train_classifier_module,
+        "split_rows",
+        recording_split_rows,
+    )
+
+    monkeypatch.setattr(
+        train_classifier_module,
+        "deduplicate_rows",
+        recording_deduplicate_rows,
+    )
+
+    train_classifier(
+        rows=rows,
+        random_state=42,
+    )
+
+    assert actions[0][0] == "split"

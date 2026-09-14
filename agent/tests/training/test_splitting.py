@@ -333,3 +333,180 @@ def test_split_keeps_same_provenance_group_together():
     assert validation_groups.isdisjoint(
         test_groups
     )
+
+
+def test_split_keeps_identical_feature_vectors_together():
+    from dataclasses import replace
+
+    from training.data_contract import (
+        training_feature_vector,
+    )
+
+    base_rows = make_rows(
+        count_per_class=20
+    )
+
+    rows = []
+
+    for row in base_rows:
+        rows.extend(
+            [
+                row,
+                replace(
+                    row,
+                    source_row_id=(
+                        f"{row.source_row_id}"
+                        "-duplicate"
+                    ),
+                ),
+            ]
+        )
+
+    split = split_rows(
+        rows,
+        random_state=42,
+    )
+
+    train_vectors = {
+        tuple(
+            training_feature_vector(row)
+        )
+        for row in split.train
+    }
+
+    validation_vectors = {
+        tuple(
+            training_feature_vector(row)
+        )
+        for row in split.validation
+    }
+
+    test_vectors = {
+        tuple(
+            training_feature_vector(row)
+        )
+        for row in split.test
+    }
+
+    assert train_vectors.isdisjoint(
+        validation_vectors
+    )
+
+    assert train_vectors.isdisjoint(
+        test_vectors
+    )
+
+    assert validation_vectors.isdisjoint(
+        test_vectors
+    )
+
+def test_split_keeps_majority_feature_diversity_in_training():
+    from dataclasses import replace
+
+    from training.data_contract import (
+        training_feature_vector,
+    )
+
+    base_rows = make_rows(
+        count_per_class=1
+    )
+
+    rows = []
+
+    for base_row in base_rows:
+        label = base_row.label
+
+        # One large provenance component with
+        # many records but only one feature vector.
+        for index in range(14):
+            rows.append(
+                replace(
+                    base_row,
+                    source_row_id=(
+                        f"{label}-low-"
+                        f"{index}"
+                    ),
+                )
+            )
+
+        # Three small provenance components,
+        # each containing four unique vectors.
+        for component_index in range(3):
+            source_row_id = (
+                f"{label}-high-"
+                f"{component_index}"
+            )
+
+            for variant_index in range(4):
+                rows.append(
+                    replace(
+                        base_row,
+                        source_row_id=(
+                            source_row_id
+                        ),
+                        source_port=(
+                            base_row.source_port
+                            + (
+                                100000
+                                * (
+                                    component_index
+                                    + 1
+                                )
+                            )
+                            + variant_index
+                            + 1
+                        ),
+                    )
+                )
+
+    split = split_rows(
+        rows,
+        random_state=42,
+    )
+
+    def unique_vector_count(
+        split_rows,
+        label,
+    ):
+        return len(
+            {
+                tuple(
+                    training_feature_vector(
+                        row
+                    )
+                )
+                for row in split_rows
+                if row.label == label
+            }
+        )
+
+    for label in (
+        "benign",
+        "brute_force",
+        "privilege_misuse",
+    ):
+        train_count = (
+            unique_vector_count(
+                split.train,
+                label,
+            )
+        )
+
+        validation_count = (
+            unique_vector_count(
+                split.validation,
+                label,
+            )
+        )
+
+        test_count = (
+            unique_vector_count(
+                split.test,
+                label,
+            )
+        )
+
+        assert train_count >= (
+            validation_count
+            + test_count
+        )
