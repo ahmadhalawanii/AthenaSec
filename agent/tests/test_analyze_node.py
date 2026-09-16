@@ -1,7 +1,8 @@
-import pytest
+﻿import pytest
 from pydantic import ValidationError
 
 from app.graph.nodes.analyze import (
+    _extract_ipv4_addresses,
     build_analysis_context,
     make_analyze_alert_node,
 )
@@ -309,7 +310,7 @@ def test_analyze_node_rejects_ungrounded_user_in_recommendation():
             uncertainties=[],
             recommended_investigation_steps=[],
             recommended_response_actions=[
-                "Lock user administrator"
+                "Lock user=administrator"
             ],
             requested_evidence=[],
             needs_more_evidence=False,
@@ -356,7 +357,7 @@ def test_analyze_node_allows_grounded_user_in_recommendation():
             uncertainties=[],
             recommended_investigation_steps=[],
             recommended_response_actions=[
-                "Lock user root if policy permits"
+                "Lock user=root if policy permits"
             ],
             requested_evidence=[],
             needs_more_evidence=False,
@@ -377,7 +378,7 @@ def test_analyze_node_allows_grounded_user_in_recommendation():
         result[
             "analysis"
         ].recommended_response_actions[0]
-        == "Lock user root if policy permits"
+        == "Lock user=root if policy permits"
     )
 
 
@@ -408,7 +409,7 @@ def test_analyze_node_rejects_ungrounded_host_in_recommendation():
             uncertainties=[],
             recommended_investigation_steps=[],
             recommended_response_actions=[
-                "Isolate host workstation-99"
+                "Isolate host=workstation-99"
             ],
             requested_evidence=[],
             needs_more_evidence=False,
@@ -458,7 +459,7 @@ def test_analyze_node_allows_grounded_host_in_recommendation():
             recommended_investigation_steps=[],
             recommended_response_actions=[
                 (
-                    "Isolate host workstation-07 "
+                    "Isolate host=workstation-07 "
                     "if policy permits"
                 )
             ],
@@ -482,7 +483,7 @@ def test_analyze_node_allows_grounded_host_in_recommendation():
             "analysis"
         ].recommended_response_actions[0]
         == (
-            "Isolate host workstation-07 "
+            "Isolate host=workstation-07 "
             "if policy permits"
         )
     )
@@ -524,3 +525,181 @@ def test_build_analysis_context_contains_ml_prediction():
 
     assert "[E001]" in context
     assert "[E002]" in context
+
+def test_analyze_node_allows_generic_user_account_language():
+    def fake_analyzer(
+        event: str,
+    ) -> AlertAnalysis:
+        return AlertAnalysis(
+            classification="brute_force",
+            confidence=0.95,
+            severity_assessment="high",
+            summary=(
+                "User credentials may have been targeted. "
+                "User password activity should be reviewed. "
+                "The account was subject to repeated "
+                "authentication attempts. "
+                "User compromise has not been established. "
+                "The account has no confirmed successful login. "
+            ),
+            evidence_refs=[
+                "E001",
+                "E002",
+            ],
+            uncertainties=[
+                (
+                    "Account lockout status "
+                    "is unknown."
+                ),
+            ],
+            recommended_investigation_steps=[
+                (
+                    "Review the account for "
+                    "authentication anomalies."
+                ),
+                (
+                    "Review the affected user via "
+                    "authentication logs."
+                ),
+            ],
+            recommended_response_actions=[],
+            requested_evidence=[],
+            needs_more_evidence=False,
+        )
+
+    node = make_analyze_alert_node(
+        fake_analyzer
+    )
+
+    result = node(
+        {
+            "alert": make_alert(),
+            "evidence_records": make_evidence(),
+        }
+    )
+
+    assert (
+        result["analysis"].classification
+        == "brute_force"
+    )
+
+def test_analyze_node_retries_once_after_ungrounded_entity():
+    calls = []
+
+    def fake_analyzer(
+        event: str,
+    ) -> AlertAnalysis:
+        calls.append(event)
+
+        if len(calls) == 1:
+            return AlertAnalysis(
+                classification="brute_force",
+                confidence=0.95,
+                severity_assessment="high",
+                summary=(
+                    "Brute force activity from "
+                    "192.0.0.50."
+                ),
+                evidence_refs=[
+                    "E001",
+                    "E002",
+                ],
+                uncertainties=[],
+                recommended_investigation_steps=[],
+                recommended_response_actions=[],
+                requested_evidence=[],
+                needs_more_evidence=False,
+            )
+
+        return AlertAnalysis(
+            classification="brute_force",
+            confidence=0.95,
+            severity_assessment="high",
+            summary=(
+                "Brute force activity from "
+                "192.0.2.50."
+            ),
+            evidence_refs=[
+                "E001",
+                "E002",
+            ],
+            uncertainties=[],
+            recommended_investigation_steps=[],
+            recommended_response_actions=[],
+            requested_evidence=[],
+            needs_more_evidence=False,
+        )
+
+    node = make_analyze_alert_node(
+        fake_analyzer
+    )
+
+    result = node(
+        {
+            "alert": make_alert(),
+            "evidence_records": make_evidence(),
+        }
+    )
+
+    assert len(calls) == 2
+
+    assert (
+        "ungrounded IP"
+        in calls[1]
+    )
+
+    assert (
+        result["analysis"].summary
+        == "Brute force activity from 192.0.2.50."
+    )
+
+def test_extract_ipv4_address_before_sentence_period():
+    addresses = _extract_ipv4_addresses(
+        "Brute force activity from 192.0.0.50."
+    )
+
+    assert addresses == {
+        "192.0.0.50"
+    }
+
+
+def test_analyze_node_allows_generic_host_language():
+    def fake_analyzer(
+        event: str,
+    ) -> AlertAnalysis:
+        return AlertAnalysis(
+            classification="brute_force",
+            confidence=0.95,
+            severity_assessment="high",
+            summary=(
+                "The host has repeated authentication "
+                "activity. The endpoint activity should "
+                "be reviewed. Device compromise has not "
+                "been established."
+            ),
+            evidence_refs=[
+                "E001",
+                "E002",
+            ],
+            uncertainties=[],
+            recommended_investigation_steps=[],
+            recommended_response_actions=[],
+            requested_evidence=[],
+            needs_more_evidence=False,
+        )
+
+    node = make_analyze_alert_node(
+        fake_analyzer
+    )
+
+    result = node(
+        {
+            "alert": make_alert(),
+            "evidence_records": make_evidence(),
+        }
+    )
+
+    assert (
+        result["analysis"].classification
+        == "brute_force"
+    )

@@ -146,14 +146,15 @@ print(
     f"{policy.policy_name}"
 )
 
-print(
-    f"Approval Type: "
-    f"{policy.approval_type.upper()}"
+policy_result = (
+    "ALLOWED"
+    if policy.response_allowed
+    else "NOT_ALLOWED"
 )
 
 print(
-    f"Execution Mode: "
-    f"{policy.execution_mode.upper()}"
+    f"Decision: "
+    f"{policy_result}"
 )
 
 print("\nPermitted Actions:")

@@ -1,4 +1,4 @@
-import ipaddress
+﻿import ipaddress
 import re
 from collections.abc import Callable
 
@@ -18,7 +18,7 @@ Analyzer = Callable[
 IPV4_CANDIDATE_PATTERN = re.compile(
     r"(?<![\d.])"
     r"(?:\d{1,3}\.){3}\d{1,3}"
-    r"(?![\d.])"
+    r"(?!\d|\.\d)"
 )
 
 USER_EVIDENCE_PATTERN = re.compile(
@@ -47,7 +47,7 @@ HOST_EVIDENCE_PATTERN = re.compile(
 )
 
 USER_REFERENCE_PATTERN = re.compile(
-    r"\b(?:user|account)\s+"
+    r"\b(?:user|account)\s*=\s*"
     r"([A-Za-z0-9_.@\\-]+)",
     re.IGNORECASE,
 )
@@ -58,11 +58,10 @@ HOST_REFERENCE_PATTERN = re.compile(
     r"endpoint|"
     r"device|"
     r"machine"
-    r")\s+"
+    r")\s*=\s*"
     r"([A-Za-z0-9_.-]+)",
     re.IGNORECASE,
 )
-
 
 def build_analysis_context(
     state: InvestigationState,
@@ -428,10 +427,39 @@ def make_analyze_alert_node(
             evidence_records,
         )
 
-        validate_grounded_entities(
-            analysis,
-            evidence_records,
-        )
+        try:
+            validate_grounded_entities(
+                analysis,
+                evidence_records,
+            )
+
+        except ValueError as exc:
+            retry_context = (
+                f"{context}\n\n"
+                "CORRECTION REQUIRED:\n"
+                f"{exc}\n"
+                "Your previous analysis contained "
+                "an entity that was not grounded in "
+                "the supplied evidence. Regenerate "
+                "the analysis using only exact IP "
+                "addresses, users, and hosts present "
+                "in the evidence records. Copy those "
+                "identifiers exactly."
+            )
+
+            analysis = analyzer(
+                retry_context
+            )
+
+            validate_evidence_references(
+                analysis,
+                evidence_records,
+            )
+
+            validate_grounded_entities(
+                analysis,
+                evidence_records,
+            )
 
         return {
             "analysis": analysis,
