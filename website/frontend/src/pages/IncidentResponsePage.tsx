@@ -80,7 +80,7 @@ function IncidentResponsePage() {
   return (
     <section
       className="page active"
-      data-page="response-activity"
+      data-page="incident"
       data-page-name="Incident Response"
       data-search-page
     >
@@ -208,7 +208,7 @@ function IncidentResponsePage() {
                   key={execution.id}
                   className="data-row"
                   data-search-record
-                  data-page-target="response-activity"
+                  data-page-target="incident"
                   data-execution-id={execution.id}
                 >
                   <td>{execution.id}</td>

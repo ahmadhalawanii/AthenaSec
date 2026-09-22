@@ -1,20 +1,24 @@
 import { useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 
 type TopBarProps = {
   userName: string
   role: 'Analyst' | 'Administrator'
-  onNavigate: (page: string) => void
   onLogout: () => void
 }
 
 function TopBar({
   userName,
   role,
-  onNavigate,
   onLogout,
 }: TopBarProps) {
-  const [notificationOpen, setNotificationOpen] = useState(false)
-  const [userMenuOpen, setUserMenuOpen] = useState(false)
+  const routerNavigate = useNavigate()
+
+  const [notificationOpen, setNotificationOpen] =
+    useState(false)
+
+  const [userMenuOpen, setUserMenuOpen] =
+    useState(false)
 
   function openNotifications() {
     setNotificationOpen(!notificationOpen)
@@ -29,7 +33,7 @@ function TopBar({
   function navigate(page: string) {
     setNotificationOpen(false)
     setUserMenuOpen(false)
-    onNavigate(page)
+    routerNavigate(`/app/${page}`)
   }
 
   return (
@@ -88,7 +92,7 @@ function TopBar({
 
               <button
                 className="drop-item"
-                onClick={() => navigate('incidents')}
+                onClick={() => navigate('cases')}
               >
                 <strong>Case Created</strong>
                 <p>
@@ -100,7 +104,9 @@ function TopBar({
                 <>
                   <button
                     className="drop-item"
-                    onClick={() => navigate('response-policies')}
+                    onClick={() =>
+                      navigate('response-policies')
+                    }
                   >
                     <strong>Policy Updated</strong>
                     <p>
@@ -110,7 +116,9 @@ function TopBar({
 
                   <button
                     className="drop-item"
-                    onClick={() => navigate('system-health')}
+                    onClick={() =>
+                      navigate('system-health')
+                    }
                   >
                     <strong>System Warning</strong>
                     <p>
@@ -138,7 +146,9 @@ function TopBar({
                 onClick={() => navigate('profile')}
               >
                 <strong>Profile</strong>
-                <p>View role, contact, and session details.</p>
+                <p>
+                  View role, contact, and session details.
+                </p>
               </button>
 
               {role === 'Administrator' && (
@@ -158,7 +168,9 @@ function TopBar({
                 onClick={onLogout}
               >
                 <strong>Logout</strong>
-                <p>End the current AthenaSec session.</p>
+                <p>
+                  End the current AthenaSec session.
+                </p>
               </button>
             </div>
           )}

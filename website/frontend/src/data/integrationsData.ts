@@ -28,19 +28,6 @@ export const initialIntegrations: IntegrationRecord[] = [
       'Security telemetry is indexed into OpenSearch and retrieved by the AthenaSec dashboard and AI workflow.',
   },
   {
-    id: 'INT-003',
-    name: 'TheHive',
-    type: 'Case Management',
-    status: 'Connected',
-    version: '5.4.6',
-    endpoint: 'https://thehive.athenasec.local',
-    lastSync: '4 minutes ago',
-    description:
-      'Provides external case-management support for validated alerts and analyst-owned investigations.',
-    dataFlow:
-      'Validated alerts can create or update investigation cases while AthenaSec retains the response and audit history.',
-  },
-  {
     id: 'INT-004',
     name: 'Cortex',
     type: 'Analyzer',

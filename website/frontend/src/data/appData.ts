@@ -4,8 +4,8 @@ export const PAGE_STORAGE_KEY = 'athenasec-current-page'
 export const analystPages = [
   'dashboard',
   'alerts',
-  'incidents',
-  'response-activity',
+  'cases',
+  'incident',
   'profile',
 ]
 

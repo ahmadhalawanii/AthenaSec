@@ -208,8 +208,8 @@ button {
   background: transparent;
   border: 1px solid transparent;
   text-align: left;
-  transition: background .2s ease, border-color .2s ease, color .2s ease, transform .2s ease
-}
+  text-decoration: none;
+  transition: background .2s ease, border-color .2s ease, color .2s ease, transform .2s ease}
 
 .side-item:hover {
   background: #111f35;

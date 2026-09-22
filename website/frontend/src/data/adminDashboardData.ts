@@ -22,11 +22,6 @@ export const integrations: IntegrationRecord[] = [
     lastCheck: '1 minute ago',
   },
   {
-    name: 'TheHive',
-    status: 'Connected',
-    lastCheck: '2 minutes ago',
-  },
-  {
     name: 'Slack Alerts',
     status: 'Connected',
     lastCheck: '2 minutes ago',

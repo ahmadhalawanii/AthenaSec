@@ -126,19 +126,6 @@ export const initialServices: ServiceRecord[] = [
       'Hosts the local language model used for summaries, reasoning, technical explanations, and analyst context.',
   },
   {
-    id: 'SVC-006',
-    name: 'TheHive',
-    category: 'Case Management',
-    status: 'Online',
-    uptime: '99.86%',
-    latency: 96,
-    version: '5.4.6',
-    endpoint: 'thehive:9000',
-    lastCheck: '1 minute ago',
-    description:
-      'Supports case creation and investigation tracking for validated security alerts.',
-  },
-  {
     id: 'SVC-007',
     name: 'Cortex',
     category: 'Analyzer',

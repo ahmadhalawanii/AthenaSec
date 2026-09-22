@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react'
+
 import Sidebar from './Sidebar'
 import TopBar from './TopBar'
 
@@ -6,8 +7,6 @@ type AppLayoutProps = {
   children: ReactNode
   role: 'Analyst' | 'Administrator'
   userName: string
-  currentPage: string
-  onNavigate: (page: string) => void
   onLogout: () => void
 }
 
@@ -15,8 +14,6 @@ function AppLayout({
   children,
   role,
   userName,
-  currentPage,
-  onNavigate,
   onLogout,
 }: AppLayoutProps) {
   return (
@@ -33,15 +30,12 @@ function AppLayout({
         <TopBar
           userName={userName}
           role={role}
-          onNavigate={onNavigate}
           onLogout={onLogout}
         />
 
         <div className="body">
           <Sidebar
             role={role}
-            currentPage={currentPage}
-            onNavigate={onNavigate}
             onLogout={onLogout}
           />
 

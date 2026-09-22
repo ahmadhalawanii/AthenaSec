@@ -102,7 +102,7 @@ function CasesPage() {
   return (
     <section
       className="page active"
-      data-page="incidents"
+      data-page="cases"
       data-page-name="Case Management"
       data-search-page
     >
@@ -125,7 +125,7 @@ function CasesPage() {
       <div className="toolbar">
         <input
           className="field-input"
-          id="incidentSearch"
+          id="casesearch"
           type="search"
           placeholder="Search cases"
           value={searchQuery}
@@ -134,7 +134,7 @@ function CasesPage() {
 
         <select
           className="select-input"
-          id="incidentSeverity"
+          id="caseseverity"
           value={severityFilter}
           onChange={(event) =>
             setSeverityFilter(event.target.value)
@@ -148,7 +148,7 @@ function CasesPage() {
 
         <select
           className="select-input"
-          id="incidentStatus"
+          id="casestatus"
           value={statusFilter}
           onChange={(event) =>
             setStatusFilter(event.target.value)
@@ -199,7 +199,7 @@ function CasesPage() {
                   key={caseItem.id}
                   className="data-row"
                   data-search-record
-                  data-page-target="incidents"
+                  data-page-target="cases"
                   data-case-id={caseItem.id}
                   data-severity={caseItem.severity}
                   data-status={caseItem.status}

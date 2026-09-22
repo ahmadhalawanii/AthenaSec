@@ -1,20 +1,22 @@
+import { NavLink } from 'react-router-dom'
+
 type SidebarProps = {
   role: 'Analyst' | 'Administrator'
-  currentPage: string
-  onNavigate: (page: string) => void
   onLogout: () => void
 }
 
 function Sidebar({
   role,
-  currentPage,
-  onNavigate,
   onLogout,
 }: SidebarProps) {
   const isAdmin = role === 'Administrator'
 
-  function pageClass(page: string) {
-    return currentPage === page
+  function linkClass({
+    isActive,
+  }: {
+    isActive: boolean
+  }) {
+    return isActive
       ? 'side-item active'
       : 'side-item'
   }
@@ -25,106 +27,106 @@ function Sidebar({
         {isAdmin ? 'Security Management' : 'Analyst'}
       </div>
 
-      <button
-        className={pageClass('dashboard')}
-        onClick={() => onNavigate('dashboard')}
+      <NavLink
+        to="/app/dashboard"
+        className={linkClass}
       >
         <span>Dashboard</span>
-      </button>
+      </NavLink>
 
       {!isAdmin && (
         <>
-          <button
-            className={pageClass('alerts')}
-            onClick={() => onNavigate('alerts')}
+          <NavLink
+            to="/app/alerts"
+            className={linkClass}
           >
             <span>Alerts</span>
             <span className="count">4</span>
-          </button>
+          </NavLink>
 
-          <button
-            className={pageClass('incidents')}
-            onClick={() => onNavigate('incidents')}
+          <NavLink
+            to="/app/cases"
+            className={linkClass}
           >
             <span>Case Management</span>
             <span className="count">3</span>
-          </button>
+          </NavLink>
 
-          <button
-            className={pageClass('response-activity')}
-            onClick={() => onNavigate('response-activity')}
+          <NavLink
+            to="/app/incident"
+            className={linkClass}
           >
             <span>Incident Response</span>
-          </button>
+          </NavLink>
         </>
       )}
 
       {isAdmin && (
         <>
-          <button
-            className={pageClass('configuration')}
-            onClick={() => onNavigate('configuration')}
+          <NavLink
+            to="/app/configuration"
+            className={linkClass}
           >
             <span>Configuration</span>
-          </button>
+          </NavLink>
 
-          <button
-            className={pageClass('detection-rules')}
-            onClick={() => onNavigate('detection-rules')}
+          <NavLink
+            to="/app/detection-rules"
+            className={linkClass}
           >
             <span>Detection Rules</span>
-          </button>
+          </NavLink>
 
-          <button
-            className={pageClass('response-policies')}
-            onClick={() => onNavigate('response-policies')}
+          <NavLink
+            to="/app/response-policies"
+            className={linkClass}
           >
             <span>Response Policies</span>
-          </button>
+          </NavLink>
 
-          <button
-            className={pageClass('integrations')}
-            onClick={() => onNavigate('integrations')}
+          <NavLink
+            to="/app/integrations"
+            className={linkClass}
           >
             <span>Integrations</span>
-          </button>
+          </NavLink>
 
-          <button
-            className={pageClass('user-management')}
-            onClick={() => onNavigate('user-management')}
+          <NavLink
+            to="/app/user-management"
+            className={linkClass}
           >
             <span>User Management</span>
-          </button>
+          </NavLink>
 
-          <button
-            className={pageClass('audit-logs')}
-            onClick={() => onNavigate('audit-logs')}
+          <NavLink
+            to="/app/audit-logs"
+            className={linkClass}
           >
             <span>Audit Logs</span>
-          </button>
+          </NavLink>
 
-          <button
-            className={pageClass('system-health')}
-            onClick={() => onNavigate('system-health')}
+          <NavLink
+            to="/app/system-health"
+            className={linkClass}
           >
             <span>System Health</span>
-          </button>
+          </NavLink>
 
-          <button
-            className={pageClass('settings')}
-            onClick={() => onNavigate('settings')}
+          <NavLink
+            to="/app/settings"
+            className={linkClass}
           >
             <span>Settings</span>
-          </button>
+          </NavLink>
         </>
       )}
 
-      <button
-        className={pageClass('profile')}
-        onClick={() => onNavigate('profile')}
+      <NavLink
+        to="/app/profile"
+        className={linkClass}
       >
         <span>Profile</span>
-      </button>
+      </NavLink>
 
       <button
         className="side-item"

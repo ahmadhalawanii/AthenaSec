@@ -1,4 +1,10 @@
 import { useEffect, useState } from 'react'
+import {
+  Navigate,
+  Route,
+  Routes,
+  useNavigate,
+} from 'react-router-dom'
 
 import AppLayout from './components/AppLayout'
 import ConfirmModal from './components/ConfirmModal'
@@ -20,16 +26,16 @@ import AuditLogsPage from './pages/AuditLogsPage'
 import SystemHealthPage from './pages/SystemHealthPage'
 import SettingsPage from './pages/SettingsPage'
 import ProfilePage from './pages/ProfilePage'
+
 import {
   adminPages,
   analystPages,
   AUTH_STORAGE_KEY,
-  PAGE_STORAGE_KEY,
 } from './data/appData'
 import { LOGOUT_CONFIRMATION } from './data/confirmModalData'
 import { DEMO_ACCOUNTS } from './data/loginData'
+
 import type {
-  AppView,
   AuthenticatedUser,
   DemoAccount,
   Role,
@@ -70,42 +76,13 @@ function readStoredUser(): AuthenticatedUser | null {
   }
 }
 
-function readStoredPage(
-  user: AuthenticatedUser | null,
-): string {
-  if (!user) {
-    return 'dashboard'
-  }
-
-  const storedPage =
-    localStorage.getItem(PAGE_STORAGE_KEY) ?? 'dashboard'
-
-  const allowedPages =
-    user.role === 'Administrator'
-      ? adminPages
-      : analystPages
-
-  return allowedPages.includes(storedPage)
-    ? storedPage
-    : 'dashboard'
-}
-
 function App() {
+  const routerNavigate = useNavigate()
+
   const [currentUser, setCurrentUser] =
     useState<AuthenticatedUser | null>(() =>
       readStoredUser(),
     )
-
-  const [appView, setAppView] =
-    useState<AppView>(() =>
-      readStoredUser() ? 'app' : 'login',
-    )
-
-  const [currentPage, setCurrentPage] =
-    useState<string>(() => {
-      const storedUser = readStoredUser()
-      return readStoredPage(storedUser)
-    })
 
   const [pendingUser, setPendingUser] =
     useState<DemoAccount | null>(null)
@@ -115,6 +92,11 @@ function App() {
 
   const role: Role =
     currentUser?.role ?? 'Analyst'
+
+  const allowedPages =
+    role === 'Administrator'
+      ? adminPages
+      : analystPages
 
   useEffect(() => {
     if (!currentUser) {
@@ -127,17 +109,6 @@ function App() {
       JSON.stringify(currentUser),
     )
   }, [currentUser])
-
-  useEffect(() => {
-    if (appView !== 'app' || !currentUser) {
-      return
-    }
-
-    localStorage.setItem(
-      PAGE_STORAGE_KEY,
-      currentPage,
-    )
-  }, [appView, currentPage, currentUser])
 
   function handleLogin(
     email: string,
@@ -157,14 +128,16 @@ function App() {
     }
 
     setPendingUser(account)
-    setAppView('mfa')
+    routerNavigate('/mfa')
 
     return true
   }
 
   function handleMfaVerify() {
     if (!pendingUser) {
-      setAppView('login')
+      routerNavigate('/login', {
+        replace: true,
+      })
       return
     }
 
@@ -176,160 +149,339 @@ function App() {
 
     setCurrentUser(authenticatedUser)
     setPendingUser(null)
-    setCurrentPage('dashboard')
-    setAppView('app')
 
     localStorage.setItem(
       AUTH_STORAGE_KEY,
       JSON.stringify(authenticatedUser),
     )
 
-    localStorage.setItem(
-      PAGE_STORAGE_KEY,
-      'dashboard',
-    )
+    routerNavigate('/app/dashboard', {
+      replace: true,
+    })
   }
 
   function navigate(page: string) {
-    const allowedPages =
-      role === 'Administrator'
-        ? adminPages
-        : analystPages
+    const nextPage =
+      allowedPages.includes(page)
+        ? page
+        : 'dashboard'
 
-    const nextPage = allowedPages.includes(page)
-      ? page
-      : 'dashboard'
-
-    setCurrentPage(nextPage)
-
-    localStorage.setItem(
-      PAGE_STORAGE_KEY,
-      nextPage,
-    )
+    routerNavigate(`/app/${nextPage}`)
   }
 
   function logout() {
     setLogoutConfirmationOpen(false)
     setCurrentUser(null)
     setPendingUser(null)
-    setCurrentPage('dashboard')
-    setAppView('login')
 
     localStorage.removeItem(AUTH_STORAGE_KEY)
-    localStorage.removeItem(PAGE_STORAGE_KEY)
+
+    routerNavigate('/login', {
+      replace: true,
+    })
   }
 
   function requestLogout() {
     setLogoutConfirmationOpen(true)
   }
 
-  function renderCurrentPage() {
-    switch (currentPage) {
-      case 'dashboard':
-        return role === 'Administrator' ? (
-          <AdminDashboardPage
-            onNavigate={navigate}
-          />
-        ) : (
-          <AnalystDashboardPage />
-        )
-
-      case 'alerts':
-        return <AlertsPage />
-
-      case 'incidents':
-        return <CasesPage />
-
-      case 'response-activity':
-        return <IncidentResponsePage />
-
-      case 'configuration':
-        return <ConfigurationPage />
-
-      case 'detection-rules':
-        return <DetectionRulesPage />
-
-      case 'response-policies':
-        return <ResponsePoliciesPage />
-
-      case 'integrations':
-        return <IntegrationsPage />
-
-      case 'user-management':
-        return <UserManagementPage />
-
-      case 'audit-logs':
-        return <AuditLogsPage />
-
-      case 'system-health':
-        return <SystemHealthPage />
-
-      case 'settings':
-        return <SettingsPage />
-
-      case 'profile':
-        return (
-          <ProfilePage
-            userName={currentUser?.name}
-            userEmail={currentUser?.email}
-            role={currentUser?.role}
-          />
-        )
-
-      default:
-        return role === 'Administrator' ? (
-          <AdminDashboardPage
-            onNavigate={navigate}
-          />
-        ) : (
-          <AnalystDashboardPage />
-        )
+  function renderWorkspace() {
+    if (!currentUser) {
+      return (
+        <Navigate
+          to="/login"
+          replace
+        />
+      )
     }
-  }
 
-  if (appView === 'login') {
     return (
-      <LoginPage
-        onSignIn={handleLogin}
-      />
-    )
-  }
+      <>
+        <AppLayout
+          role={currentUser.role}
+          userName={currentUser.name}
+          onLogout={requestLogout}
+        >
+          <Routes>
+            <Route
+              index
+              element={
+                <Navigate
+                  to="dashboard"
+                  replace
+                />
+              }
+            />
 
-  if (appView === 'mfa') {
-    return (
-      <MfaPage
-        onVerify={handleMfaVerify}
-      />
-    )
-  }
+            <Route
+              path="dashboard"
+              element={
+                role === 'Administrator' ? (
+                  <AdminDashboardPage
+                    onNavigate={navigate}
+                  />
+                ) : (
+                  <AnalystDashboardPage />
+                )
+              }
+            />
 
-  if (!currentUser) {
-    return (
-      <LoginPage
-        onSignIn={handleLogin}
-      />
+            <Route
+              path="alerts"
+              element={
+                role === 'Analyst' ? (
+                  <AlertsPage />
+                ) : (
+                  <Navigate
+                    to="/app/dashboard"
+                    replace
+                  />
+                )
+              }
+            />
+
+            <Route
+              path="cases"
+              element={
+                role === 'Analyst' ? (
+                  <CasesPage />
+                ) : (
+                  <Navigate
+                    to="/app/dashboard"
+                    replace
+                  />
+                )
+              }
+            />
+
+            <Route
+              path="incident"
+              element={
+                role === 'Analyst' ? (
+                  <IncidentResponsePage />
+                ) : (
+                  <Navigate
+                    to="/app/dashboard"
+                    replace
+                  />
+                )
+              }
+            />
+
+            <Route
+              path="configuration"
+              element={
+                role === 'Administrator' ? (
+                  <ConfigurationPage />
+                ) : (
+                  <Navigate
+                    to="/app/dashboard"
+                    replace
+                  />
+                )
+              }
+            />
+
+            <Route
+              path="detection-rules"
+              element={
+                role === 'Administrator' ? (
+                  <DetectionRulesPage />
+                ) : (
+                  <Navigate
+                    to="/app/dashboard"
+                    replace
+                  />
+                )
+              }
+            />
+
+            <Route
+              path="response-policies"
+              element={
+                role === 'Administrator' ? (
+                  <ResponsePoliciesPage />
+                ) : (
+                  <Navigate
+                    to="/app/dashboard"
+                    replace
+                  />
+                )
+              }
+            />
+
+            <Route
+              path="integrations"
+              element={
+                role === 'Administrator' ? (
+                  <IntegrationsPage />
+                ) : (
+                  <Navigate
+                    to="/app/dashboard"
+                    replace
+                  />
+                )
+              }
+            />
+
+            <Route
+              path="user-management"
+              element={
+                role === 'Administrator' ? (
+                  <UserManagementPage />
+                ) : (
+                  <Navigate
+                    to="/app/dashboard"
+                    replace
+                  />
+                )
+              }
+            />
+
+            <Route
+              path="audit-logs"
+              element={
+                role === 'Administrator' ? (
+                  <AuditLogsPage />
+                ) : (
+                  <Navigate
+                    to="/app/dashboard"
+                    replace
+                  />
+                )
+              }
+            />
+
+            <Route
+              path="system-health"
+              element={
+                role === 'Administrator' ? (
+                  <SystemHealthPage />
+                ) : (
+                  <Navigate
+                    to="/app/dashboard"
+                    replace
+                  />
+                )
+              }
+            />
+
+            <Route
+              path="settings"
+              element={
+                role === 'Administrator' ? (
+                  <SettingsPage />
+                ) : (
+                  <Navigate
+                    to="/app/dashboard"
+                    replace
+                  />
+                )
+              }
+            />
+
+            <Route
+              path="profile"
+              element={
+                <ProfilePage
+                  userName={currentUser.name}
+                  userEmail={currentUser.email}
+                  role={currentUser.role}
+                />
+              }
+            />
+
+            <Route
+              path="*"
+              element={
+                <Navigate
+                  to="/app/dashboard"
+                  replace
+                />
+              }
+            />
+          </Routes>
+        </AppLayout>
+
+        <ConfirmModal
+          open={logoutConfirmationOpen}
+          {...LOGOUT_CONFIRMATION}
+          onCancel={() =>
+            setLogoutConfirmationOpen(false)
+          }
+          onConfirm={logout}
+        />
+      </>
     )
   }
 
   return (
-    <>
-      <AppLayout
-        role={currentUser.role}
-        userName={currentUser.name}
-        currentPage={currentPage}
-        onNavigate={navigate}
-        onLogout={requestLogout}
-      >
-        {renderCurrentPage()}
-      </AppLayout>
-
-      <ConfirmModal
-        open={logoutConfirmationOpen}
-        {...LOGOUT_CONFIRMATION}
-        onCancel={() => setLogoutConfirmationOpen(false)}
-        onConfirm={logout}
+    <Routes>
+      <Route
+        path="/"
+        element={
+          <Navigate
+            to={
+              currentUser
+                ? '/app/dashboard'
+                : '/login'
+            }
+            replace
+          />
+        }
       />
-    </>
+
+      <Route
+        path="/login"
+        element={
+          currentUser ? (
+            <Navigate
+              to="/app/dashboard"
+              replace
+            />
+          ) : (
+            <LoginPage
+              onSignIn={handleLogin}
+            />
+          )
+        }
+      />
+
+      <Route
+        path="/mfa"
+        element={
+          pendingUser ? (
+            <MfaPage
+              onVerify={handleMfaVerify}
+            />
+          ) : (
+            <Navigate
+              to="/login"
+              replace
+            />
+          )
+        }
+      />
+
+      <Route
+        path="/app/*"
+        element={renderWorkspace()}
+      />
+
+      <Route
+        path="*"
+        element={
+          <Navigate
+            to={
+              currentUser
+                ? '/app/dashboard'
+                : '/login'
+            }
+            replace
+          />
+        }
+      />
+    </Routes>
   )
 }
 
