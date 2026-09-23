@@ -1,0 +1,364 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+WAZUH_VERSION="4.14"
+WORK_DIR="/tmp/athenasec-wazuh"
+
+INSTALLER_URL="https://packages.wazuh.com/${WAZUH_VERSION}/wazuh-install.sh"
+INSTALLER_PATH="${WORK_DIR}/wazuh-install.sh"
+CREDENTIAL_ARCHIVE="${WORK_DIR}/wazuh-install-files.tar"
+
+SECRETS_LIB="/opt/athenasec/installer/lib/secrets.sh"
+SECRETS_CONFIG="/opt/athenasec/installer/configs/secrets.conf"
+
+SERVICES=(
+  wazuh-manager
+  wazuh-indexer
+  wazuh-dashboard
+)
+
+
+# -------------------------------------------------------------------
+# Basic checks
+# -------------------------------------------------------------------
+
+require_root() {
+    if [ "${EUID}" -ne 0 ]; then
+        echo "[AthenaSec] ERROR: wazuh.sh must be run as root." >&2
+        exit 1
+    fi
+}
+
+
+load_athenasec_secrets() {
+    if [ ! -f "${SECRETS_LIB}" ]; then
+        echo "[AthenaSec] ERROR: Missing secrets library:" >&2
+        echo "${SECRETS_LIB}" >&2
+        exit 1
+    fi
+
+    if [ ! -f "${SECRETS_CONFIG}" ]; then
+        echo "[AthenaSec] ERROR: Missing secrets configuration:" >&2
+        echo "${SECRETS_CONFIG}" >&2
+        exit 1
+    fi
+
+    # shellcheck source=/dev/null
+    source "${SECRETS_LIB}"
+
+    # shellcheck source=/dev/null
+    source "${SECRETS_CONFIG}"
+
+    ensure_secrets_directory
+}
+
+
+# -------------------------------------------------------------------
+# Wazuh status
+# -------------------------------------------------------------------
+
+wazuh_services_running() {
+    local service
+
+    for service in "${SERVICES[@]}"; do
+        if ! systemctl is-active --quiet "${service}"; then
+            return 1
+        fi
+    done
+
+    return 0
+}
+
+
+verify_wazuh_services() {
+    local service
+    local failed=0
+
+    echo "[AthenaSec] Verifying Wazuh services..."
+
+    for service in "${SERVICES[@]}"; do
+        if systemctl is-active --quiet "${service}"; then
+            echo "[AthenaSec] ${service}: running"
+        else
+            echo "[AthenaSec] ERROR: ${service} is not running." >&2
+            failed=1
+        fi
+    done
+
+    if [ "${failed}" -ne 0 ]; then
+        return 1
+    fi
+}
+
+
+# -------------------------------------------------------------------
+# Wazuh credential handling
+# -------------------------------------------------------------------
+
+extract_wazuh_password() {
+    local archive="${1}"
+    local username="${2}"
+    local password_file
+    local password
+
+    if [ ! -f "${archive}" ]; then
+        return 1
+    fi
+
+    password_file="$(
+        mktemp /tmp/athenasec-wazuh-passwords.XXXXXX
+    )"
+
+    chmod 600 "${password_file}"
+
+    if ! tar -xOf \
+        "${archive}" \
+        wazuh-install-files/wazuh-passwords.txt \
+        > "${password_file}" 2>/dev/null; then
+
+        rm -f "${password_file}"
+        return 1
+    fi
+
+    password="$(
+        awk -v wanted="${username}" '
+            $0 ~ "\047" wanted "\047" {
+                getline
+                line=$0
+
+                sub(/^[^:]*:[[:space:]]*/, "", line)
+                gsub(/^\047|\047$/, "", line)
+
+                print line
+                exit
+            }
+        ' "${password_file}"
+    )"
+
+    rm -f "${password_file}"
+
+    if [ -z "${password}" ]; then
+        return 1
+    fi
+
+    printf '%s' "${password}"
+
+    unset password
+}
+
+
+capture_wazuh_admin_secret() {
+    local password
+
+    #
+    # Never replace a previously stored AthenaSec secret automatically.
+    #
+    if secret_exists "${WAZUH_ADMIN_SECRET}"; then
+        echo "[AthenaSec] Wazuh admin secret already stored."
+        return 0
+    fi
+
+    echo "[AthenaSec] Capturing Wazuh admin credential..."
+
+    if [ ! -f "${CREDENTIAL_ARCHIVE}" ]; then
+        echo "[AthenaSec] ERROR: Wazuh credential archive not found:" >&2
+        echo "${CREDENTIAL_ARCHIVE}" >&2
+        return 1
+    fi
+
+    password="$(
+        extract_wazuh_password \
+            "${CREDENTIAL_ARCHIVE}" \
+            "admin"
+    )" || {
+        echo "[AthenaSec] ERROR: Could not extract Wazuh admin password." >&2
+        return 1
+    }
+
+    if [ -z "${password}" ]; then
+        echo "[AthenaSec] ERROR: Extracted Wazuh admin password is empty." >&2
+        return 1
+    fi
+
+    store_secret "${WAZUH_ADMIN_SECRET}" "${password}"
+
+    unset password
+
+    echo "[AthenaSec] Wazuh admin credential stored securely."
+}
+
+
+capture_wazuh_service_secret() {
+    local username
+    local password
+    local credential
+    local dashboard_config
+
+    #
+    # AthenaSec needs a Wazuh server API credential that is separate
+    # from the Wazuh indexer/dashboard 'admin' credential.
+    #
+    if secret_exists "${WAZUH_ATHENASEC_SERVICE_SECRET}"; then
+        echo "[AthenaSec] Wazuh API credential already stored."
+        return 0
+    fi
+
+    echo "[AthenaSec] Capturing Wazuh API credential..."
+
+    #
+    # Preferred fresh-install path:
+    # use the API account generated by the Wazuh installation assistant.
+    #
+    if [ -f "${CREDENTIAL_ARCHIVE}" ]; then
+        username="wazuh"
+
+        password="$(
+            extract_wazuh_password \
+                "${CREDENTIAL_ARCHIVE}" \
+                "${username}"
+        )" || {
+            echo "[AthenaSec] ERROR: Could not extract Wazuh API password." >&2
+            return 1
+        }
+
+    else
+        #
+        # Existing-install recovery path.
+        #
+        # The original installation archive may already be gone.
+        # In that case, reuse the API identity already configured for
+        # the local Wazuh dashboard instead of replacing/resetting any
+        # Wazuh credentials.
+        #
+        dashboard_config="/usr/share/wazuh-dashboard/data/wazuh/config/wazuh.yml"
+
+        if [ ! -f "${dashboard_config}" ]; then
+            echo "[AthenaSec] ERROR: Wazuh API credential is not stored" >&2
+            echo "[AthenaSec] and no credential source is available." >&2
+            return 1
+        fi
+
+        username="$(
+            awk '
+                /^[[:space:]]+username:[[:space:]]*/ {
+                    print $2
+                    exit
+                }
+            ' "${dashboard_config}"
+        )"
+
+        password="$(
+            awk '
+                /^[[:space:]]+password:[[:space:]]*/ {
+                    line=$0
+                    sub(/^[[:space:]]*password:[[:space:]]*"?/, "", line)
+                    sub(/"?[[:space:]]*$/, "", line)
+                    print line
+                    exit
+                }
+            ' "${dashboard_config}"
+        )"
+
+        if [ -z "${username}" ] || [ -z "${password}" ]; then
+            echo "[AthenaSec] ERROR: Could not recover the configured" >&2
+            echo "[AthenaSec] Wazuh dashboard API credential." >&2
+            return 1
+        fi
+
+        echo "[AthenaSec] Using existing Wazuh dashboard API identity."
+    fi
+
+    if [ -z "${username}" ] || [ -z "${password}" ]; then
+        echo "[AthenaSec] ERROR: Wazuh API credential is incomplete." >&2
+        return 1
+    fi
+
+    #
+    # Store username and password together as a two-line credential:
+    #
+    #   line 1 = username
+    #   line 2 = password
+    #
+    credential="$(
+        printf '%s\n%s' \
+            "${username}" \
+            "${password}"
+    )"
+
+    store_secret \
+        "${WAZUH_ATHENASEC_SERVICE_SECRET}" \
+        "${credential}"
+
+    unset username password credential dashboard_config
+
+    echo "[AthenaSec] Wazuh API credential stored securely."
+}
+
+# -------------------------------------------------------------------
+# Installation
+# -------------------------------------------------------------------
+
+install_wazuh() {
+    echo "[AthenaSec] Installing Wazuh ${WAZUH_VERSION}..."
+
+    mkdir -p "${WORK_DIR}"
+    chmod 700 "${WORK_DIR}"
+
+    cd "${WORK_DIR}"
+
+    curl -fsSL \
+        "${INSTALLER_URL}" \
+        -o "${INSTALLER_PATH}"
+
+    chmod 700 "${INSTALLER_PATH}"
+
+    bash "${INSTALLER_PATH}" -a
+
+    if [ ! -f "${CREDENTIAL_ARCHIVE}" ]; then
+        echo "[AthenaSec] ERROR: Wazuh installation completed but the" >&2
+        echo "[AthenaSec] credential archive was not found." >&2
+        return 1
+    fi
+
+    capture_wazuh_admin_secret
+    capture_wazuh_service_secret
+}
+
+
+# -------------------------------------------------------------------
+# Main
+# -------------------------------------------------------------------
+
+main() {
+    require_root
+    load_athenasec_secrets
+
+    echo "[AthenaSec] Checking Wazuh..."
+
+    if wazuh_services_running; then
+        echo "[AthenaSec] Wazuh is already installed and running."
+
+        #
+        # Do not exit before verifying AthenaSec has captured the
+        # generated credential.
+        #
+        capture_wazuh_admin_secret
+        capture_wazuh_service_secret
+
+	verify_wazuh_services
+        echo
+        echo "[AthenaSec] Wazuh check complete."
+        return 0
+    fi
+
+    install_wazuh
+
+    verify_wazuh_services
+
+    echo
+    echo "[AthenaSec] Wazuh installation complete."
+}
+
+
+main "$@"
