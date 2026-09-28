@@ -18,6 +18,21 @@ from training.adapters.cmu_insider import (
 from training.wazuh_lab_scenarios import (
     prepare_scenario_run,
 )
+from training.adapters.ciciot2023 import (
+    CICIoT2023Record,
+)
+from training.adapters.hikari_2021 import (
+    HIKARI2021Record,
+)
+from training.adapters.lid_ds_2021 import (
+    LIDDS2021Record,
+)
+from training.adapters.ton_iot import (
+    ToNIoTRecord,
+)
+from training.adapters.x_iiotid import (
+    XIIoTIDRecord,
+)
 
 
 ExternalBehaviorRecord: TypeAlias = (
@@ -25,8 +40,12 @@ ExternalBehaviorRecord: TypeAlias = (
     | CIC2018Record
     | ADFARecord
     | CMUInsiderScenario
+    | CICIoT2023Record
+    | HIKARI2021Record
+    | LIDDS2021Record
+    | ToNIoTRecord
+    | XIIoTIDRecord
 )
-
 
 _SCENARIO_NAMES_BY_LABEL = {
     "brute_force": (
@@ -181,6 +200,20 @@ def build_behavior_replay_from_record(
             f"{record.scenario}"
         )
 
+    elif isinstance(
+        record,
+        (
+            CICIoT2023Record,
+            HIKARI2021Record,
+            LIDDS2021Record,
+            ToNIoTRecord,
+            XIIoTIDRecord,
+        ),
+    ):
+        source_behavior = (
+            record.raw_label
+        )
+
     else:
         raise TypeError(
             "Unsupported external "
@@ -262,6 +295,18 @@ def behavior_family_for_record(
             f"scenario_"
             f"{record.scenario}"
         )
+
+    if isinstance(
+        record,
+        (
+            CICIoT2023Record,
+            HIKARI2021Record,
+            LIDDS2021Record,
+            ToNIoTRecord,
+            XIIoTIDRecord,
+        ),
+    ):
+        return record.raw_label
 
     raise TypeError(
         "Unsupported external "

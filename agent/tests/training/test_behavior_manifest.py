@@ -322,6 +322,21 @@ from training.adapters.cic_ids_2018 import (
 from training.adapters.cmu_insider import (
     CMUInsiderScenario,
 )
+from training.adapters.ciciot2023 import (
+    CICIoT2023Record,
+)
+from training.adapters.hikari_2021 import (
+    HIKARI2021Record,
+)
+from training.adapters.lid_ds_2021 import (
+    LIDDS2021Record,
+)
+from training.adapters.ton_iot import (
+    ToNIoTRecord,
+)
+from training.adapters.x_iiotid import (
+    XIIoTIDRecord,
+)
 
 
 def test_build_replay_from_cic2017_record():
@@ -1498,3 +1513,176 @@ def test_prepare_behavior_replay_run_preserves_variant_index():
     )
 
     assert run["variant_index"] == 3
+
+@pytest.mark.parametrize(
+    (
+        "record",
+        "expected_label",
+        "expected_behavior",
+    ),
+    [
+        (
+            CICIoT2023Record(
+                label="brute_force",
+                source_dataset="cic_iot_2023",
+                source_row_id="Merged01.csv:10",
+                raw_label="DICTIONARYBRUTEFORCE",
+                fields={},
+            ),
+            "brute_force",
+            "DICTIONARYBRUTEFORCE",
+        ),
+        (
+            HIKARI2021Record(
+                label="brute_force",
+                source_dataset="hikari_2021",
+                source_row_id="HIKARI.csv:20",
+                raw_label="Bruteforce-XML",
+                fields={},
+            ),
+            "brute_force",
+            "Bruteforce-XML",
+        ),
+        (
+            LIDDS2021Record(
+                label="privilege_misuse",
+                source_dataset="lid_ds_2021",
+                source_row_id=(
+                    "CVE-2017-12635_6/"
+                    "test/"
+                    "normal_and_attack/"
+                    "sample.zip:exploit:1"
+                ),
+                raw_label="privilege-escalation",
+                fields={},
+            ),
+            "privilege_misuse",
+            "privilege-escalation",
+        ),
+        (
+            ToNIoTRecord(
+                label="brute_force",
+                source_dataset="ton_iot",
+                source_row_id="train_test_network.csv:30",
+                raw_label="password",
+                fields={},
+            ),
+            "brute_force",
+            "password",
+        ),
+        (
+            XIIoTIDRecord(
+                label="privilege_misuse",
+                source_dataset="x_iiotid",
+                source_row_id="X-IIoTID dataset.csv:40",
+                raw_label="insider_malcious",
+                fields={},
+            ),
+            "privilege_misuse",
+            "insider_malcious",
+        ),
+    ],
+)
+def test_new_external_record_builds_behavior_replay(
+    record,
+    expected_label,
+    expected_behavior,
+):
+    replay = (
+        behavior_manifest
+        .build_behavior_replay_from_record(
+            record,
+            seed=42,
+        )
+    )
+
+    assert replay.label == expected_label
+    assert (
+        replay.source_dataset
+        == record.source_dataset
+    )
+    assert (
+        replay.source_row_id
+        == record.source_row_id
+    )
+    assert (
+        replay.source_behavior
+        == expected_behavior
+    )
+
+    scenario = get_scenario_by_name(
+        replay.scenario_name
+    )
+
+    assert scenario.label == expected_label
+
+
+@pytest.mark.parametrize(
+    (
+        "record",
+        "expected_family",
+    ),
+    [
+        (
+            CICIoT2023Record(
+                label="brute_force",
+                source_dataset="cic_iot_2023",
+                source_row_id="Merged01.csv:10",
+                raw_label="DICTIONARYBRUTEFORCE",
+                fields={},
+            ),
+            "DICTIONARYBRUTEFORCE",
+        ),
+        (
+            HIKARI2021Record(
+                label="brute_force",
+                source_dataset="hikari_2021",
+                source_row_id="HIKARI.csv:20",
+                raw_label="Bruteforce",
+                fields={},
+            ),
+            "Bruteforce",
+        ),
+        (
+            LIDDS2021Record(
+                label="privilege_misuse",
+                source_dataset="lid_ds_2021",
+                source_row_id="sample.zip:exploit:1",
+                raw_label="privilege-escalation",
+                fields={},
+            ),
+            "privilege-escalation",
+        ),
+        (
+            ToNIoTRecord(
+                label="brute_force",
+                source_dataset="ton_iot",
+                source_row_id="network.csv:30",
+                raw_label="password",
+                fields={},
+            ),
+            "password",
+        ),
+        (
+            XIIoTIDRecord(
+                label="privilege_misuse",
+                source_dataset="x_iiotid",
+                source_row_id="dataset.csv:40",
+                raw_label="insider_malcious",
+                fields={},
+            ),
+            "insider_malcious",
+        ),
+    ],
+)
+def test_new_external_record_behavior_family(
+    record,
+    expected_family,
+):
+    assert (
+        behavior_manifest
+        .behavior_family_for_record(
+            record
+        )
+        == expected_family
+    )
