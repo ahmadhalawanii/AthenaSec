@@ -356,7 +356,13 @@ def sample_behavior_records(
 
     groups: dict[
         tuple[str, str, str],
-        list[ExternalBehaviorRecord],
+        list[
+            tuple[
+                str,
+                str,
+                ExternalBehaviorRecord,
+            ]
+        ],
     ] = {}
 
     for record in records:
@@ -372,12 +378,51 @@ def sample_behavior_records(
             family,
         )
 
-        groups.setdefault(
+        rank = _sampling_rank(
+            record,
+            seed=seed,
+        )
+
+        candidate = (
+            rank,
+            record.source_row_id,
+            record,
+        )
+
+        group = groups.setdefault(
             group_key,
             [],
-        ).append(
-            record
         )
+
+        if (
+            len(group)
+            < per_group_limit
+        ):
+            group.append(candidate)
+            continue
+
+        worst_index = max(
+            range(len(group)),
+            key=lambda index: (
+                group[index][0],
+                group[index][1],
+            ),
+        )
+
+        worst = group[
+            worst_index
+        ]
+
+        if (
+            candidate[0],
+            candidate[1],
+        ) < (
+            worst[0],
+            worst[1],
+        ):
+            group[
+                worst_index
+            ] = candidate
 
     sampled: list[
         ExternalBehaviorRecord
@@ -388,19 +433,15 @@ def sample_behavior_records(
     ):
         ranked_records = sorted(
             groups[group_key],
-            key=lambda record: (
-                _sampling_rank(
-                    record,
-                    seed=seed,
-                ),
-                record.source_row_id,
+            key=lambda item: (
+                item[0],
+                item[1],
             ),
         )
 
         sampled.extend(
-            ranked_records[
-                :per_group_limit
-            ]
+            item[2]
+            for item in ranked_records
         )
 
     return sampled

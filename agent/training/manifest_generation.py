@@ -59,11 +59,12 @@ _VALIDATED_TON_IOT_RELATIVE_PATHS = (
 )
 
 
-def _extend_ton_iot_records(
-    records: list,
+def _iter_ton_iot_records(
     ton_iot_root: str | Path,
-) -> None:
-    root = Path(ton_iot_root)
+):
+    root = Path(
+        ton_iot_root
+    )
 
     for relative_path in (
         _VALIDATED_TON_IOT_RELATIVE_PATHS
@@ -76,11 +77,89 @@ def _extend_ton_iot_records(
         if not csv_path.is_file():
             continue
 
-        records.extend(
-            iter_ton_iot_records(
-                csv_path
-            )
+        yield from iter_ton_iot_records(
+            csv_path
         )
+
+
+def _extend_ton_iot_records(
+    records: list,
+    ton_iot_root: str | Path,
+) -> None:
+    records.extend(
+        _iter_ton_iot_records(
+            ton_iot_root
+        )
+    )
+
+
+def _iter_all_behavior_records(
+    *,
+    cic2017_dir: str | Path,
+    cic2018_dir: str | Path,
+    adfa_root: str | Path,
+    cmu_archive: str | Path,
+    ciciot2023_dir: str | Path,
+    hikari_dir: str | Path,
+    lid_ds_root: str | Path,
+    ton_iot_dir: str | Path,
+    x_iiotid_csv: str | Path,
+):
+    for csv_path in sorted(
+        Path(cic2017_dir).rglob(
+            "*.csv"
+        )
+    ):
+        yield from iter_cic2017_records(
+            csv_path
+        )
+
+    for csv_path in sorted(
+        Path(cic2018_dir).rglob(
+            "*.csv"
+        )
+    ):
+        yield from iter_cic2018_records(
+            csv_path
+        )
+
+    yield from iter_adfa_records(
+        adfa_root
+    )
+
+    yield from iter_cmu_scenarios(
+        cmu_archive
+    )
+
+    for csv_path in sorted(
+        Path(ciciot2023_dir).rglob(
+            "*.csv"
+        )
+    ):
+        yield from iter_ciciot2023_records(
+            csv_path
+        )
+
+    for csv_path in sorted(
+        Path(hikari_dir).rglob(
+            "*.csv"
+        )
+    ):
+        yield from iter_hikari_2021_records(
+            csv_path
+        )
+
+    yield from iter_lid_ds_2021_records(
+        lid_ds_root
+    )
+
+    yield from _iter_ton_iot_records(
+        ton_iot_dir
+    )
+
+    yield from iter_x_iiotid_records(
+        x_iiotid_csv
+    )
 
 
 def generate_behavior_replay_manifest(
@@ -98,75 +177,16 @@ def generate_behavior_replay_manifest(
     per_group_limit: int,
     seed: int,
 ) -> list[BehaviorReplay]:
-    records = []
-
-    for csv_path in sorted(
-        Path(cic2017_dir).rglob("*.csv")
-    ):
-        records.extend(
-            iter_cic2017_records(
-                csv_path
-            )
-        )
-
-    for csv_path in sorted(
-        Path(cic2018_dir).rglob("*.csv")
-    ):
-        records.extend(
-            iter_cic2018_records(
-                csv_path
-            )
-        )
-
-    records.extend(
-        iter_adfa_records(
-            adfa_root
-        )
-    )
-
-    records.extend(
-        iter_cmu_scenarios(
-            cmu_archive
-        )
-    )
-
-    for csv_path in sorted(
-        Path(ciciot2023_dir).rglob(
-            "*.csv"
-        )
-    ):
-        records.extend(
-            iter_ciciot2023_records(
-                csv_path
-            )
-        )
-
-    for csv_path in sorted(
-        Path(hikari_dir).rglob(
-            "*.csv"
-        )
-    ):
-        records.extend(
-            iter_hikari_2021_records(
-                csv_path
-            )
-        )
-
-    records.extend(
-        iter_lid_ds_2021_records(
-            lid_ds_root
-        )
-    )
-
-    _extend_ton_iot_records(
-        records,
-        ton_iot_dir,
-    )
-
-    records.extend(
-        iter_x_iiotid_records(
-            x_iiotid_csv
-        )
+    records = _iter_all_behavior_records(
+        cic2017_dir=cic2017_dir,
+        cic2018_dir=cic2018_dir,
+        adfa_root=adfa_root,
+        cmu_archive=cmu_archive,
+        ciciot2023_dir=ciciot2023_dir,
+        hikari_dir=hikari_dir,
+        lid_ds_root=lid_ds_root,
+        ton_iot_dir=ton_iot_dir,
+        x_iiotid_csv=x_iiotid_csv,
     )
 
     manifest = build_behavior_manifest(

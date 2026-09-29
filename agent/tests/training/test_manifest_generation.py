@@ -207,6 +207,11 @@ def test_generate_behavior_replay_manifest_combines_all_dataset_sources(
         per_group_limit,
         seed,
     ):
+        captured["records_was_list"] = isinstance(
+            records,
+            list,
+        )
+
         captured["records"] = list(
             records
         )
@@ -389,6 +394,10 @@ def test_generate_behavior_replay_manifest_combines_all_dataset_sources(
         == 10
     )
     assert captured["seed"] == 42
+    assert (
+        captured["records_was_list"]
+        is False
+    )
 
     assert len(manifest) == 2
 
@@ -435,6 +444,7 @@ def test_generate_behavior_replay_manifest_combines_all_dataset_sources(
         },
     ]
 
+
 def test_manifest_generation_only_reads_validated_ton_iot_sources(
     tmp_path: Path,
     monkeypatch,
@@ -465,7 +475,10 @@ def test_manifest_generation_only_reads_validated_ton_iot_sources(
     ]
 
     for relative_path in validated_paths:
-        path = ton_iot_root / relative_path
+        path = (
+            ton_iot_root
+            / relative_path
+        )
 
         path.parent.mkdir(
             parents=True,
@@ -499,7 +512,9 @@ def test_manifest_generation_only_reads_validated_ton_iot_sources(
     def fake_ton_iot(path):
         calls.append(
             Path(path)
-            .relative_to(ton_iot_root)
+            .relative_to(
+                ton_iot_root
+            )
             .as_posix()
         )
         return []
