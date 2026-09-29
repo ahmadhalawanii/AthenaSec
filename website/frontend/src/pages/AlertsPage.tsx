@@ -27,6 +27,9 @@ function statusClass(status: AlertStatus) {
   if (status === 'Closed') {
     return 'ok'
   }
+  if (status === 'Open') {
+    return 'danger'
+  }
 
   return 'blue'
 }

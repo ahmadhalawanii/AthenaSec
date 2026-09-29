@@ -1,3 +1,4 @@
+
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 
@@ -133,10 +134,16 @@ function TopBar({
 
         <div className="dropdown-wrap">
           <button
-            className="user-chip"
+            className="user-avatar"
             onClick={openUserMenu}
+            aria-label={`Open ${userName} menu`}
           >
-            {userName}
+            <span className="user-avatar">
+                 <svg
+                aria-hidden="true"
+              >             
+              </svg>
+            </span>
           </button>
 
           {userMenuOpen && (
@@ -146,9 +153,6 @@ function TopBar({
                 onClick={() => navigate('profile')}
               >
                 <strong>Profile</strong>
-                <p>
-                  View role, contact, and session details.
-                </p>
               </button>
 
               {role === 'Administrator' && (
@@ -157,9 +161,6 @@ function TopBar({
                   onClick={() => navigate('settings')}
                 >
                   <strong>Settings</strong>
-                  <p>
-                    Manage console theme, MFA, and session timeout.
-                  </p>
                 </button>
               )}
 
@@ -168,9 +169,6 @@ function TopBar({
                 onClick={onLogout}
               >
                 <strong>Logout</strong>
-                <p>
-                  End the current AthenaSec session.
-                </p>
               </button>
             </div>
           )}
@@ -181,3 +179,4 @@ function TopBar({
 }
 
 export default TopBar
+
