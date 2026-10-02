@@ -17,6 +17,7 @@ from training.evaluate import (
 )
 from training.preprocessing import (
     build_extra_trees,
+    build_xgboost,
     build_logistic_pipeline,
     build_random_forest,
     build_xy,
@@ -37,6 +38,7 @@ class TrainingResult:
     logistic_regression_model: Any
     random_forest_model: Any
     extra_trees_model: Any
+    xgboost_model: Any
     model_metrics: dict[
         str,
         dict[str, object],
@@ -167,6 +169,18 @@ def train_classifier(
         train_y,
     )
 
+    xgboost_model = (
+        build_xgboost(
+            class_weight=class_weights,
+            random_state=random_state,
+        )
+    )
+
+    xgboost_model.fit(
+        train_X,
+        train_y,
+    )
+
     model_metrics = {
         "logistic_regression": (
             _evaluate_model(
@@ -189,6 +203,13 @@ def train_classifier(
                 deduplicated_test_rows,
             )
         ),
+        "xgboost": (
+            _evaluate_model(
+                xgboost_model,
+                deduplicated_validation_rows,
+                deduplicated_test_rows,
+            )
+        ),
     }
 
     return TrainingResult(
@@ -200,6 +221,9 @@ def train_classifier(
         ),
         extra_trees_model=(
             extra_trees_model
+        ),
+        xgboost_model=(
+            xgboost_model
         ),
         model_metrics=model_metrics,
         duplicate_count=duplicate_count,

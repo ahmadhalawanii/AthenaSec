@@ -1,4 +1,8 @@
 import numpy as np
+
+from app.ml.xgboost_classifier import (
+    AthenaSecXGBClassifier,
+)
 from sklearn.ensemble import (
     ExtraTreesClassifier,
     RandomForestClassifier,
@@ -9,6 +13,7 @@ from sklearn.preprocessing import StandardScaler
 from training.data_contract import TrainingRow
 from training.preprocessing import (
     build_extra_trees,
+    build_xgboost,
     build_logistic_pipeline,
     build_random_forest,
     build_xy,
@@ -211,3 +216,27 @@ def test_extra_trees_does_not_use_scaling_pipeline():
         model,
         Pipeline,
     )
+
+
+def test_xgboost_uses_class_weights_and_random_state():
+    weights = {
+        "benign": 1.0,
+        "brute_force": 2.0,
+        "privilege_misuse": 3.0,
+    }
+
+    model = build_xgboost(
+        weights,
+        random_state=42,
+    )
+
+    assert isinstance(
+        model,
+        AthenaSecXGBClassifier,
+    )
+
+    assert model.class_weight == weights
+
+    assert model.random_state == 42
+
+    assert model.n_estimators == 300

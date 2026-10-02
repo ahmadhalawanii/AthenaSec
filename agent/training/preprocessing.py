@@ -1,3 +1,6 @@
+from app.ml.xgboost_classifier import (
+    AthenaSecXGBClassifier,
+)
 import numpy as np
 from sklearn.ensemble import (
     ExtraTreesClassifier,
@@ -87,6 +90,18 @@ def build_extra_trees(
     return ExtraTreesClassifier(
         n_estimators=300,
         class_weight=class_weight,
+        random_state=random_state,
+        n_jobs=-1,
+    )
+
+
+def build_xgboost(
+    class_weight: dict[str, float],
+    random_state: int = 42,
+) -> AthenaSecXGBClassifier:
+    return AthenaSecXGBClassifier(
+        class_weight=class_weight,
+        n_estimators=300,
         random_state=random_state,
         n_jobs=-1,
     )

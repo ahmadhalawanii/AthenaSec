@@ -370,3 +370,42 @@ def test_training_runs_extra_trees_challenger():
         "brute_force",
         "privilege_misuse",
     }
+
+
+def test_training_runs_xgboost_challenger():
+    result = train_classifier(
+        rows=_training_rows(),
+        random_state=42,
+    )
+
+    assert (
+        "xgboost"
+        in result.model_metrics
+    )
+
+    assert hasattr(
+        result.xgboost_model,
+        "classes_",
+    )
+
+    assert set(
+        result.xgboost_model.classes_
+    ) == {
+        "benign",
+        "brute_force",
+        "privilege_misuse",
+    }
+
+    assert (
+        "validation"
+        in result.model_metrics[
+            "xgboost"
+        ]
+    )
+
+    assert (
+        "test"
+        in result.model_metrics[
+            "xgboost"
+        ]
+    )
