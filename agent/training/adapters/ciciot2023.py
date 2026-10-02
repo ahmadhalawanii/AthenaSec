@@ -54,9 +54,11 @@ def iter_ciciot2023_records(
             start=1,
         ):
             raw_label = fields.get(
-                "Label",
-                "",
+                "Label"
             )
+
+            if raw_label is None:
+                continue
 
             label = map_ciciot2023_label(
                 raw_label

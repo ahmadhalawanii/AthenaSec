@@ -145,6 +145,9 @@ def _iter_all_behavior_records(
             "*.csv"
         )
     ):
+        if not csv_path.is_file():
+            continue
+
         yield from iter_hikari_2021_records(
             csv_path
         )

@@ -534,3 +534,120 @@ def test_manifest_generation_only_reads_validated_ton_iot_sources(
 
     assert calls == validated_paths
     assert records == []
+
+
+def test_manifest_generation_skips_hikari_directories_named_csv(
+    tmp_path: Path,
+    monkeypatch,
+):
+    hikari_root = tmp_path / "hikari"
+
+    csv_directory = (
+        hikari_root
+        / "ALLFLOWMETER_HIKARI2021.csv"
+    )
+
+    csv_directory.mkdir(
+        parents=True
+    )
+
+    real_csv = (
+        csv_directory
+        / "ALLFLOWMETER_HIKARI2021.csv"
+    )
+
+    real_csv.write_text(
+        "",
+        encoding="utf-8",
+    )
+
+    calls = []
+
+    def fake_hikari(path):
+        calls.append(
+            Path(path)
+        )
+        return []
+
+    monkeypatch.setattr(
+        manifest_generation,
+        "iter_cic2017_records",
+        lambda path: [],
+    )
+    monkeypatch.setattr(
+        manifest_generation,
+        "iter_cic2018_records",
+        lambda path: [],
+    )
+    monkeypatch.setattr(
+        manifest_generation,
+        "iter_adfa_records",
+        lambda path: [],
+    )
+    monkeypatch.setattr(
+        manifest_generation,
+        "iter_cmu_scenarios",
+        lambda path: [],
+    )
+    monkeypatch.setattr(
+        manifest_generation,
+        "iter_ciciot2023_records",
+        lambda path: [],
+    )
+    monkeypatch.setattr(
+        manifest_generation,
+        "iter_hikari_2021_records",
+        fake_hikari,
+    )
+    monkeypatch.setattr(
+        manifest_generation,
+        "iter_lid_ds_2021_records",
+        lambda path: [],
+    )
+    monkeypatch.setattr(
+        manifest_generation,
+        "iter_ton_iot_records",
+        lambda path: [],
+    )
+    monkeypatch.setattr(
+        manifest_generation,
+        "iter_x_iiotid_records",
+        lambda path: [],
+    )
+
+    records = (
+        manifest_generation
+        ._iter_all_behavior_records(
+            cic2017_dir=(
+                tmp_path / "cic2017"
+            ),
+            cic2018_dir=(
+                tmp_path / "cic2018"
+            ),
+            adfa_root=(
+                tmp_path / "adfa"
+            ),
+            cmu_archive=(
+                tmp_path / "cmu.tar.bz2"
+            ),
+            ciciot2023_dir=(
+                tmp_path / "ciciot2023"
+            ),
+            hikari_dir=hikari_root,
+            lid_ds_root=(
+                tmp_path / "lid_ds"
+            ),
+            ton_iot_dir=(
+                tmp_path / "ton_iot"
+            ),
+            x_iiotid_csv=(
+                tmp_path / "x_iiotid.csv"
+            ),
+        )
+    )
+
+    list(records)
+
+    assert calls == [
+        real_csv
+    ]

@@ -1,8 +1,8 @@
 from training.adapters import ciciot2023
 from training.adapters.ciciot2023 import (
+    iter_ciciot2023_records,
     map_ciciot2023_label,
 )
-
 
 def test_benign_maps_to_benign():
     assert (
@@ -132,3 +132,39 @@ def test_iter_ciciot2023_records_preserves_raw_data(
         "Header_Length": "40",
         "Label": "DICTIONARYBRUTEFORCE",
     }
+
+
+def test_iter_ciciot2023_records_skips_malformed_row_without_label(
+    tmp_path,
+):
+    csv_path = tmp_path / "Merged42.csv"
+
+    csv_path.write_text(
+        (
+            "Feature,Label\n"
+            "1,BENIGN\n"
+            "2\n"
+            "3,DICTIONARYBRUTEFORCE\n"
+        ),
+        encoding="utf-8",
+    )
+
+    records = list(
+        iter_ciciot2023_records(
+            csv_path
+        )
+    )
+
+    assert len(records) == 2
+
+    assert records[0].label == "benign"
+    assert records[0].raw_label == "BENIGN"
+
+    assert (
+        records[1].label
+        == "brute_force"
+    )
+    assert (
+        records[1].raw_label
+        == "DICTIONARYBRUTEFORCE"
+    )
