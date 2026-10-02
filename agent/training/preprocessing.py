@@ -1,5 +1,6 @@
 import numpy as np
 from sklearn.ensemble import (
+    ExtraTreesClassifier,
     RandomForestClassifier,
 )
 from sklearn.linear_model import (
@@ -72,6 +73,18 @@ def build_random_forest(
     random_state: int = 42,
 ) -> RandomForestClassifier:
     return RandomForestClassifier(
+        n_estimators=300,
+        class_weight=class_weight,
+        random_state=random_state,
+        n_jobs=-1,
+    )
+
+
+def build_extra_trees(
+    class_weight: dict[str, float],
+    random_state: int = 42,
+) -> ExtraTreesClassifier:
+    return ExtraTreesClassifier(
         n_estimators=300,
         class_weight=class_weight,
         random_state=random_state,

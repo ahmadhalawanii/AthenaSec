@@ -345,3 +345,28 @@ def test_training_splits_before_deduplication(
     )
 
     assert actions[0][0] == "split"
+
+
+def test_training_runs_extra_trees_challenger():
+    result = train_classifier(
+        rows=_training_rows(),
+        random_state=42,
+    )
+
+    assert (
+        "extra_trees"
+        in result.model_metrics
+    )
+
+    assert hasattr(
+        result.extra_trees_model,
+        "classes_",
+    )
+
+    assert set(
+        result.extra_trees_model.classes_
+    ) == {
+        "benign",
+        "brute_force",
+        "privilege_misuse",
+    }

@@ -1,10 +1,14 @@
 import numpy as np
-from sklearn.ensemble import RandomForestClassifier
+from sklearn.ensemble import (
+    ExtraTreesClassifier,
+    RandomForestClassifier,
+)
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
 
 from training.data_contract import TrainingRow
 from training.preprocessing import (
+    build_extra_trees,
     build_logistic_pipeline,
     build_random_forest,
     build_xy,
@@ -161,6 +165,45 @@ def test_random_forest_does_not_use_scaling_pipeline():
     }
 
     model = build_random_forest(
+        weights
+    )
+
+    assert not isinstance(
+        model,
+        Pipeline,
+    )
+
+
+def test_extra_trees_uses_class_weights():
+    weights = {
+        "benign": 1.0,
+        "brute_force": 2.0,
+        "privilege_misuse": 3.0,
+    }
+
+    model = build_extra_trees(
+        weights,
+        random_state=42,
+    )
+
+    assert isinstance(
+        model,
+        ExtraTreesClassifier,
+    )
+
+    assert model.class_weight == weights
+
+    assert model.random_state == 42
+
+
+def test_extra_trees_does_not_use_scaling_pipeline():
+    weights = {
+        "benign": 1.0,
+        "brute_force": 1.0,
+        "privilege_misuse": 1.0,
+    }
+
+    model = build_extra_trees(
         weights
     )
 
