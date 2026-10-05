@@ -276,3 +276,50 @@ def test_preserves_target_group_from_wazuh_data():
     assert alert.metadata[
         "target_group"
     ] == "sudo"
+
+
+def test_derives_failed_attempts_from_explicit_sudo_attempt_count():
+    payload = {
+        "id": "sudo-three-failed-001",
+        "rule": {
+            "id": "5404",
+            "level": 10,
+            "description": (
+                "First time user executed sudo."
+            ),
+            "groups": [
+                "syslog",
+                "sudo",
+            ],
+        },
+        "agent": {
+            "id": "000",
+            "name": "wazuh.manager",
+        },
+        "full_log": (
+            "Oct  5 18:00:00 testhost "
+            "sudo: testuser : "
+            "3 incorrect password attempts ; "
+            "TTY=pts/4 ; "
+            "PWD=/home/testuser ; "
+            "USER=root ; "
+            "COMMAND=/bin/bash"
+        ),
+        "data": {
+            "srcuser": "testuser",
+            "dstuser": "root",
+            "command": "/bin/bash",
+        },
+        "decoder": {
+            "name": "sudo",
+            "parent": "sudo",
+        },
+    }
+
+    alert = parse_wazuh_alert(
+        payload
+    )
+
+    assert alert.metadata[
+        "failed_attempts"
+    ] == 3

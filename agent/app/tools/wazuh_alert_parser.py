@@ -1,3 +1,4 @@
+import re
 from typing import Any
 
 from app.schemas import SecurityAlertInput
@@ -39,6 +40,7 @@ def _as_int(value: Any) -> int | None:
 
 def _derive_failed_attempts(
     rule: dict[str, Any],
+    full_log: Any,
 ) -> int | None:
     rule_id = str(
         rule.get("id") or ""
@@ -78,6 +80,25 @@ def _derive_failed_attempts(
         )
     ):
         return frequency
+
+    if isinstance(
+        full_log,
+        str,
+    ):
+        match = re.search(
+            (
+                r"\b(\d+)\s+"
+                r"incorrect password "
+                r"attempts?\b"
+            ),
+            full_log,
+            flags=re.IGNORECASE,
+        )
+
+        if match is not None:
+            return int(
+                match.group(1)
+            )
 
     return None
 
@@ -167,7 +188,10 @@ def parse_wazuh_alert(
     )
 
     failed_attempts = (
-        _derive_failed_attempts(rule)
+        _derive_failed_attempts(
+            rule,
+            full_log,
+        )
     )
 
     privileged_target = (
