@@ -59,11 +59,15 @@ _SCENARIO_NAMES_BY_LABEL = {
         "sudo_unauthorized_user",
         "sudo_command_not_allowed",
         "user_added_to_sudo_group",
+        "privileged_account_created",
+        "privileged_group_created",
     ),
     "benign": (
         "ssh_authentication_success",
         "sudo_non_privileged_success",
         "pam_login_session_opened",
+        "normal_account_created",
+        "normal_group_created",
     ),
 }
 

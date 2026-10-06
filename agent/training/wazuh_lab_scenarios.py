@@ -157,6 +157,39 @@ def privilege_misuse_scenarios() -> list[WazuhLabScenario]:
             source_row_id="user_added_to_sudo_group_004",
             repetitions=1,
         ),
+        WazuhLabScenario(
+            name="privileged_account_created",
+            log_line=(
+                "Sep  3 01:44:00 testhost "
+                "useradd[3301]: new user: "
+                "name=admin, UID=0, GID=0, "
+                "home=/root, shell=/bin/bash"
+            ),
+            expected_rule_id="5902",
+            source_ip="",
+            label="privilege_misuse",
+            source_dataset="wazuh_lab",
+            source_row_id=(
+                "privileged_account_created_005"
+            ),
+            repetitions=1,
+        ),
+        WazuhLabScenario(
+            name="privileged_group_created",
+            log_line=(
+                "Sep  3 01:45:00 testhost "
+                "groupadd[3302]: new group: "
+                "name=wheel, GID=10"
+            ),
+            expected_rule_id="5901",
+            source_ip="",
+            label="privilege_misuse",
+            source_dataset="wazuh_lab",
+            source_row_id=(
+                "privileged_group_created_006"
+            ),
+            repetitions=1,
+        ),
     ]
 
 
@@ -209,6 +242,41 @@ def benign_scenarios() -> list[WazuhLabScenario]:
             label="benign",
             source_dataset="wazuh_lab",
             source_row_id="pam_login_session_opened_003",
+            repetitions=1,
+        ),
+        WazuhLabScenario(
+            name="normal_account_created",
+            log_line=(
+                "Sep  3 02:24:00 testhost "
+                "useradd[4301]: new user: "
+                "name=testuser, UID=1005, "
+                "GID=1005, "
+                "home=/home/testuser, "
+                "shell=/bin/bash"
+            ),
+            expected_rule_id="5902",
+            source_ip="",
+            label="benign",
+            source_dataset="wazuh_lab",
+            source_row_id=(
+                "normal_account_created_004"
+            ),
+            repetitions=1,
+        ),
+        WazuhLabScenario(
+            name="normal_group_created",
+            log_line=(
+                "Sep  3 02:25:00 testhost "
+                "groupadd[4302]: new group: "
+                "name=developers, GID=1500"
+            ),
+            expected_rule_id="5901",
+            source_ip="",
+            label="benign",
+            source_dataset="wazuh_lab",
+            source_row_id=(
+                "normal_group_created_005"
+            ),
             repetitions=1,
         ),
     ]
