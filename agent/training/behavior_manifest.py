@@ -72,6 +72,35 @@ _SCENARIO_NAMES_BY_LABEL = {
 }
 
 
+# Stable automatic assignment pools reproduce the
+# scenario sets and ordering used by the v2 manifest.
+#
+# New approved scenarios may be added to
+# _SCENARIO_NAMES_BY_LABEL without silently changing
+# existing provenance -> scenario assignments.
+#
+# A new scenario must only enter automatic assignment
+# when external ground truth semantically supports it.
+_STABLE_ASSIGNMENT_SCENARIO_NAMES_BY_LABEL = {
+    "brute_force": (
+        "ssh_invalid_user_bruteforce",
+        "ssh_root_password_bruteforce",
+        "ssh_root_none_bruteforce",
+    ),
+    "privilege_misuse": (
+        "sudo_three_failed_attempts",
+        "sudo_unauthorized_user",
+        "sudo_command_not_allowed",
+        "user_added_to_sudo_group",
+    ),
+    "benign": (
+        "ssh_authentication_success",
+        "sudo_non_privileged_success",
+        "pam_login_session_opened",
+    ),
+}
+
+
 @dataclass(frozen=True)
 class BehaviorReplay:
     label: str
@@ -135,10 +164,18 @@ def build_behavior_replay(
     source_behavior: str,
     seed: int,
 ) -> BehaviorReplay:
+    # Validate against the complete approved catalog.
+    scenario_names_for_label(
+        label
+    )
+
+    # Automatic assignment intentionally uses the
+    # stable v2 pool. Expanding the approved scenario
+    # catalog must not reshuffle historical provenance.
     scenario_names = (
-        scenario_names_for_label(
+        _STABLE_ASSIGNMENT_SCENARIO_NAMES_BY_LABEL[
             label
-        )
+        ]
     )
 
     scenario_index = (
