@@ -450,12 +450,26 @@ def prepare_behavior_replay_manifest_runs(
                 "sudo_command_not_allowed",
             }
 
-            variant_indices = (
-                range(4)
-                if replay.scenario_name
+            if (
+                replay.scenario_name
+                == "sudo_failed_attempt"
+            ):
+                variant_indices = range(
+                    8
+                )
+
+            elif (
+                replay.scenario_name
                 in sudo_variant_scenarios
-                else range(1)
-            )
+            ):
+                variant_indices = range(
+                    4
+                )
+
+            else:
+                variant_indices = range(
+                    1
+                )
 
             for variant_index in variant_indices:
                 runs.append(

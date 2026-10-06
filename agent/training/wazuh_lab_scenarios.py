@@ -69,6 +69,26 @@ def brute_force_scenarios() -> list[WazuhLabScenario]:
 def privilege_misuse_scenarios() -> list[WazuhLabScenario]:
     return [
         WazuhLabScenario(
+            name="sudo_failed_attempt",
+            log_line=(
+                "Sep  3 02:29:00 testhost "
+                "sudo: testuser : "
+                "1 incorrect password attempt ; "
+                "TTY=pts/4 ; "
+                "PWD=/home/testuser ; "
+                "USER=root ; "
+                "COMMAND=/bin/bash"
+            ),
+            expected_rule_id="5401",
+            source_ip="",
+            label="privilege_misuse",
+            source_dataset="wazuh_lab",
+            source_row_id=(
+                "sudo_failed_attempt_000"
+            ),
+            repetitions=1,
+        ),
+        WazuhLabScenario(
             name="sudo_three_failed_attempts",
             log_line=(
                 "Sep  3 02:30:00 testhost "

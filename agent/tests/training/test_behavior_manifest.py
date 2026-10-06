@@ -130,6 +130,7 @@ def test_behavior_replay_accepts_training_labels(
         (
             "privilege_misuse",
             (
+                "sudo_failed_attempt",
                 "sudo_three_failed_attempts",
                 "sudo_unauthorized_user",
                 "sudo_command_not_allowed",

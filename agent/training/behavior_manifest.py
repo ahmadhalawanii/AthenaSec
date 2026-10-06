@@ -54,6 +54,7 @@ _SCENARIO_NAMES_BY_LABEL = {
         "ssh_root_none_bruteforce",
     ),
     "privilege_misuse": (
+        "sudo_failed_attempt",
         "sudo_three_failed_attempts",
         "sudo_unauthorized_user",
         "sudo_command_not_allowed",
@@ -529,6 +530,86 @@ def behavior_replay_variation(
             ),
         }
 
+    if (
+        replay.scenario_name
+        == "sudo_failed_attempt"
+    ):
+        baseline_index = (
+            int.from_bytes(
+                digest[:2],
+                byteorder="big",
+            )
+            % 8
+        )
+
+        combination_index = (
+            baseline_index
+            + variant_index
+        ) % 8
+
+        combinations = (
+            (
+                "1",
+                "root",
+                "true",
+            ),
+            (
+                "1",
+                "root",
+                "false",
+            ),
+            (
+                "1",
+                "backupuser",
+                "true",
+            ),
+            (
+                "1",
+                "backupuser",
+                "false",
+            ),
+            (
+                "2",
+                "root",
+                "true",
+            ),
+            (
+                "2",
+                "root",
+                "false",
+            ),
+            (
+                "2",
+                "backupuser",
+                "true",
+            ),
+            (
+                "2",
+                "backupuser",
+                "false",
+            ),
+        )
+
+        (
+            failed_attempts,
+            target_user,
+            include_command,
+        ) = combinations[
+            combination_index
+        ]
+
+        return {
+            "failed_attempts": (
+                failed_attempts
+            ),
+            "target_user": (
+                target_user
+            ),
+            "include_command": (
+                include_command
+            ),
+        }
+
     sudo_misuse_scenarios = {
         "sudo_three_failed_attempts",
         "sudo_unauthorized_user",
@@ -607,6 +688,42 @@ def prepare_behavior_replay_run(
             variant_index=variant_index,
         )
     )
+
+    if (
+        "failed_attempts"
+        in variation
+    ):
+        failed_attempts = variation[
+            "failed_attempts"
+        ]
+
+        attempt_word = (
+            "attempt"
+            if failed_attempts == "1"
+            else "attempts"
+        )
+
+        injection_command = (
+            run["injection_command"]
+            .replace(
+                (
+                    "1 incorrect "
+                    "password attempt"
+                ),
+                (
+                    f"{failed_attempts} "
+                    f"incorrect password "
+                    f"{attempt_word}"
+                ),
+            )
+        )
+
+        run = {
+            **run,
+            "injection_command": (
+                injection_command
+            ),
+        }
 
     if (
         "source_ip"
