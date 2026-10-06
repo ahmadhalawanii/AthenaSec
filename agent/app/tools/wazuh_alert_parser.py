@@ -115,6 +115,85 @@ def _derive_privileged_target(
     )
 
 
+def _decoder_names(
+    decoder: dict[str, Any],
+) -> set[str]:
+    return {
+        str(value).strip().lower()
+        for value in (
+            decoder.get("name"),
+            decoder.get("parent"),
+        )
+        if value
+    }
+
+
+def _derive_target_user(
+    data: dict[str, Any],
+    decoder: dict[str, Any],
+) -> Any:
+    decoder_names = (
+        _decoder_names(
+            decoder
+        )
+    )
+
+    if decoder_names & {
+        "groupadd",
+        "groupdel",
+    }:
+        return None
+
+    target_user = (
+        data.get("dstuser")
+        or data.get("user")
+    )
+
+    if target_user is not None:
+        return target_user
+
+    if decoder_names & {
+        "open-userdel",
+        "userdel",
+    }:
+        return data.get(
+            "srcuser"
+        )
+
+    return None
+
+
+def _derive_target_group(
+    data: dict[str, Any],
+    decoder: dict[str, Any],
+) -> Any:
+    target_group = data.get(
+        "group"
+    )
+
+    if target_group is not None:
+        return target_group
+
+    decoder_names = (
+        _decoder_names(
+            decoder
+        )
+    )
+
+    if "groupadd" in decoder_names:
+        return (
+            data.get("dstuser")
+            or data.get("user")
+        )
+
+    if "groupdel" in decoder_names:
+        return data.get(
+            "extra_data"
+        )
+
+    return None
+
+
 def parse_wazuh_alert(
     payload: dict[str, Any],
 ) -> SecurityAlertInput:
@@ -183,8 +262,17 @@ def parse_wazuh_alert(
     )
 
     target_user = (
-        data.get("dstuser")
-        or data.get("user")
+        _derive_target_user(
+            data,
+            decoder,
+        )
+    )
+
+    target_group = (
+        _derive_target_group(
+            data,
+            decoder,
+        )
     )
 
     failed_attempts = (
@@ -271,7 +359,7 @@ def parse_wazuh_alert(
         ),
 
         "command": data.get("command"),
-        "target_group": data.get("group"),
+        "target_group": target_group,
 
         "failed_attempts": failed_attempts,
         "privileged_target": (

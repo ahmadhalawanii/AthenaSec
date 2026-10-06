@@ -92,10 +92,12 @@ def _is_account_change_event(
         "useradd",
         "usermod",
         "userdel",
+        "open-userdel",
         "gpasswd",
         "groupadd",
         "groupmod",
         "groupdel",
+        "chfn",
     }
 
     return _flag(
