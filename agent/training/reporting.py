@@ -66,3 +66,69 @@ def write_training_reports(
         ),
         encoding="utf-8",
     )
+
+
+def write_model_selection_report(
+    output_dir: str | Path,
+    strict_lodo_results: dict[
+        str,
+        object,
+    ],
+    selection: dict[
+        str,
+        object,
+    ],
+) -> Path:
+    path = Path(
+        output_dir
+    )
+
+    path.mkdir(
+        parents=True,
+        exist_ok=True,
+    )
+
+    report = {
+        "evaluation": (
+            "strict_vector_disjoint_"
+            "leave_one_dataset_out"
+        ),
+        "selected_model": (
+            selection[
+                "selected_model"
+            ]
+        ),
+        "selection_rule": (
+            selection[
+                "selection_rule"
+            ]
+        ),
+        "ranking": (
+            selection[
+                "ranking"
+            ]
+        ),
+        "selected_metrics": (
+            selection[
+                "selected_metrics"
+            ]
+        ),
+        "strict_lodo": (
+            strict_lodo_results
+        ),
+    }
+
+    report_path = (
+        path
+        / "model_selection.json"
+    )
+
+    report_path.write_text(
+        json.dumps(
+            report,
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+
+    return report_path

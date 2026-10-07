@@ -7,7 +7,12 @@ from training.artifact_export import (
 from training.data_contract import (
     TrainingRow,
 )
+from training.model_selection import (
+    evaluate_strict_leave_one_dataset_out,
+    select_deployment_model,
+)
 from training.reporting import (
+    write_model_selection_report,
     write_training_reports,
 )
 from training.train_classifier import (
@@ -122,9 +127,47 @@ def run_training_pipeline_from_behavior_replay_capture_file(
         )
     )
 
-    return _run_training_pipeline_from_rows(
-        rows=rows,
-        output_dir=output_dir,
-        model_version=model_version,
-        random_state=random_state,
+    strict_lodo_results = (
+        evaluate_strict_leave_one_dataset_out(
+            rows=rows,
+            random_state=random_state,
+        )
     )
+
+    selection = (
+        select_deployment_model(
+            strict_lodo_results
+        )
+    )
+
+    if (
+        selection[
+            "selected_model"
+        ]
+        != "logistic_regression"
+    ):
+        raise ValueError(
+            "Strict LODO model selection "
+            "does not support the configured "
+            "Logistic Regression deployment "
+            "model."
+        )
+
+    result = (
+        _run_training_pipeline_from_rows(
+            rows=rows,
+            output_dir=output_dir,
+            model_version=model_version,
+            random_state=random_state,
+        )
+    )
+
+    write_model_selection_report(
+        output_dir=output_dir,
+        strict_lodo_results=(
+            strict_lodo_results
+        ),
+        selection=selection,
+    )
+
+    return result

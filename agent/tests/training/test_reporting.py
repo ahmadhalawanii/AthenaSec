@@ -2,6 +2,7 @@ import json
 from pathlib import Path
 
 from training.reporting import (
+    write_model_selection_report,
     write_training_reports,
 )
 
@@ -99,4 +100,73 @@ def test_feature_mapping_report_matches_runtime_contract(
             "feature_source"
         ]
         == "AthenaSec Wazuh runtime feature extractor"
+    )
+
+def test_model_selection_report_is_written(
+    tmp_path: Path,
+):
+    strict_results = {
+        "valid_fold_count": 7,
+        "invalid_fold_count": 2,
+        "models": {
+            "logistic_regression": {
+                "mean_accuracy": 0.9359,
+                "mean_present_macro_f1": 0.9354,
+                "worst_present_macro_f1": 0.8667,
+            },
+        },
+        "folds": {},
+    }
+
+    selection = {
+        "selected_model": (
+            "logistic_regression"
+        ),
+        "selection_rule": (
+            "test selection rule"
+        ),
+        "ranking": [
+            "logistic_regression",
+        ],
+        "selected_metrics": (
+            strict_results[
+                "models"
+            ][
+                "logistic_regression"
+            ]
+        ),
+    }
+
+    report_path = (
+        write_model_selection_report(
+            output_dir=tmp_path,
+            strict_lodo_results=(
+                strict_results
+            ),
+            selection=selection,
+        )
+    )
+
+    assert (
+        report_path
+        == (
+            tmp_path
+            / "model_selection.json"
+        )
+    )
+
+    report = json.loads(
+        report_path.read_text(
+            encoding="utf-8"
+        )
+    )
+
+    assert (
+        report["selected_model"]
+        == "logistic_regression"
+    )
+
+    assert (
+        report["strict_lodo"]
+        == strict_results
     )

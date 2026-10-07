@@ -285,6 +285,53 @@ def test_behavior_replay_capture_pipeline_exports_runtime_model_and_reports(
         fake_capture_loader,
         raising=False,
     )
+    strict_lodo_results = {
+        "valid_fold_count": 7,
+        "invalid_fold_count": 2,
+        "folds": {},
+        "models": {
+            "logistic_regression": {
+                "valid_folds": 7,
+                "invalid_folds": 2,
+                "mean_accuracy": 0.9359,
+                "mean_present_macro_f1": 0.9354,
+                "worst_present_macro_f1": 0.8667,
+            },
+            "xgboost": {
+                "valid_folds": 7,
+                "invalid_folds": 2,
+                "mean_accuracy": 0.9452,
+                "mean_present_macro_f1": 0.9263,
+                "worst_present_macro_f1": 0.5137,
+            },
+        },
+    }
+
+    def fake_strict_lodo(
+        rows,
+        random_state=42,
+    ):
+        observed[
+            "strict_row_count"
+        ] = len(
+            rows
+        )
+
+        observed[
+            "strict_random_state"
+        ] = random_state
+
+        return strict_lodo_results
+
+    monkeypatch.setattr(
+        training_pipeline_module,
+        (
+            "evaluate_strict_"
+            "leave_one_dataset_out"
+        ),
+        fake_strict_lodo,
+        raising=False,
+    )
 
     result = (
         training_pipeline_module
@@ -321,6 +368,42 @@ def test_behavior_replay_capture_pipeline_exports_runtime_model_and_reports(
         output_dir
         / "feature_mapping.json"
     ).exists()
+
+    model_selection_path = (
+        output_dir
+        / "model_selection.json"
+    )
+
+    assert (
+        model_selection_path.exists()
+    )
+
+    model_selection = json.loads(
+        model_selection_path.read_text(
+            encoding="utf-8"
+        )
+    )
+
+    assert (
+        model_selection[
+            "selected_model"
+        ]
+        == "logistic_regression"
+    )
+
+    assert (
+        observed[
+            "strict_row_count"
+        ]
+        == len(rows)
+    )
+
+    assert (
+        observed[
+            "strict_random_state"
+        ]
+        == 42
+    )
 
     classifier = (
         load_runtime_classifier(
