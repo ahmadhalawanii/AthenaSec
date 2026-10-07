@@ -8,7 +8,6 @@ from pydantic import (
     field_validator,
 )
 from datetime import datetime, timezone
-from typing import Literal
 class SecurityAlertInput(BaseModel):
     alert_id: str
 
@@ -85,10 +84,8 @@ EvidenceSource = Literal[
     "wazuh",
     "opensearch",
     "cortex",
-    "thehive",
     "dataset",
 ]
-
 
 EvidenceReference = str
 

@@ -130,3 +130,11 @@ def test_analysis_rejects_empty_evidence_refs():
             requested_evidence=[],
             needs_more_evidence=False,
         )
+
+def test_evidence_record_rejects_removed_thehive_source():
+    with pytest.raises(ValidationError):
+        EvidenceRecord(
+            evidence_id="E999",
+            source="thehive",
+            content="Legacy TheHive evidence.",
+        )
