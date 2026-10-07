@@ -409,3 +409,61 @@ def test_training_runs_xgboost_challenger():
             "xgboost"
         ]
     )
+
+
+def test_deployment_logistic_regression_uses_all_deduplicated_rows(
+    monkeypatch,
+):
+    rows = _training_rows()
+
+    rows.append(
+        rows[0]
+    )
+
+    observed = {}
+
+    original_build_xy = (
+        train_classifier_module.build_xy
+    )
+
+    def recording_build_xy(
+        rows,
+    ):
+        observed["row_count"] = len(
+            rows
+        )
+
+        return original_build_xy(
+            rows
+        )
+
+    monkeypatch.setattr(
+        train_classifier_module,
+        "build_xy",
+        recording_build_xy,
+    )
+
+    model = (
+        train_classifier_module
+        .fit_deployment_logistic_regression(
+            rows=rows,
+            random_state=42,
+        )
+    )
+
+    assert observed["row_count"] == 120
+
+    assert set(
+        model.classes_
+    ) == {
+        "benign",
+        "brute_force",
+        "privilege_misuse",
+    }
+
+    assert (
+        model.named_steps[
+            "classifier"
+        ].__class__.__name__
+        == "LogisticRegression"
+    )

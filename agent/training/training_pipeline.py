@@ -8,6 +8,7 @@ from training.reporting import (
     write_training_reports,
 )
 from training.train_classifier import (
+    fit_deployment_logistic_regression,
     train_classifier,
 )
 from training.wazuh_dataset_loader import (
@@ -54,10 +55,15 @@ def run_training_pipeline(
         / f"{model_version}.pkl"
     )
 
+    deployment_model = (
+        fit_deployment_logistic_regression(
+            rows=rows,
+            random_state=random_state,
+        )
+    )
+
     export_model_artifact(
-        model=(
-            training_result.random_forest_model
-        ),
+        model=deployment_model,
         artifact_path=artifact_path,
         model_version=model_version,
     )

@@ -139,6 +139,13 @@ def test_logistic_pipeline_contains_scaler():
         == weights
     )
 
+    assert (
+        pipeline.named_steps[
+            "classifier"
+        ].C
+        == 10.0
+    )
+
 
 def test_random_forest_uses_class_weights():
     weights = {

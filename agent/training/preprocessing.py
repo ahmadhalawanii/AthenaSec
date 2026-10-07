@@ -62,6 +62,7 @@ def build_logistic_pipeline(
             (
                 "classifier",
                 LogisticRegression(
+                    C=10.0,
                     max_iter=2000,
                     class_weight=class_weight,
                     random_state=42,

@@ -206,6 +206,13 @@ def test_training_pipeline_exports_runtime_model_and_reports(
     }
 
     assert (
+        classifier.model.named_steps[
+            "classifier"
+        ].__class__.__name__
+        == "LogisticRegression"
+    )
+
+    assert (
         result.artifact_path
         == artifact_path
     )
