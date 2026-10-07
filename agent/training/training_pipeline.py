@@ -4,12 +4,18 @@ from pathlib import Path
 from training.artifact_export import (
     export_model_artifact,
 )
+from training.data_contract import (
+    TrainingRow,
+)
 from training.reporting import (
     write_training_reports,
 )
 from training.train_classifier import (
     fit_deployment_logistic_regression,
     train_classifier,
+)
+from training.wazuh_bridge import (
+    training_rows_from_behavior_replay_capture_file,
 )
 from training.wazuh_dataset_loader import (
     load_labeled_wazuh_events,
@@ -26,16 +32,13 @@ class TrainingPipelineResult:
     duplicate_count: int
 
 
-def run_training_pipeline(
-    dataset_path: str | Path,
+def _run_training_pipeline_from_rows(
+    *,
+    rows: list[TrainingRow],
     output_dir: str | Path,
     model_version: str,
-    random_state: int = 42,
+    random_state: int,
 ) -> TrainingPipelineResult:
-    rows = load_labeled_wazuh_events(
-        dataset_path
-    )
-
     training_result = train_classifier(
         rows=rows,
         random_state=random_state,
@@ -86,4 +89,42 @@ def run_training_pipeline(
         duplicate_count=(
             training_result.duplicate_count
         ),
+    )
+
+
+def run_training_pipeline(
+    dataset_path: str | Path,
+    output_dir: str | Path,
+    model_version: str,
+    random_state: int = 42,
+) -> TrainingPipelineResult:
+    rows = load_labeled_wazuh_events(
+        dataset_path
+    )
+
+    return _run_training_pipeline_from_rows(
+        rows=rows,
+        output_dir=output_dir,
+        model_version=model_version,
+        random_state=random_state,
+    )
+
+
+def run_training_pipeline_from_behavior_replay_capture_file(
+    captures_path: str | Path,
+    output_dir: str | Path,
+    model_version: str,
+    random_state: int = 42,
+) -> TrainingPipelineResult:
+    rows = (
+        training_rows_from_behavior_replay_capture_file(
+            captures_path=captures_path,
+        )
+    )
+
+    return _run_training_pipeline_from_rows(
+        rows=rows,
+        output_dir=output_dir,
+        model_version=model_version,
+        random_state=random_state,
     )

@@ -1,11 +1,18 @@
 import json
 from pathlib import Path
 
+from training import (
+    training_pipeline as training_pipeline_module,
+)
+
 from app.ml.model_loader import (
     load_runtime_classifier,
 )
 from training.training_pipeline import (
     run_training_pipeline,
+)
+from training.wazuh_dataset_loader import (
+    load_labeled_wazuh_events,
 )
 
 
@@ -210,6 +217,142 @@ def test_training_pipeline_exports_runtime_model_and_reports(
             "classifier"
         ].__class__.__name__
         == "LogisticRegression"
+    )
+
+    assert (
+        result.artifact_path
+        == artifact_path
+    )
+
+    assert (
+        "random_forest"
+        in result.model_metrics
+    )
+
+
+def test_behavior_replay_capture_pipeline_exports_runtime_model_and_reports(
+    tmp_path: Path,
+    monkeypatch,
+):
+    dataset_path = (
+        tmp_path
+        / "events.jsonl"
+    )
+
+    captures_path = (
+        tmp_path
+        / "replay_captures_v3.jsonl"
+    )
+
+    output_dir = (
+        tmp_path
+        / "capture-output"
+    )
+
+    _write_dataset(
+        dataset_path
+    )
+
+    rows = load_labeled_wazuh_events(
+        dataset_path
+    )
+
+    captures_path.write_text(
+        "{}\n",
+        encoding="utf-8",
+    )
+
+    observed = {}
+
+    def fake_capture_loader(
+        *,
+        captures_path,
+    ):
+        observed[
+            "captures_path"
+        ] = Path(
+            captures_path
+        )
+
+        return rows
+
+    monkeypatch.setattr(
+        training_pipeline_module,
+        (
+            "training_rows_from_"
+            "behavior_replay_capture_file"
+        ),
+        fake_capture_loader,
+        raising=False,
+    )
+
+    result = (
+        training_pipeline_module
+        .run_training_pipeline_from_behavior_replay_capture_file(
+            captures_path=captures_path,
+            output_dir=output_dir,
+            model_version=(
+                "athenasec-classifier-v3"
+            ),
+            random_state=42,
+        )
+    )
+
+    assert (
+        observed[
+            "captures_path"
+        ]
+        == captures_path
+    )
+
+    artifact_path = (
+        output_dir
+        / "athenasec-classifier-v3.pkl"
+    )
+
+    assert artifact_path.exists()
+
+    assert (
+        output_dir
+        / "metrics.json"
+    ).exists()
+
+    assert (
+        output_dir
+        / "feature_mapping.json"
+    ).exists()
+
+    classifier = (
+        load_runtime_classifier(
+            artifact_path
+        )
+    )
+
+    assert (
+        classifier.model_version
+        == "athenasec-classifier-v3"
+    )
+
+    assert set(
+        classifier.model.classes_
+    ) == {
+        "benign",
+        "brute_force",
+        "privilege_misuse",
+    }
+
+    assert (
+        classifier.model.named_steps[
+            "classifier"
+        ].__class__.__name__
+        == "LogisticRegression"
+    )
+
+    assert (
+        classifier.model.named_steps[
+            "classifier"
+        ].C
+        == 10.0
     )
 
     assert (
