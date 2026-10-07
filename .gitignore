@@ -34,3 +34,21 @@ data/*.db
 data/*.db-journal
 data/*.db-shm
 data/*.db-wal
+
+# AthenaSec local/runtime database
+agent/data/*.db
+agent/data/*.db-journal
+agent/data/*.db-shm
+agent/data/*.db-wal
+
+# AthenaSec generated ML artifacts
+agent/data/models/
+
+# Generated ML replay/training outputs
+agent/data/training/behavior_replay_manifest*.jsonl
+agent/data/training/behavior_replay_manifest*_migration.json
+agent/data/training/full_120_observed_alerts.jsonl
+agent/data/training/replay_captures*.jsonl
+
+# Local development configuration
+agent/compose.local.yaml
