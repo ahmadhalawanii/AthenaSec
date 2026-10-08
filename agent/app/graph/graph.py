@@ -60,6 +60,14 @@ from app.tools.evidence_provider import (
 from app.graph.nodes.evidence_sufficiency import (
     assess_evidence_sufficiency,
 )
+from app.graph.nodes.assess_action_risk import (
+    ActionRiskContextProvider,
+    make_action_risk_node,
+)
+from app.graph.nodes.propose_response import (
+    ResponseProposer,
+    make_response_proposal_node,
+)
 
 
 Analyzer = Callable[
@@ -87,6 +95,12 @@ def build_investigation_graph(
     ) = None,
     misp_client: (
         MISPClient | None
+    ) = None,
+    response_proposer: (
+        ResponseProposer | None
+    ) = None,
+    action_risk_context_provider: (
+        ActionRiskContextProvider | None
     ) = None,
 ):
     if evidence_provider is None:
@@ -147,6 +161,33 @@ def build_investigation_graph(
         "calculate_risk",
         calculate_investigation_risk,
     )
+
+    if response_proposer is not None:
+        builder.add_node(
+            "propose_response",
+            make_response_proposal_node(
+                response_proposer
+            ),
+        )
+
+        if (
+            action_risk_context_provider
+            is None
+        ):
+            builder.add_node(
+                "assess_action_risk",
+                make_action_risk_node(),
+            )
+
+        else:
+            builder.add_node(
+                "assess_action_risk",
+                make_action_risk_node(
+                    context_provider=(
+                        action_risk_context_provider
+                    ),
+                ),
+            )
 
     builder.add_node(
         "evaluate_policy",
@@ -236,10 +277,27 @@ def build_investigation_graph(
         "calculate_risk",
     )
 
-    builder.add_edge(
-        "calculate_risk",
-        "evaluate_policy",
-    )
+    if response_proposer is not None:
+        builder.add_edge(
+            "calculate_risk",
+            "propose_response",
+        )
+
+        builder.add_edge(
+            "propose_response",
+            "assess_action_risk",
+        )
+
+        builder.add_edge(
+            "assess_action_risk",
+            "evaluate_policy",
+        )
+
+    else:
+        builder.add_edge(
+            "calculate_risk",
+            "evaluate_policy",
+        )
 
     builder.add_edge(
         "evaluate_policy",

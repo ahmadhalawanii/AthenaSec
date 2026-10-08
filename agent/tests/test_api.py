@@ -1827,10 +1827,15 @@ def test_create_app_builds_default_graph_with_live_ml_classifier(
         *,
         ml_classifier=None,
         misp_client=None,
+        response_proposer=None,
     ):
         captured[
             "ml_classifier"
         ] = ml_classifier
+
+        captured[
+            "response_proposer"
+        ] = response_proposer
 
         class FakeGraph:
             def invoke(
@@ -1856,6 +1861,11 @@ def test_create_app_builds_default_graph_with_live_ml_classifier(
     assert (
         captured["ml_classifier"]
         is fake_classifier
+    )
+
+    assert (
+        captured["response_proposer"]
+        is not None
     )
 
 def test_create_app_builds_default_graph_with_live_misp_client(
@@ -1894,6 +1904,7 @@ def test_create_app_builds_default_graph_with_live_misp_client(
         *,
         ml_classifier=None,
         misp_client=None,
+        response_proposer=None,
     ):
         captured[
             "ml_classifier"
@@ -1902,6 +1913,10 @@ def test_create_app_builds_default_graph_with_live_misp_client(
         captured[
             "misp_client"
         ] = misp_client
+
+        captured[
+            "response_proposer"
+        ] = response_proposer
 
         class FakeGraph:
             def invoke(
@@ -1937,6 +1952,11 @@ def test_create_app_builds_default_graph_with_live_misp_client(
     assert (
         captured["misp_client"]
         is fake_misp_client
+    )
+
+    assert (
+        captured["response_proposer"]
+        is not None
     )
 
 def test_api_creates_case_when_cortex_executor_is_unavailable():

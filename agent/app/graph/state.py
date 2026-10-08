@@ -13,6 +13,9 @@ from app.schemas import (
     EvidenceSufficiencyAssessment,
     AnalysisVerificationResult,
     InvestigationTraceStep,
+    StructuredResponseProposal,
+    ActionRiskAssessmentRecord,
+    ProposedActionRecord,
 )
 
 
@@ -32,6 +35,9 @@ InvestigationStatus = Literal[
     "investigation_budget_exhausted",
     "analysis_verified",
     "analysis_verification_failed",
+    "response_proposed",
+    "response_proposal_blocked",
+    "action_risk_assessed",
 ]
 
 
@@ -74,6 +80,22 @@ class InvestigationState(TypedDict, total=False):
 
     response_plan: ResponsePlan
 
+    response_proposal: (
+        StructuredResponseProposal
+    )
+
     investigation_iteration: int
 
     status: InvestigationStatus
+
+    incident_id: str
+
+    investigation_id: str
+
+    proposed_actions: list[
+        ProposedActionRecord
+    ]
+
+    action_risk_assessments: list[
+        ActionRiskAssessmentRecord
+    ]

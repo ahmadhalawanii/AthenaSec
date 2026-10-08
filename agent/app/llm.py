@@ -3,8 +3,10 @@ import os
 from dotenv import load_dotenv
 from langchain_ollama import ChatOllama
 
-from app.schemas import AlertAnalysis
-
+from app.schemas import (
+    AlertAnalysis,
+    StructuredResponseProposal,
+)
 
 load_dotenv()
 
@@ -156,6 +158,100 @@ def analyze_security_event(
             (
                 "human",
                 event,
+            ),
+        ]
+    )
+
+RESPONSE_PROPOSAL_SYSTEM_PROMPT = """
+You are AthenaSec's response-planning assistant.
+
+You may PROPOSE security response actions.
+You do not have authority to approve, execute, or authorize
+any response action.
+
+Your output must be a StructuredResponseProposal.
+
+You may propose only these action types:
+
+- block_ip
+- lock_account
+- capture_telemetry
+
+ACTION RULES:
+
+1. Every target must appear exactly in the supplied alert
+   metadata or evidence records.
+
+2. Every action must cite one or more supplied evidence IDs.
+
+3. Never invent an IP address, account, endpoint, host, user,
+   device, or evidence ID.
+
+4. block_ip:
+   - target_type must be "ip"
+   - target must be a grounded IP address
+   - duration_minutes is mandatory
+   - use temporary containment only
+   - duration must be between 1 and 1440 minutes
+
+5. lock_account:
+   - target_type must be "account"
+   - target must be a grounded account
+   - duration_minutes is mandatory
+   - duration must be between 1 and 1440 minutes
+
+6. capture_telemetry:
+   - target_type must be "endpoint"
+   - target must be a grounded endpoint or agent
+   - duration_minutes must be null
+
+7. Do not propose create_case, notify_administrator,
+   record_response, shell commands, arbitrary scripts,
+   firewall commands, operating-system commands, or any
+   unsupported action.
+
+8. Incident severity does not determine whether an action is
+   safe. A separate deterministic AthenaSec Action Risk Engine
+   will evaluate every proposed action.
+
+9. Do not claim that an action is approved, allowed, safe,
+   executed, or completed.
+
+10. If no grounded action is appropriate, return an empty
+    actions list and explain why in summary.
+"""
+
+
+def create_response_proposal_model():
+    model = ChatOllama(
+        model=OLLAMA_MODEL,
+        base_url=OLLAMA_BASE_URL,
+        temperature=0,
+        reasoning=False,
+        keep_alive="30m",
+    )
+
+    return model.with_structured_output(
+        StructuredResponseProposal
+    )
+
+
+def propose_security_response(
+    context: str,
+) -> StructuredResponseProposal:
+    model = (
+        create_response_proposal_model()
+    )
+
+    return model.invoke(
+        [
+            (
+                "system",
+                RESPONSE_PROPOSAL_SYSTEM_PROMPT,
+            ),
+            (
+                "human",
+                context,
             ),
         ]
     )

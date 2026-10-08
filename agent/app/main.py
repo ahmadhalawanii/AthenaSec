@@ -7,6 +7,9 @@ from fastapi import (
     Header,
     HTTPException,
 )
+from app.llm import (
+    propose_security_response,
+)
 from app.ml.runtime_config import (
     build_live_ml_classifier,
 )
@@ -48,6 +51,7 @@ from app.services.misp_config import (
     build_live_misp_client,
 )
 from app.services.persistence_config import (
+    build_incident_response_store_from_env,
     build_persistence_stores_from_env,
 )
 from app.services.benign_investigation import (
@@ -60,7 +64,18 @@ from app.services.ml_classifier import (
     MLClassifier,
 )
 from app.services.investigation_lifecycle import (
+    build_investigation_id,
     persist_investigation_lifecycle,
+)
+from app.services.incident_response_store import (
+    IncidentResponseStore,
+    InMemoryIncidentResponseStore,
+)
+from app.services.response_risk_lifecycle import (
+    persist_response_risk_lifecycle,
+)
+from app.services.structured_response_hold import (
+    hold_legacy_execution_for_structured_response,
 )
 
 
@@ -95,6 +110,9 @@ def create_app(
     ) = None,
     ml_classifier: (
         MLClassifier | None
+    ) = None,
+    incident_response_store: (
+        IncidentResponseStore | None
     ) = None,
 ) -> FastAPI:
     app = FastAPI(
@@ -131,6 +149,9 @@ def create_app(
                 configured_ml_classifier
             ),
             misp_client=misp_client,
+            response_proposer=(
+                propose_security_response
+            ),
         )
 
     default_investigation_store = None
@@ -156,6 +177,29 @@ def create_app(
         if audit_store is not None
         else default_audit_store
     )
+
+    if (
+        incident_response_store
+        is not None
+    ):
+        configured_incident_response_store = (
+            incident_response_store
+        )
+
+    elif (
+        default_investigation_store
+        is not None
+        or default_audit_store
+        is not None
+    ):
+        configured_incident_response_store = (
+            build_incident_response_store_from_env()
+        )
+
+    else:
+        configured_incident_response_store = (
+            InMemoryIncidentResponseStore()
+        )
 
     configured_wazuh_ingest_key = (
         wazuh_ingest_key
@@ -235,6 +279,28 @@ def create_app(
             "status": "received",
         }
 
+        investigation_id = None
+
+        if incident_id is not None:
+            investigation_id = (
+                build_investigation_id(
+                    incident_id=(
+                        incident_id
+                    ),
+                    alert_id=(
+                        alert.alert_id
+                    ),
+                )
+            )
+
+            initial_state[
+                "incident_id"
+            ] = incident_id
+
+            initial_state[
+                "investigation_id"
+            ] = investigation_id
+
         if ml_prediction is not None:
             initial_state[
                 "ml_prediction"
@@ -252,6 +318,12 @@ def create_app(
         investigation = InvestigationResponse(
             alert_id=result["alert"].alert_id,
             incident_id=incident_id,
+            investigation_id=(
+                result.get(
+                    "investigation_id",
+                    investigation_id,
+                )
+            ),
             source=result["alert"].source,
             alert_metadata=dict(
                 result["alert"].metadata
@@ -288,6 +360,23 @@ def create_app(
                     "analysis_verification"
                 )
             ),
+            response_proposal=(
+                result.get(
+                    "response_proposal"
+                )
+            ),
+            proposed_actions=(
+                result.get(
+                    "proposed_actions",
+                    [],
+                )
+            ),
+            action_risk_assessments=(
+                result.get(
+                    "action_risk_assessments",
+                    [],
+                )
+            ),
             investigation_budget_exhausted=(
                 result.get(
                     "investigation_budget_exhausted",
@@ -317,6 +406,12 @@ def create_app(
             ),
         )
 
+        investigation = (
+            hold_legacy_execution_for_structured_response(
+                investigation
+            )
+        )
+
         lifecycle_record = (
             persist_investigation_lifecycle(
                 store=store,
@@ -336,9 +431,143 @@ def create_app(
                 )
             )
 
+        response_risk_lifecycle = (
+            persist_response_risk_lifecycle(
+                store=(
+                    configured_incident_response_store
+                ),
+                investigation=investigation,
+            )
+        )
+
         store.save(
             investigation
         )
+
+        if (
+            response_risk_lifecycle
+            is not None
+        ):
+            incident_risk = (
+                response_risk_lifecycle
+                .incident_risk
+            )
+
+            save_incident_audit_event(
+                incident_id=(
+                    incident_risk.incident_id
+                ),
+                event_type=(
+                    "incident_risk_assessed"
+                ),
+                entity_type=(
+                    "incident_risk"
+                ),
+                entity_id=(
+                    incident_risk
+                    .risk_assessment_id
+                ),
+                message=(
+                    "Deterministic incident "
+                    "risk was persisted."
+                ),
+                details={
+                    "score": (
+                        incident_risk.score
+                    ),
+                    "band": (
+                        incident_risk.band
+                    ),
+                },
+            )
+
+            for proposed_action in (
+                response_risk_lifecycle
+                .proposed_actions
+            ):
+                save_incident_audit_event(
+                    incident_id=(
+                        proposed_action
+                        .incident_id
+                    ),
+                    event_type=(
+                        "response_action_proposed"
+                    ),
+                    entity_type=(
+                        "proposed_action"
+                    ),
+                    entity_id=(
+                        proposed_action
+                        .proposed_action_id
+                    ),
+                    message=(
+                        "Structured response "
+                        "action was proposed."
+                    ),
+                    details={
+                        "action_type": (
+                            proposed_action
+                            .action_type
+                        ),
+                        "target_type": (
+                            proposed_action
+                            .target_type
+                        ),
+                        "target": (
+                            proposed_action
+                            .target
+                        ),
+                        "reversible": (
+                            proposed_action
+                            .reversible
+                        ),
+                    },
+                )
+
+            for action_risk in (
+                response_risk_lifecycle
+                .action_risks
+            ):
+                save_incident_audit_event(
+                    incident_id=(
+                        investigation
+                        .incident_id
+                    ),
+                    event_type=(
+                        "action_risk_assessed"
+                    ),
+                    entity_type=(
+                        "action_risk"
+                    ),
+                    entity_id=(
+                        action_risk
+                        .action_risk_id
+                    ),
+                    message=(
+                        "Deterministic action "
+                        "risk was assessed."
+                    ),
+                    details={
+                        "proposed_action_id": (
+                            action_risk
+                            .proposed_action_id
+                        ),
+                        "score": (
+                            action_risk.score
+                        ),
+                        "band": (
+                            action_risk.band
+                        ),
+                        "blast_radius": (
+                            action_risk
+                            .blast_radius
+                        ),
+                        "requires_approval": (
+                            action_risk
+                            .requires_approval
+                        ),
+                    },
+                )
 
         if (
             lifecycle_record is not None

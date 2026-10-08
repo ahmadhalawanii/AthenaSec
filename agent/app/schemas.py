@@ -552,6 +552,67 @@ ActionBlastRadius = Literal[
     "unknown",
 ]
 
+ResponseProposalActionType = Literal[
+    "block_ip",
+    "lock_account",
+    "capture_telemetry",
+]
+
+
+class ResponseActionProposal(BaseModel):
+    action_type: ResponseProposalActionType
+
+    target_type: ActionTargetType
+
+    target: str = Field(
+        min_length=1,
+    )
+
+    duration_minutes: int | None = Field(
+        default=None,
+        ge=1,
+        le=1440,
+    )
+
+    reason: str = Field(
+        min_length=1,
+    )
+
+    evidence_refs: list[
+        EvidenceReference
+    ] = Field(
+        min_length=1,
+        max_length=5,
+    )
+
+    @field_validator(
+        "evidence_refs"
+    )
+    @classmethod
+    def check_evidence_refs(
+        cls,
+        values: list[str],
+    ) -> list[str]:
+        return [
+            validate_evidence_reference(
+                value
+            )
+            for value in values
+        ]
+
+
+class StructuredResponseProposal(BaseModel):
+    summary: str = Field(
+        min_length=1,
+    )
+
+    actions: list[
+        ResponseActionProposal
+    ] = Field(
+        default_factory=list,
+        max_length=3,
+    )
+
 
 ResponseActionStatus = Literal[
     "planned",
@@ -561,6 +622,19 @@ ResponseActionStatus = Literal[
     "blocked",
 ]
 
+class ActionRiskContext(BaseModel):
+    target_criticality: AssetCriticality = "low"
+
+    protected_target: bool = False
+
+    allowlisted_target: bool = False
+
+    privileged_target: bool = False
+
+    affected_target_count: int = Field(
+        default=1,
+        ge=1,
+    )
 
 class IncidentRiskAssessmentRecord(BaseModel):
     risk_assessment_id: str = Field(
@@ -1016,6 +1090,22 @@ class InvestigationResponse(BaseModel):
     analysis_verification: (
         AnalysisVerificationResult | None
     ) = None
+
+    response_proposal: (
+        StructuredResponseProposal | None
+    ) = None
+
+    proposed_actions: list[
+        ProposedActionRecord
+    ] = Field(
+        default_factory=list,
+    )
+
+    action_risk_assessments: list[
+        ActionRiskAssessmentRecord
+    ] = Field(
+        default_factory=list,
+    )
 
     investigation_budget_exhausted: bool = False
 
