@@ -178,6 +178,7 @@ def make_runtime(
     verification_status="SUCCESS",
     include_verifier=True,
     autonomous_response_enabled=True,
+    response_mode="SUPERVISED",
 ):
     graph = build_investigation_graph(
         analyzer=lambda context: (
@@ -235,6 +236,7 @@ def make_runtime(
         autonomous_response_enabled=(
             autonomous_response_enabled
         ),
+        response_mode=response_mode,
         structured_action_executor=(
             executor
         ),
@@ -447,3 +449,79 @@ def test_missing_verifier_fails_closed_before_cortex():
             incident_id
         )
     ) == 1
+
+
+def test_shadow_mode_does_not_execute_cortex():
+    (
+        client,
+        response_store,
+        audit_store,
+        executor,
+        verifier,
+        rollback,
+    ) = make_runtime(
+        response_mode="SHADOW"
+    )
+
+    response = submit(
+        client
+    )
+
+    assert response.status_code == 200
+
+    incident_id = (
+        response.json()["incident_id"]
+    )
+
+    assert executor.calls == []
+    assert verifier.calls == []
+    assert rollback.calls == []
+
+    assert (
+        response_store
+        .list_incident_cases(
+            incident_id
+        )
+        == []
+    )
+
+    events = {
+        item.event_type
+        for item
+        in audit_store
+        .list_by_incident_id(
+            incident_id
+        )
+    }
+
+    assert (
+        "structured_response_shadowed"
+        in events
+    )
+
+
+def test_runtime_status_reports_mode_and_kill_switch():
+    (
+        client,
+        _,
+        _,
+        _,
+        _,
+        _,
+    ) = make_runtime(
+        response_mode="SHADOW",
+        autonomous_response_enabled=False,
+    )
+
+    response = client.get(
+        "/api/v1/runtime/status"
+    )
+
+    assert response.status_code == 200
+
+    assert response.json() == {
+        "response_mode": "SHADOW",
+        "autonomous_response_enabled": False,
+        "structured_runtime_configured": True,
+        "cortex_execution_possible": False,
+    }

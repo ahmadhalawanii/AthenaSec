@@ -89,6 +89,9 @@ from app.services.approval_resolution import (
 from app.services.structured_response_runtime import (
     process_structured_response_action,
 )
+from app.services.response_mode import (
+    normalize_response_mode,
+)
 
 
 def _read_autonomous_response_enabled() -> bool:
@@ -129,6 +132,7 @@ def create_app(
     structured_action_executor: Any = None,
     structured_action_verifier: Any = None,
     structured_rollback_executor: Any = None,
+    response_mode: str | None = None,
 ) -> FastAPI:
     app = FastAPI(
         title="AthenaSec Agent API",
@@ -230,6 +234,17 @@ def create_app(
         else _read_autonomous_response_enabled()
     )
 
+    configured_response_mode = (
+        normalize_response_mode(
+            response_mode
+            if response_mode is not None
+            else os.getenv(
+                "ATHENASEC_RESPONSE_MODE",
+                "SUPERVISED",
+            )
+        )
+    )
+
     configured_response_executor = (
         response_executor
         if response_executor is not None
@@ -297,6 +312,12 @@ def create_app(
             configured_structured_action_verifier,
             configured_structured_rollback_executor,
         )
+    )
+
+    structured_runtime_reachable = (
+        structured_runtime_configured
+        or configured_response_mode
+        == "SHADOW"
     )
 
     def save_audit_event(
@@ -369,9 +390,46 @@ def create_app(
                 autonomous_response_enabled=(
                     configured_autonomous_response_enabled
                 ),
+                response_mode=(
+                    configured_response_mode
+                ),
                 approval_id=approval_id,
             )
         )
+
+        if outcome.outcome == "shadowed":
+            save_incident_audit_event(
+                incident_id=(
+                    proposed_action.incident_id
+                ),
+                event_type=(
+                    "structured_response_shadowed"
+                ),
+                entity_type=(
+                    "proposed_action"
+                ),
+                entity_id=(
+                    proposed_action
+                    .proposed_action_id
+                ),
+                message=(
+                    "Structured response was "
+                    "evaluated in SHADOW mode "
+                    "without Cortex execution."
+                ),
+                details={
+                    "response_mode": (
+                        configured_response_mode
+                    ),
+                    "policy_decision_id": (
+                        policy_decision
+                        .decision_id
+                    ),
+                    "policy_outcome": (
+                        policy_decision.outcome
+                    ),
+                },
+            )
 
         execution = outcome.execution
 
@@ -1258,7 +1316,7 @@ def create_app(
                     "outcome"
                 ]
                 == "auto_allowed"
-                and structured_runtime_configured
+                and structured_runtime_reachable
             ):
                 actions_by_id = {
                     action.proposed_action_id: (
@@ -1314,10 +1372,18 @@ def create_app(
                 and (
                     configured_autonomous_response_enabled
                 )
+                and (
+                    configured_response_mode
+                    != "SHADOW"
+                )
             )
 
             kill_switch_blocked = (
                 ready_for_execution
+                and (
+                    configured_response_mode
+                    != "SHADOW"
+                )
                 and not (
                     configured_autonomous_response_enabled
                 )
@@ -1384,6 +1450,10 @@ def create_app(
                     ),
                     autonomous_response_enabled=(
                         configured_autonomous_response_enabled
+                        and (
+                            configured_response_mode
+                            != "SHADOW"
+                        )
                     ),
                 )
             )
@@ -1637,6 +1707,32 @@ def create_app(
         )
 
         return investigation
+
+    @app.get(
+        "/api/v1/runtime/status"
+    )
+    def runtime_status():
+        return {
+            "response_mode": (
+                configured_response_mode
+            ),
+            "autonomous_response_enabled": (
+                configured_autonomous_response_enabled
+            ),
+            "structured_runtime_configured": (
+                structured_runtime_configured
+            ),
+            "cortex_execution_possible": (
+                structured_runtime_configured
+                and (
+                    configured_autonomous_response_enabled
+                )
+                and (
+                    configured_response_mode
+                    != "SHADOW"
+                )
+            ),
+        }
 
     @app.get(
         "/health"
@@ -2088,7 +2184,7 @@ def create_app(
 
         if (
             approval.status == "APPROVED"
-            and structured_runtime_configured
+            and structured_runtime_reachable
         ):
             proposed_action = (
                 configured_incident_response_store

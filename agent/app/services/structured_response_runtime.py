@@ -32,10 +32,15 @@ from app.services.structured_execution import (
     StructuredExecutionOutcome,
     execute_structured_action,
 )
+from app.services.response_mode import (
+    ResponseMode,
+    evaluate_response_mode,
+)
 
 
 StructuredRuntimeStatus = Literal[
     "awaiting_approval",
+    "shadowed",
     "blocked",
     "failed",
     "verified",
@@ -157,6 +162,7 @@ def process_structured_response_action(
         StructuredRollbackExecutor | None
     ),
     autonomous_response_enabled: bool,
+    response_mode: ResponseMode = "SUPERVISED",
     approval_id: str | None = None,
     now: datetime | None = None,
 ) -> StructuredRuntimeOutcome:
@@ -191,6 +197,20 @@ def process_structured_response_action(
     ):
         return StructuredRuntimeOutcome(
             outcome="awaiting_approval"
+        )
+
+    mode_decision = (
+        evaluate_response_mode(
+            response_mode
+        )
+    )
+
+    if (
+        not mode_decision
+        .cortex_execution_allowed
+    ):
+        return StructuredRuntimeOutcome(
+            outcome="shadowed"
         )
 
     if executor is None:

@@ -418,3 +418,39 @@ def test_repeated_runtime_call_does_not_execute_cortex_twice():
         )
 
     assert len(executor.calls) == 1
+
+def test_shadow_mode_skips_cortex_without_runtime_components():
+    store = (
+        InMemoryIncidentResponseStore()
+    )
+
+    result = (
+        process_structured_response_action(
+            store=store,
+            proposed_action=make_action(),
+            policy_decision=make_policy(),
+            executor=None,
+            verifier=None,
+            rollback_executor=None,
+            autonomous_response_enabled=True,
+            response_mode="SHADOW",
+            now=BASE_TIME,
+        )
+    )
+
+    assert result.outcome == "shadowed"
+
+    assert result.execution is None
+
+    assert result.verification is None
+
+    assert result.rollback is None
+
+    assert result.incident_case is None
+
+    assert (
+        store.list_incident_cases(
+            "INC-RUNTIME-001"
+        )
+        == []
+    )
