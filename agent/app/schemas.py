@@ -77,6 +77,13 @@ EvidenceRequest = Literal[
     "related_security_events",
 ]
 
+EvidenceType = Literal[
+    "alert",
+    "authentication_history",
+    "source_endpoint_context",
+    "privilege_activity",
+    "related_security_events",
+]
 
 EvidenceSource = Literal[
     "alert",
@@ -108,6 +115,8 @@ def validate_evidence_reference(
 class EvidenceObservation(BaseModel):
     source: EvidenceSource
 
+    evidence_type: EvidenceType | None = None
+
     content: str = Field(
         min_length=1,
     )
@@ -123,6 +132,8 @@ class EvidenceRecord(BaseModel):
 
     source: EvidenceSource
 
+    evidence_type: EvidenceType | None = None
+
     content: str = Field(
         min_length=1,
     )
@@ -137,6 +148,86 @@ class EvidenceRecord(BaseModel):
             value
         )
 
+class EvidenceSufficiencyAssessment(BaseModel):
+    classification: AttackClassification
+
+    sufficient: bool
+
+    required_evidence: list[EvidenceRequest] = Field(
+        default_factory=list,
+    )
+
+    satisfied_evidence: list[EvidenceRequest] = Field(
+        default_factory=list,
+    )
+
+    missing_evidence: list[EvidenceRequest] = Field(
+        default_factory=list,
+    )
+
+class AnalysisVerificationResult(BaseModel):
+    verified: bool
+
+    classification_consistent: bool
+
+    evidence_sufficient: bool
+
+    checked_evidence_refs: list[
+        EvidenceReference
+    ] = Field(
+        default_factory=list,
+    )
+
+    blocking_issues: list[str] = Field(
+        default_factory=list,
+    )
+
+    warnings: list[str] = Field(
+        default_factory=list,
+    )
+
+InvestigationStepType = Literal[
+    "analysis",
+    "evidence_sufficiency",
+    "evidence_gathering",
+    "analysis_verification",
+]
+
+
+class InvestigationTraceStep(BaseModel):
+    sequence: int = Field(
+        ge=1,
+    )
+
+    step_type: InvestigationStepType
+
+    status: str = Field(
+        min_length=1,
+    )
+
+    details: dict[str, Any] = Field(
+        default_factory=dict,
+    )
+
+    recorded_at: datetime = Field(
+        default_factory=lambda: (
+            datetime.now(
+                timezone.utc
+            )
+        )
+    )
+
+
+class InvestigationStepRecord(
+    InvestigationTraceStep
+):
+    investigation_id: str = Field(
+        min_length=1,
+    )
+
+    step_id: str = Field(
+        min_length=1,
+    )
 
 class AlertAnalysis(BaseModel):
     model_config = ConfigDict(
@@ -390,6 +481,17 @@ class IncidentInvestigationRecord(BaseModel):
 
     completed_at: datetime | None = None
 
+    iteration_count: int = Field(
+        default=0,
+        ge=0,
+    )
+
+    budget_exhausted: bool = False
+
+    evidence_sufficient: bool | None = None
+
+    analysis_verified: bool | None = None
+
 
 class InvestigationEvidenceRecord(BaseModel):
     investigation_id: str = Field(
@@ -399,6 +501,8 @@ class InvestigationEvidenceRecord(BaseModel):
     evidence_id: EvidenceReference
 
     source: EvidenceSource
+
+    evidence_type: EvidenceType | None = None
 
     content: str = Field(
         min_length=1,
@@ -880,6 +984,8 @@ class InvestigationResponse(BaseModel):
 
     incident_id: str | None = None
 
+    investigation_id: str | None = None
+
     source: str
 
     alert_metadata: dict[str, object] = Field(
@@ -902,6 +1008,22 @@ class InvestigationResponse(BaseModel):
     analysis: AlertAnalysis
 
     evidence_records: list[EvidenceRecord]
+
+    evidence_sufficiency: (
+        EvidenceSufficiencyAssessment | None
+    ) = None
+
+    analysis_verification: (
+        AnalysisVerificationResult | None
+    ) = None
+
+    investigation_budget_exhausted: bool = False
+
+    investigation_trace: list[
+        InvestigationTraceStep
+    ] = Field(
+        default_factory=list,
+    )
 
     risk_assessment: RiskAssessment
 

@@ -414,6 +414,7 @@ class WazuhEvidenceProvider:
                 observations.append(
                     EvidenceObservation(
                         source="wazuh",
+                        evidence_type=request,
                         content=content,
                     )
                 )

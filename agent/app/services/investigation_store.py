@@ -18,6 +18,7 @@ from app.schemas import (
     InvestigationResponse,
     ResponseExecutionResult,
     ResponsePlan,
+    InvestigationStepRecord,
 )
 
 class InvestigationStore(Protocol):
@@ -109,6 +110,25 @@ class InvestigationStore(Protocol):
     ) -> list[InvestigationEvidenceRecord]:
         ...
 
+    def save_investigation_step(
+        self,
+        step: InvestigationStepRecord,
+    ) -> InvestigationStepRecord:
+        ...
+
+    def get_investigation_step(
+        self,
+        investigation_id: str,
+        step_id: str,
+    ) -> InvestigationStepRecord | None:
+        ...
+
+    def list_investigation_steps(
+        self,
+        investigation_id: str,
+    ) -> list[InvestigationStepRecord]:
+        ...
+
     def save(
         self,
         investigation: InvestigationResponse,
@@ -174,6 +194,11 @@ class InMemoryInvestigationStore:
         self._investigation_evidence: dict[
             tuple[str, str],
             InvestigationEvidenceRecord,
+        ] = {}
+
+        self._investigation_steps: dict[
+            tuple[str, str],
+            InvestigationStepRecord,
         ] = {}
 
         self._investigations: dict[
@@ -391,6 +416,58 @@ class InMemoryInvestigationStore:
             ),
         )
 
+    def save_investigation_step(
+        self,
+        step: InvestigationStepRecord,
+    ) -> InvestigationStepRecord:
+        key = (
+            step.investigation_id,
+            step.step_id,
+        )
+
+        self._investigation_steps[
+            key
+        ] = step
+
+        return step
+
+    def get_investigation_step(
+        self,
+        investigation_id: str,
+        step_id: str,
+    ) -> InvestigationStepRecord | None:
+        return self._investigation_steps.get(
+            (
+                investigation_id,
+                step_id,
+            )
+        )
+
+    def list_investigation_steps(
+        self,
+        investigation_id: str,
+    ) -> list[InvestigationStepRecord]:
+        steps = [
+            record
+            for (
+                stored_investigation_id,
+                _,
+            ), record
+            in self._investigation_steps.items()
+            if (
+                stored_investigation_id
+                == investigation_id
+            )
+        ]
+
+        return sorted(
+            steps,
+            key=lambda record: (
+                record.sequence,
+                record.step_id,
+            ),
+        )
+
     def save(
         self,
         investigation: InvestigationResponse,
@@ -590,6 +667,38 @@ class SQLiteInvestigationStore:
                             investigation_id
                         )
                         ON DELETE CASCADE
+                )
+                """
+            )
+
+            connection.execute(
+                """
+                CREATE TABLE IF NOT EXISTS investigation_steps (
+                    step_id TEXT PRIMARY KEY,
+                    investigation_id TEXT NOT NULL,
+                    sequence INTEGER NOT NULL,
+                    step_type TEXT NOT NULL,
+                    recorded_at TEXT NOT NULL,
+                    payload TEXT NOT NULL,
+                    UNIQUE (
+                        investigation_id,
+                        sequence
+                    ),
+                    FOREIGN KEY (investigation_id)
+                        REFERENCES incident_investigations(
+                            investigation_id
+                        )
+                        ON DELETE CASCADE
+                )
+                """
+            )
+
+            connection.execute(
+                """
+                CREATE INDEX IF NOT EXISTS
+                idx_investigation_steps_investigation_id
+                ON investigation_steps(
+                    investigation_id
                 )
                 """
             )
@@ -1058,6 +1167,93 @@ class SQLiteInvestigationStore:
             for row in rows
         ]
 
+    def save_investigation_step(
+        self,
+        step: InvestigationStepRecord,
+    ) -> InvestigationStepRecord:
+        payload = step.model_dump_json()
+
+        with self._connect() as connection:
+            connection.execute(
+                """
+                INSERT OR REPLACE INTO investigation_steps (
+                    step_id,
+                    investigation_id,
+                    sequence,
+                    step_type,
+                    recorded_at,
+                    payload
+                )
+                VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    step.step_id,
+                    step.investigation_id,
+                    step.sequence,
+                    step.step_type,
+                    step.recorded_at.isoformat(),
+                    payload,
+                ),
+            )
+
+        return step
+
+    def get_investigation_step(
+        self,
+        investigation_id: str,
+        step_id: str,
+    ) -> InvestigationStepRecord | None:
+        with self._connect() as connection:
+            row = connection.execute(
+                """
+                SELECT payload
+                FROM investigation_steps
+                WHERE investigation_id = ?
+                AND step_id = ?
+                """,
+                (
+                    investigation_id,
+                    step_id,
+                ),
+            ).fetchone()
+
+        if row is None:
+            return None
+
+        return (
+            InvestigationStepRecord
+            .model_validate_json(
+                row[0]
+            )
+        )
+
+    def list_investigation_steps(
+        self,
+        investigation_id: str,
+    ) -> list[InvestigationStepRecord]:
+        with self._connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT payload
+                FROM investigation_steps
+                WHERE investigation_id = ?
+                ORDER BY sequence ASC, step_id ASC
+                """,
+                (
+                    investigation_id,
+                ),
+            ).fetchall()
+
+        return [
+            (
+                InvestigationStepRecord
+                .model_validate_json(
+                    row[0]
+                )
+            )
+            for row in rows
+        ]
+
     def save(
         self,
         investigation: InvestigationResponse,
@@ -1318,6 +1514,38 @@ class PostgresInvestigationStore:
                             investigation_id
                         )
                         ON DELETE CASCADE
+                )
+                """
+            )
+
+            connection.execute(
+                """
+                CREATE TABLE IF NOT EXISTS investigation_steps (
+                    step_id TEXT PRIMARY KEY,
+                    investigation_id TEXT NOT NULL,
+                    sequence INTEGER NOT NULL,
+                    step_type TEXT NOT NULL,
+                    recorded_at TIMESTAMPTZ NOT NULL,
+                    payload TEXT NOT NULL,
+                    UNIQUE (
+                        investigation_id,
+                        sequence
+                    ),
+                    FOREIGN KEY (investigation_id)
+                        REFERENCES incident_investigations(
+                            investigation_id
+                        )
+                        ON DELETE CASCADE
+                )
+                """
+            )
+
+            connection.execute(
+                """
+                CREATE INDEX IF NOT EXISTS
+                idx_investigation_steps_investigation_id
+                ON investigation_steps(
+                    investigation_id
                 )
                 """
             )
@@ -1844,6 +2072,106 @@ class PostgresInvestigationStore:
         return [
             (
                 InvestigationEvidenceRecord
+                .model_validate_json(
+                    row[0]
+                )
+            )
+            for row in rows
+        ]
+
+    def save_investigation_step(
+        self,
+        step: InvestigationStepRecord,
+    ) -> InvestigationStepRecord:
+        payload = step.model_dump_json()
+
+        with self._connect(
+            self.database_url
+        ) as connection:
+            connection.execute(
+                """
+                INSERT INTO investigation_steps (
+                    step_id,
+                    investigation_id,
+                    sequence,
+                    step_type,
+                    recorded_at,
+                    payload
+                )
+                VALUES (%s, %s, %s, %s, %s, %s)
+                ON CONFLICT (step_id)
+                DO UPDATE SET
+                    investigation_id = EXCLUDED.investigation_id,
+                    sequence = EXCLUDED.sequence,
+                    step_type = EXCLUDED.step_type,
+                    recorded_at = EXCLUDED.recorded_at,
+                    payload = EXCLUDED.payload
+                """,
+                (
+                    step.step_id,
+                    step.investigation_id,
+                    step.sequence,
+                    step.step_type,
+                    step.recorded_at,
+                    payload,
+                ),
+            )
+
+        return step
+
+    def get_investigation_step(
+        self,
+        investigation_id: str,
+        step_id: str,
+    ) -> InvestigationStepRecord | None:
+        with self._connect(
+            self.database_url
+        ) as connection:
+            row = connection.execute(
+                """
+                SELECT payload
+                FROM investigation_steps
+                WHERE investigation_id = %s
+                AND step_id = %s
+                """,
+                (
+                    investigation_id,
+                    step_id,
+                ),
+            ).fetchone()
+
+        if row is None:
+            return None
+
+        return (
+            InvestigationStepRecord
+            .model_validate_json(
+                row[0]
+            )
+        )
+
+    def list_investigation_steps(
+        self,
+        investigation_id: str,
+    ) -> list[InvestigationStepRecord]:
+        with self._connect(
+            self.database_url
+        ) as connection:
+            rows = connection.execute(
+                """
+                SELECT payload
+                FROM investigation_steps
+                WHERE investigation_id = %s
+                ORDER BY sequence ASC, step_id ASC
+                """,
+                (
+                    investigation_id,
+                ),
+            ).fetchall()
+
+        return [
+            (
+                InvestigationStepRecord
                 .model_validate_json(
                     row[0]
                 )

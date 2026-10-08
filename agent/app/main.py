@@ -59,6 +59,9 @@ from app.services.incident_correlator import (
 from app.services.ml_classifier import (
     MLClassifier,
 )
+from app.services.investigation_lifecycle import (
+    persist_investigation_lifecycle,
+)
 
 
 def _read_autonomous_response_enabled() -> bool:
@@ -275,6 +278,28 @@ def create_app(
             evidence_records=(
                 result["evidence_records"]
             ),
+            evidence_sufficiency=(
+                result.get(
+                    "evidence_sufficiency"
+                )
+            ),
+            analysis_verification=(
+                result.get(
+                    "analysis_verification"
+                )
+            ),
+            investigation_budget_exhausted=(
+                result.get(
+                    "investigation_budget_exhausted",
+                    False,
+                )
+            ),
+            investigation_trace=(
+                result.get(
+                    "investigation_trace",
+                    [],
+                )
+            ),
             risk_assessment=(
                 result["risk_assessment"]
             ),
@@ -292,9 +317,88 @@ def create_app(
             ),
         )
 
+        lifecycle_record = (
+            persist_investigation_lifecycle(
+                store=store,
+                investigation=investigation,
+            )
+        )
+
+        if lifecycle_record is not None:
+            investigation = (
+                investigation.model_copy(
+                    update={
+                        "investigation_id": (
+                            lifecycle_record
+                            .investigation_id
+                        ),
+                    }
+                )
+            )
+
         store.save(
             investigation
         )
+
+        if (
+            lifecycle_record is not None
+            and (
+                investigation
+                .analysis_verification
+                is not None
+            )
+        ):
+            save_incident_audit_event(
+                incident_id=(
+                    lifecycle_record
+                    .incident_id
+                ),
+                event_type=(
+                    "investigation_completed"
+                ),
+                entity_type=(
+                    "investigation"
+                ),
+                entity_id=(
+                    lifecycle_record
+                    .investigation_id
+                ),
+                message=(
+                    "Agentic investigation "
+                    "lifecycle was completed "
+                    "and persisted."
+                ),
+                details={
+                    "primary_alert_id": (
+                        lifecycle_record
+                        .primary_alert_id
+                    ),
+                    "iteration_count": (
+                        lifecycle_record
+                        .iteration_count
+                    ),
+                    "budget_exhausted": (
+                        lifecycle_record
+                        .budget_exhausted
+                    ),
+                    "evidence_sufficient": (
+                        lifecycle_record
+                        .evidence_sufficient
+                    ),
+                    "analysis_verified": (
+                        lifecycle_record
+                        .analysis_verified
+                    ),
+                    "step_count": len(
+                        investigation
+                        .investigation_trace
+                    ),
+                    "evidence_count": len(
+                        investigation
+                        .evidence_records
+                    ),
+                },
+            )
 
         save_audit_event(
             alert_id=investigation.alert_id,

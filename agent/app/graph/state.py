@@ -10,6 +10,9 @@ from app.schemas import (
     RiskAssessment,
     RiskContext,
     SecurityAlertInput,
+    EvidenceSufficiencyAssessment,
+    AnalysisVerificationResult,
+    InvestigationTraceStep,
 )
 
 
@@ -25,6 +28,10 @@ InvestigationStatus = Literal[
     "response_planned",
     "complete",
     "failed",
+    "evidence_sufficient",
+    "investigation_budget_exhausted",
+    "analysis_verified",
+    "analysis_verification_failed",
 ]
 
 
@@ -42,6 +49,20 @@ class InvestigationState(TypedDict, total=False):
     misp_error: str
 
     evidence_records: list[EvidenceRecord]
+
+    evidence_sufficiency: (
+        EvidenceSufficiencyAssessment
+    )
+
+    investigation_budget_exhausted: bool
+
+    analysis_verification: (
+        AnalysisVerificationResult
+    )
+
+    investigation_trace: list[
+        InvestigationTraceStep
+    ]
 
     analysis: AlertAnalysis
 

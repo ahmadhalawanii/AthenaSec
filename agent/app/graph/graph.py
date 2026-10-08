@@ -33,6 +33,9 @@ from app.graph.nodes.risk import (
 from app.graph.nodes.misp_enrichment import (
     make_misp_enrichment_node,
 )
+from app.graph.nodes.verify_analysis import (
+    verify_investigation_analysis,
+)
 from app.graph.routing import (
     route_after_analysis,
 )
@@ -53,6 +56,9 @@ from app.services.misp_client import (
 )
 from app.tools.evidence_provider import (
     create_evidence_provider,
+)
+from app.graph.nodes.evidence_sufficiency import (
+    assess_evidence_sufficiency,
 )
 
 
@@ -118,6 +124,16 @@ def build_investigation_graph(
         make_analyze_alert_node(
             analyzer
         ),
+    )
+
+    builder.add_node(
+        "assess_evidence_sufficiency",
+        assess_evidence_sufficiency,
+    )
+
+    builder.add_node(
+        "verify_analysis",
+        verify_investigation_analysis,
     )
 
     builder.add_node(
@@ -192,14 +208,32 @@ def build_investigation_graph(
             "analyze_alert",
         )
 
-    builder.add_conditional_edges(
+    builder.add_edge(
         "analyze_alert",
+        "assess_evidence_sufficiency",
+    )
+
+    builder.add_conditional_edges(
+        "assess_evidence_sufficiency",
         route_after_analysis,
+        {
+            "gather_evidence": (
+                "gather_evidence"
+            ),
+            "calculate_risk": (
+                "verify_analysis"
+            ),
+        },
     )
 
     builder.add_edge(
         "gather_evidence",
         "analyze_alert",
+    )
+
+    builder.add_edge(
+        "verify_analysis",
+        "calculate_risk",
     )
 
     builder.add_edge(

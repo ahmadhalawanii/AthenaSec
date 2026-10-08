@@ -19,6 +19,9 @@ def search_authentication_history(
     return [
         EvidenceObservation(
             source="mock_wazuh",
+            evidence_type=(
+                "authentication_history"
+            ),
             content=(
                 "151 failed SSH authentication events "
                 "were recorded from 192.168.1.45 "
@@ -27,6 +30,9 @@ def search_authentication_history(
         ),
         EvidenceObservation(
             source="mock_wazuh",
+            evidence_type=(
+                "authentication_history"
+            ),
             content=(
                 "No successful SSH authentication from "
                 "192.168.1.45 was found during that window"
@@ -41,6 +47,9 @@ def get_source_endpoint_context(
     return [
         EvidenceObservation(
             source="mock_wazuh",
+            evidence_type=(
+                "source_endpoint_context"
+            ),
             content=(
                 "The source IP 192.168.1.45 is assigned "
                 "to internal endpoint workstation-07"
@@ -55,6 +64,9 @@ def search_privilege_activity(
     return [
         EvidenceObservation(
             source="mock_wazuh",
+            evidence_type=(
+                "privilege_activity"
+            ),
             content=(
                 "No sudo, account elevation, or privilege "
                 "escalation events were recorded for "
@@ -70,6 +82,9 @@ def search_related_security_events(
     return [
         EvidenceObservation(
             source="mock_wazuh",
+            evidence_type=(
+                "related_security_events"
+            ),
             content=(
                 "No additional high-severity security alerts "
                 "linked to workstation-07 were observed in "
@@ -102,17 +117,25 @@ def gather_requested_evidence(
     alert: SecurityAlertInput,
     requests: list[EvidenceRequest],
 ) -> list[EvidenceObservation]:
-    observations: list[EvidenceObservation] = []
+    observations: list[
+        EvidenceObservation
+    ] = []
 
     unique_requests = list(
-        dict.fromkeys(requests)
+        dict.fromkeys(
+            requests
+        )
     )
 
     for request in unique_requests:
-        tool = TOOL_REGISTRY[request]
+        tool = TOOL_REGISTRY[
+            request
+        ]
 
         observations.extend(
-            tool(alert)
+            tool(
+                alert
+            )
         )
 
     return observations

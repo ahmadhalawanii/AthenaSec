@@ -7,6 +7,9 @@ from app.schemas import (
     AlertAnalysis,
     EvidenceRecord,
 )
+from app.services.investigation_trace import (
+    append_investigation_trace,
+)
 
 
 Analyzer = Callable[
@@ -461,8 +464,34 @@ def make_analyze_alert_node(
                 evidence_records,
             )
 
+        trace = (
+            append_investigation_trace(
+                state,
+                step_type="analysis",
+                status="analyzed",
+                details={
+                    "classification": (
+                        analysis.classification
+                    ),
+                    "confidence": (
+                        analysis.confidence
+                    ),
+                    "evidence_refs": list(
+                        analysis.evidence_refs
+                    ),
+                    "requested_evidence": list(
+                        analysis.requested_evidence
+                    ),
+                    "needs_more_evidence": (
+                        analysis.needs_more_evidence
+                    ),
+                },
+            )
+        )
+
         return {
             "analysis": analysis,
+            "investigation_trace": trace,
             "status": "analyzed",
         }
 

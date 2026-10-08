@@ -1,18 +1,28 @@
 from typing import Literal
 
-from app.graph.state import InvestigationState
+from app.graph.state import (
+    InvestigationState,
+)
+from app.services.investigation_budget import (
+    max_investigation_iterations,
+)
 
 
-MAX_INVESTIGATION_ITERATIONS = 1
-
-
-def _requires_deterministic_wazuh_evidence(
+def _legacy_requires_wazuh_evidence(
     state: InvestigationState,
 ) -> bool:
-    alert = state.get("alert")
-    analysis = state.get("analysis")
+    alert = state.get(
+        "alert"
+    )
 
-    if alert is None or analysis is None:
+    analysis = state.get(
+        "analysis"
+    )
+
+    if (
+        alert is None
+        or analysis is None
+    ):
         return False
 
     if alert.source != "wazuh":
@@ -22,6 +32,7 @@ def _requires_deterministic_wazuh_evidence(
         "brute_force",
         "privilege_misuse",
         "privilege_escalation",
+        "unknown",
     }
 
 
@@ -31,20 +42,60 @@ def route_after_analysis(
     "gather_evidence",
     "calculate_risk",
 ]:
-    analysis = state.get("analysis")
+    analysis = state.get(
+        "analysis"
+    )
 
     if analysis is None:
         return "calculate_risk"
+
+    alert = state.get(
+        "alert"
+    )
+
+    source = (
+        alert.source
+        if alert is not None
+        else "manual"
+    )
 
     iteration = state.get(
         "investigation_iteration",
         0,
     )
 
-    if iteration >= MAX_INVESTIGATION_ITERATIONS:
+    max_iterations = (
+        max_investigation_iterations(
+            source
+        )
+    )
+
+    if iteration >= max_iterations:
         return "calculate_risk"
 
-    if _requires_deterministic_wazuh_evidence(
+    assessment = state.get(
+        "evidence_sufficiency"
+    )
+
+    if (
+        source == "wazuh"
+        and assessment is not None
+    ):
+        if assessment.sufficient:
+            return "calculate_risk"
+
+        if state.get(
+            "investigation_budget_exhausted",
+            False,
+        ):
+            return "calculate_risk"
+
+        if assessment.missing_evidence:
+            return "gather_evidence"
+
+        return "calculate_risk"
+
+    if _legacy_requires_wazuh_evidence(
         state
     ):
         return "gather_evidence"
