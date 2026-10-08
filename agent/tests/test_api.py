@@ -1828,6 +1828,7 @@ def test_create_app_builds_default_graph_with_live_ml_classifier(
         ml_classifier=None,
         misp_client=None,
         response_proposer=None,
+        action_risk_context_provider=None,
     ):
         captured[
             "ml_classifier"
@@ -1836,6 +1837,12 @@ def test_create_app_builds_default_graph_with_live_ml_classifier(
         captured[
             "response_proposer"
         ] = response_proposer
+
+        captured[
+            "action_risk_context_provider"
+        ] = (
+            action_risk_context_provider
+        )
 
         class FakeGraph:
             def invoke(
@@ -1865,6 +1872,13 @@ def test_create_app_builds_default_graph_with_live_ml_classifier(
 
     assert (
         captured["response_proposer"]
+        is not None
+    )
+
+    assert (
+        captured[
+            "action_risk_context_provider"
+        ]
         is not None
     )
 
@@ -1905,6 +1919,7 @@ def test_create_app_builds_default_graph_with_live_misp_client(
         ml_classifier=None,
         misp_client=None,
         response_proposer=None,
+        action_risk_context_provider=None,
     ):
         captured[
             "ml_classifier"
@@ -1917,6 +1932,12 @@ def test_create_app_builds_default_graph_with_live_misp_client(
         captured[
             "response_proposer"
         ] = response_proposer
+
+        captured[
+            "action_risk_context_provider"
+        ] = (
+            action_risk_context_provider
+        )
 
         class FakeGraph:
             def invoke(
@@ -1956,6 +1977,13 @@ def test_create_app_builds_default_graph_with_live_misp_client(
 
     assert (
         captured["response_proposer"]
+        is not None
+    )
+
+    assert (
+        captured[
+            "action_risk_context_provider"
+        ]
         is not None
     )
 

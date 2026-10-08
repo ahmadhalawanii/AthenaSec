@@ -584,3 +584,348 @@ def test_policy_action_identity_mismatch_fails_closed():
         )
 
     assert executor.calls == []
+
+
+class MutableProtectionRegistry:
+    def __init__(
+        self,
+        *,
+        protected=False,
+        allowlisted=False,
+        fail=False,
+    ):
+        self.protected = protected
+        self.allowlisted = allowlisted
+        self.fail = fail
+        self.calls = []
+
+    def inspect(
+        self,
+        *,
+        target_type,
+        target,
+    ):
+        self.calls.append(
+            (
+                target_type,
+                target,
+            )
+        )
+
+        if self.fail:
+            raise RuntimeError(
+                "Protection registry unavailable."
+            )
+
+        from app.services.target_protection import (
+            TargetProtectionObservation,
+        )
+
+        return TargetProtectionObservation(
+            protected_target=(
+                self.protected
+            ),
+            allowlisted_target=(
+                self.allowlisted
+            ),
+        )
+
+
+def test_execution_rechecks_target_protection_before_cortex():
+    store = (
+        InMemoryIncidentResponseStore()
+    )
+
+    executor = (
+        FakeSuccessfulExecutor()
+    )
+
+    protection = (
+        MutableProtectionRegistry(
+            protected=True
+        )
+    )
+
+    result = execute_structured_action(
+        store=store,
+        proposed_action=make_action(),
+        policy_decision=make_policy(),
+        executor=executor,
+        autonomous_response_enabled=True,
+        target_protection_registry=(
+            protection
+        ),
+        now=FIXED_TIME,
+    )
+
+    assert result.outcome == "blocked"
+
+    assert executor.calls == []
+
+    assert protection.calls == [
+        (
+            "ip",
+            "203.0.113.10",
+        )
+    ]
+
+    assert (
+        result.response_action
+        is not None
+    )
+
+    assert (
+        result.response_action.status
+        == "blocked"
+    )
+
+    cases = (
+        store.list_incident_cases(
+            "INC-M6-001"
+        )
+    )
+
+    assert len(cases) == 1
+
+    assert (
+        "protected"
+        in cases[0].reason.lower()
+    )
+
+
+def test_execution_rechecks_allowlist_before_cortex():
+    store = (
+        InMemoryIncidentResponseStore()
+    )
+
+    executor = (
+        FakeSuccessfulExecutor()
+    )
+
+    protection = (
+        MutableProtectionRegistry(
+            allowlisted=True
+        )
+    )
+
+    result = execute_structured_action(
+        store=store,
+        proposed_action=make_action(),
+        policy_decision=make_policy(),
+        executor=executor,
+        autonomous_response_enabled=True,
+        target_protection_registry=(
+            protection
+        ),
+        now=FIXED_TIME,
+    )
+
+    assert result.outcome == "blocked"
+
+    assert executor.calls == []
+
+    cases = (
+        store.list_incident_cases(
+            "INC-M6-001"
+        )
+    )
+
+    assert len(cases) == 1
+
+    assert (
+        "allowlisted"
+        in cases[0].reason.lower()
+    )
+
+
+def test_approved_action_is_blocked_if_target_becomes_protected():
+    store = (
+        InMemoryIncidentResponseStore()
+    )
+
+    executor = (
+        FakeSuccessfulExecutor()
+    )
+
+    action = make_action(
+        duration_minutes=480
+    )
+
+    policy = make_policy(
+        outcome="APPROVAL_REQUIRED"
+    )
+
+    approval = (
+        make_approved_request(
+            store=store,
+            action=action,
+            policy=policy,
+        )
+    )
+
+    protection = (
+        MutableProtectionRegistry(
+            protected=True
+        )
+    )
+
+    result = execute_structured_action(
+        store=store,
+        proposed_action=action,
+        policy_decision=policy,
+        approval_id=(
+            approval.approval_id
+        ),
+        executor=executor,
+        autonomous_response_enabled=True,
+        target_protection_registry=(
+            protection
+        ),
+        now=(
+            FIXED_TIME
+            + timedelta(minutes=10)
+        ),
+    )
+
+    assert result.outcome == "blocked"
+
+    assert executor.calls == []
+
+
+def test_protection_lookup_failure_fails_closed():
+    store = (
+        InMemoryIncidentResponseStore()
+    )
+
+    executor = (
+        FakeSuccessfulExecutor()
+    )
+
+    protection = (
+        MutableProtectionRegistry(
+            fail=True
+        )
+    )
+
+    result = execute_structured_action(
+        store=store,
+        proposed_action=make_action(),
+        policy_decision=make_policy(),
+        executor=executor,
+        autonomous_response_enabled=True,
+        target_protection_registry=(
+            protection
+        ),
+        now=FIXED_TIME,
+    )
+
+    assert result.outcome == "blocked"
+
+    assert executor.calls == []
+
+    cases = (
+        store.list_incident_cases(
+            "INC-M6-001"
+        )
+    )
+
+    assert len(cases) == 1
+
+    assert (
+        "protection"
+        in cases[0].reason.lower()
+    )
+
+
+def test_persisted_protection_change_invalidates_prior_approval():
+    from app.services.target_protection import (
+        PersistentTargetProtectionRegistry,
+        TargetProtectionManager,
+        initialize_target_protection_store_from_env,
+    )
+    from app.services.target_protection_store import (
+        InMemoryTargetProtectionStore,
+    )
+
+    store = InMemoryIncidentResponseStore()
+
+    protection_store = (
+        InMemoryTargetProtectionStore()
+    )
+
+    initialize_target_protection_store_from_env(
+        protection_store
+    )
+
+    registry = (
+        PersistentTargetProtectionRegistry(
+            protection_store
+        )
+    )
+
+    manager = TargetProtectionManager(
+        store=protection_store,
+        clock=lambda: FIXED_TIME,
+    )
+
+    action = make_action(
+        duration_minutes=480
+    )
+
+    policy = make_policy(
+        outcome="APPROVAL_REQUIRED"
+    )
+
+    approval = make_approved_request(
+        store=store,
+        action=action,
+        policy=policy,
+    )
+
+    before = registry.inspect(
+        target_type=action.target_type,
+        target=action.target,
+    )
+
+    assert before.protected_target is False
+
+    manager.replace(
+        protected_ips=[
+            action.target,
+        ],
+        changed_by="analyst-002",
+        reason=(
+            "Target became protected "
+            "after approval."
+        ),
+    )
+
+    executor = FakeSuccessfulExecutor()
+
+    result = execute_structured_action(
+        store=store,
+        proposed_action=action,
+        policy_decision=policy,
+        approval_id=approval.approval_id,
+        executor=executor,
+        autonomous_response_enabled=True,
+        target_protection_registry=registry,
+        now=(
+            FIXED_TIME
+            + timedelta(minutes=10)
+        ),
+    )
+
+    assert result.outcome == "blocked"
+    assert executor.calls == []
+
+    cases = store.list_incident_cases(
+        "INC-M6-001"
+    )
+
+    assert len(cases) == 1
+
+    assert (
+        "protected"
+        in cases[0].reason.lower()
+    )

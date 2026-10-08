@@ -36,6 +36,9 @@ from app.services.response_mode import (
     ResponseMode,
     evaluate_response_mode,
 )
+from app.services.target_protection import (
+    TargetProtectionRegistry,
+)
 
 
 StructuredRuntimeStatus = Literal[
@@ -162,6 +165,9 @@ def process_structured_response_action(
         StructuredRollbackExecutor | None
     ),
     autonomous_response_enabled: bool,
+    target_protection_registry: (
+        TargetProtectionRegistry | None
+    ) = None,
     response_mode: ResponseMode = "SUPERVISED",
     approval_id: str | None = None,
     now: datetime | None = None,
@@ -294,6 +300,9 @@ def process_structured_response_action(
                 executor=executor,
                 autonomous_response_enabled=(
                     autonomous_response_enabled
+                ),
+                target_protection_registry=(
+                    target_protection_registry
                 ),
                 approval_id=approval_id,
                 now=now,

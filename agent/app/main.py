@@ -57,6 +57,7 @@ from app.services.persistence_config import (
     build_incident_response_store_from_env,
     build_persistence_stores_from_env,
     build_runtime_control_store_from_env,
+    build_target_protection_store_from_env,
 )
 from app.services.benign_investigation import (
     build_benign_investigation,
@@ -99,6 +100,16 @@ from app.services.runtime_control import (
 )
 from app.services.runtime_control_store import (
     InMemoryRuntimeControlStore,
+)
+from app.services.target_protection import (
+    PersistentTargetProtectionRegistry,
+    initialize_target_protection_store_from_env,
+)
+from app.services.target_protection_store import (
+    InMemoryTargetProtectionStore,
+)
+from app.services.action_risk_context import (
+    make_action_risk_context_provider,
 )
 
 
@@ -143,6 +154,8 @@ def create_app(
     response_mode: str | None = None,
     operator_control_key: str | None = None,
     runtime_control_store: Any = None,
+    target_protection_registry: Any = None,
+    target_protection_store: Any = None,
 ) -> FastAPI:
     app = FastAPI(
         title="AthenaSec Agent API",
@@ -156,6 +169,40 @@ def create_app(
     configured_ml_classifier = (
         ml_classifier
     )
+
+    if target_protection_registry is not None:
+        configured_target_protection_registry = (
+            target_protection_registry
+        )
+
+    else:
+        if target_protection_store is not None:
+            configured_target_protection_store = (
+                target_protection_store
+            )
+
+        elif (
+            investigation_store is None
+            or audit_store is None
+        ):
+            configured_target_protection_store = (
+                build_target_protection_store_from_env()
+            )
+
+        else:
+            configured_target_protection_store = (
+                InMemoryTargetProtectionStore()
+            )
+
+        initialize_target_protection_store_from_env(
+            configured_target_protection_store
+        )
+
+        configured_target_protection_registry = (
+            PersistentTargetProtectionRegistry(
+                configured_target_protection_store
+            )
+        )
 
     if investigation_graph is not None:
         graph = investigation_graph
@@ -180,6 +227,11 @@ def create_app(
             misp_client=misp_client,
             response_proposer=(
                 propose_security_response
+            ),
+            action_risk_context_provider=(
+                make_action_risk_context_provider(
+                    configured_target_protection_registry
+                )
             ),
         )
 
@@ -472,6 +524,9 @@ def create_app(
                         control
                         .operator_execution_enabled
                     )
+                ),
+                target_protection_registry=(
+                    configured_target_protection_registry
                 ),
                 response_mode=(
                     control.response_mode

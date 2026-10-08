@@ -26,6 +26,9 @@ from app.services.action_approval import (
 from app.services.incident_response_store import (
     IncidentResponseStore,
 )
+from app.services.target_protection import (
+    TargetProtectionRegistry,
+)
 
 
 StructuredExecutionOutcomeType = Literal[
@@ -346,6 +349,9 @@ def execute_structured_action(
     ),
     executor: StructuredActionExecutor,
     autonomous_response_enabled: bool,
+    target_protection_registry: (
+        TargetProtectionRegistry | None
+    ) = None,
     approval_id: str | None = None,
     now: datetime | None = None,
 ) -> StructuredExecutionOutcome:
@@ -457,6 +463,174 @@ def execute_structured_action(
                 existing_result
             ),
         )
+
+    if (
+        target_protection_registry
+        is not None
+    ):
+        try:
+            protection = (
+                target_protection_registry
+                .inspect(
+                    target_type=(
+                        proposed_action
+                        .target_type
+                    ),
+                    target=(
+                        proposed_action
+                        .target
+                    ),
+                )
+            )
+
+        except Exception:
+            response_action = (
+                ResponseActionRecord(
+                    response_action_id=(
+                        response_action_id
+                    ),
+                    incident_id=(
+                        proposed_action
+                        .incident_id
+                    ),
+                    proposed_action_id=(
+                        proposed_action
+                        .proposed_action_id
+                    ),
+                    approval_id=(
+                        resolved_approval_id
+                    ),
+                    executor="cortex",
+                    status="blocked",
+                    created_at=now,
+                )
+            )
+
+            store.save_response_action(
+                response_action
+            )
+
+            incident_case = _create_case(
+                store=store,
+                proposed_action=(
+                    proposed_action
+                ),
+                policy_decision=(
+                    policy_decision
+                ),
+                response_action_id=(
+                    response_action_id
+                ),
+                reason_code=(
+                    "target-protection-check-failed"
+                ),
+                reason=(
+                    "Structured response was "
+                    "blocked because target "
+                    "protection could not be "
+                    "revalidated immediately "
+                    "before Cortex execution."
+                ),
+                now=now,
+            )
+
+            return StructuredExecutionOutcome(
+                outcome="blocked",
+                response_action=(
+                    response_action
+                ),
+                incident_case=(
+                    incident_case
+                ),
+            )
+
+        if (
+            protection.protected_target
+            or protection
+            .allowlisted_target
+        ):
+            response_action = (
+                ResponseActionRecord(
+                    response_action_id=(
+                        response_action_id
+                    ),
+                    incident_id=(
+                        proposed_action
+                        .incident_id
+                    ),
+                    proposed_action_id=(
+                        proposed_action
+                        .proposed_action_id
+                    ),
+                    approval_id=(
+                        resolved_approval_id
+                    ),
+                    executor="cortex",
+                    status="blocked",
+                    created_at=now,
+                )
+            )
+
+            store.save_response_action(
+                response_action
+            )
+
+            if (
+                protection
+                .protected_target
+                and protection
+                .allowlisted_target
+            ):
+                protection_reason = (
+                    "protected and allowlisted"
+                )
+
+            elif (
+                protection
+                .protected_target
+            ):
+                protection_reason = (
+                    "protected"
+                )
+
+            else:
+                protection_reason = (
+                    "allowlisted"
+                )
+
+            incident_case = _create_case(
+                store=store,
+                proposed_action=(
+                    proposed_action
+                ),
+                policy_decision=(
+                    policy_decision
+                ),
+                response_action_id=(
+                    response_action_id
+                ),
+                reason_code=(
+                    "target-protected"
+                ),
+                reason=(
+                    "Structured response was "
+                    "blocked immediately before "
+                    "Cortex execution because "
+                    f"the target is "
+                    f"{protection_reason}."
+                ),
+                now=now,
+            )
+
+            return StructuredExecutionOutcome(
+                outcome="blocked",
+                response_action=(
+                    response_action
+                ),
+                incident_case=(
+                    incident_case
+                ),
+            )
 
     if not autonomous_response_enabled:
         response_action = (
