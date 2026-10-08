@@ -217,6 +217,11 @@ def test_structured_cortex_runtime_builds_from_environment(
         "UnblockIp_1_0",
     )
 
+    monkeypatch.setenv(
+        "CORTEX_VERIFY_BLOCK_IP_RESPONDER_ID",
+        "VerifyBlockIp_1_0",
+    )
+
     runtime = (
         build_structured_cortex_runtime_from_env()
     )
@@ -235,6 +240,13 @@ def test_structured_cortex_runtime_builds_from_environment(
         .client
         .responder_id
         == "UnblockIp_1_0"
+    )
+
+    assert (
+        runtime.verifier
+        .client
+        .responder_id
+        == "VerifyBlockIp_1_0"
     )
 
 
@@ -295,3 +307,85 @@ def test_partial_structured_runtime_configuration_is_rejected(
         match="Structured Cortex",
     ):
         build_structured_cortex_runtime_from_env()
+
+
+def test_structured_runtime_rejects_missing_verifier_responder(
+    monkeypatch,
+):
+    monkeypatch.setenv(
+        "CORTEX_URL",
+        "http://cortex:9001",
+    )
+
+    monkeypatch.setenv(
+        "CORTEX_API_KEY",
+        "secret",
+    )
+
+    monkeypatch.setenv(
+        "CORTEX_BLOCK_IP_RESPONDER_ID",
+        "BlockIp_1_0",
+    )
+
+    monkeypatch.setenv(
+        "CORTEX_UNBLOCK_IP_RESPONDER_ID",
+        "UnblockIp_1_0",
+    )
+
+    monkeypatch.delenv(
+        "CORTEX_VERIFY_BLOCK_IP_RESPONDER_ID",
+        raising=False,
+    )
+
+    with pytest.raises(
+        RuntimeError,
+        match="CORTEX_VERIFY_BLOCK_IP_RESPONDER_ID",
+    ):
+        build_structured_cortex_runtime_from_env()
+
+
+def test_http_cortex_client_supports_verify_block_ip():
+    requests = []
+
+    def transport(
+        request,
+    ):
+        requests.append(
+            request
+        )
+
+        return httpx.Response(
+            status_code=200,
+            json={
+                "success": True,
+                "full": {
+                    "target": "203.0.113.10",
+                    "blocked": True,
+                },
+            },
+        )
+
+    client = HttpCortexClient(
+        base_url="http://cortex:9001",
+        api_key="secret",
+        responder_id=(
+            "VerifyBlockIp_1_0"
+        ),
+        http_client=httpx.Client(
+            transport=httpx.MockTransport(
+                transport
+            )
+        ),
+    )
+
+    result = client.run_responder(
+        action="verify_block_ip",
+        target="203.0.113.10",
+    )
+
+    assert len(requests) == 1
+
+    assert (
+        result["full"]["blocked"]
+        is True
+    )

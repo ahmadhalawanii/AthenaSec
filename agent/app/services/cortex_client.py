@@ -29,6 +29,7 @@ class HttpCortexClient:
         if action not in {
             "block_ip",
             "unblock_ip",
+            "verify_block_ip",
         }:
             raise ValueError(
                 "Unsupported Cortex action: "

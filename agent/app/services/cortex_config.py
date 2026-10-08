@@ -11,6 +11,9 @@ from app.services.structured_cortex_executor import (
     CortexStructuredActionExecutor,
     CortexStructuredRollbackExecutor,
 )
+from app.services.structured_cortex_verifier import (
+    CortexBlockIpStateVerifier,
+)
 
 
 @dataclass(
@@ -19,8 +22,21 @@ from app.services.structured_cortex_executor import (
 class StructuredCortexRuntime:
     executor: CortexStructuredActionExecutor
 
+    verifier: CortexBlockIpStateVerifier
+
     rollback_executor: (
         CortexStructuredRollbackExecutor
+    )
+
+
+def _configured(
+    value: str | None,
+) -> bool:
+    return (
+        value is not None
+        and bool(
+            value.strip()
+        )
     )
 
 
@@ -44,8 +60,7 @@ def build_cortex_response_executor_from_env():
     ]
 
     configured_count = sum(
-        value is not None
-        and value.strip() != ""
+        _configured(value)
         for value in values
     )
 
@@ -90,34 +105,53 @@ def build_structured_cortex_runtime_from_env():
         "CORTEX_UNBLOCK_IP_RESPONDER_ID"
     )
 
-    if (
-        unblock_responder_id is None
-        or not unblock_responder_id.strip()
-    ):
-        return None
-
-    values = [
-        cortex_url,
-        cortex_api_key,
-        block_responder_id,
-        unblock_responder_id,
-    ]
-
-    configured_count = sum(
-        value is not None
-        and value.strip() != ""
-        for value in values
+    verify_responder_id = os.getenv(
+        "CORTEX_VERIFY_BLOCK_IP_RESPONDER_ID"
     )
 
-    if configured_count != len(values):
+    structured_requested = any(
+        _configured(value)
+        for value in (
+            unblock_responder_id,
+            verify_responder_id,
+        )
+    )
+
+    if not structured_requested:
+        return None
+
+    required = {
+        "CORTEX_URL": cortex_url,
+        "CORTEX_API_KEY": (
+            cortex_api_key
+        ),
+        "CORTEX_BLOCK_IP_RESPONDER_ID": (
+            block_responder_id
+        ),
+        "CORTEX_UNBLOCK_IP_RESPONDER_ID": (
+            unblock_responder_id
+        ),
+        "CORTEX_VERIFY_BLOCK_IP_RESPONDER_ID": (
+            verify_responder_id
+        ),
+    }
+
+    missing = [
+        name
+        for name, value
+        in required.items()
+        if not _configured(
+            value
+        )
+    ]
+
+    if missing:
         raise RuntimeError(
             "Structured Cortex configuration "
-            "is incomplete. CORTEX_URL, "
-            "CORTEX_API_KEY, "
-            "CORTEX_BLOCK_IP_RESPONDER_ID, "
-            "and "
-            "CORTEX_UNBLOCK_IP_RESPONDER_ID "
-            "must be configured together."
+            "is incomplete. Missing: "
+            + ", ".join(
+                missing
+            )
         )
 
     block_client = HttpCortexClient(
@@ -125,6 +159,14 @@ def build_structured_cortex_runtime_from_env():
         api_key=cortex_api_key,
         responder_id=(
             block_responder_id
+        ),
+    )
+
+    verify_client = HttpCortexClient(
+        base_url=cortex_url,
+        api_key=cortex_api_key,
+        responder_id=(
+            verify_responder_id
         ),
     )
 
@@ -140,6 +182,11 @@ def build_structured_cortex_runtime_from_env():
         executor=(
             CortexStructuredActionExecutor(
                 client=block_client
+            )
+        ),
+        verifier=(
+            CortexBlockIpStateVerifier(
+                client=verify_client
             )
         ),
         rollback_executor=(

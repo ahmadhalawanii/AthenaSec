@@ -245,6 +245,8 @@ def create_app(
         if (
             structured_action_executor
             is None
+            or structured_action_verifier
+            is None
             or structured_rollback_executor
             is None
         )
@@ -278,6 +280,14 @@ def create_app(
 
     configured_structured_action_verifier = (
         structured_action_verifier
+        if structured_action_verifier
+        is not None
+        else (
+            structured_cortex_runtime.verifier
+            if structured_cortex_runtime
+            is not None
+            else None
+        )
     )
 
     structured_runtime_configured = any(
