@@ -248,6 +248,65 @@ class IncidentRecord(BaseModel):
 
     updated_at: datetime
 
+class AlertCorrelationFingerprint(BaseModel):
+    alert_id: str = Field(
+        min_length=1,
+    )
+
+    classification: AttackClassification
+
+    observed_at: datetime
+
+    source_ip: str | None = None
+
+    target_user: str | None = None
+
+    agent_id: str | None = None
+
+    mitre_ids: list[str] = Field(
+        default_factory=list,
+    )
+
+
+class IncidentCorrelationProfile(BaseModel):
+    incident_id: str = Field(
+        min_length=1,
+    )
+
+    classification: AttackClassification
+
+    source_ips: list[str] = Field(
+        default_factory=list,
+    )
+
+    target_users: list[str] = Field(
+        default_factory=list,
+    )
+
+    agent_ids: list[str] = Field(
+        default_factory=list,
+    )
+
+    mitre_ids: list[str] = Field(
+        default_factory=list,
+    )
+
+    first_seen: datetime
+
+    last_seen: datetime
+
+
+class CorrelationMatchResult(BaseModel):
+    matched: bool
+
+    score: int = Field(
+        ge=0,
+    )
+
+    reasons: list[str] = Field(
+        default_factory=list,
+    )
+
 class IncidentAlertRecord(BaseModel):
     incident_id: str = Field(
         min_length=1,
@@ -290,6 +349,25 @@ IncidentInvestigationStatus = Literal[
     "failed",
 ]
 
+class IncidentCorrelationDecision(BaseModel):
+    incident: IncidentRecord
+
+    alert: IncidentAlertRecord
+
+    profile: IncidentCorrelationProfile
+
+    created_new_incident: bool
+
+    duplicate_alert: bool = False
+
+    correlation_score: int = Field(
+        default=0,
+        ge=0,
+    )
+
+    correlation_reasons: list[str] = Field(
+        default_factory=list,
+    )
 
 class IncidentInvestigationRecord(BaseModel):
     investigation_id: str = Field(
@@ -799,6 +877,8 @@ class AuditRecord(BaseModel):
 
 class InvestigationResponse(BaseModel):
     alert_id: str
+
+    incident_id: str | None = None
 
     source: str
 

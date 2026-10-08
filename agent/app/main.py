@@ -16,6 +16,7 @@ from app.graph.graph import (
     build_investigation_graph,
 )
 from app.schemas import (
+    AttackPrediction,
     AuditRecord,
     CaseRecord,
     InvestigationResponse,
@@ -23,6 +24,7 @@ from app.schemas import (
 )
 from app.services.audit_service import (
     create_audit_record,
+    create_incident_audit_record,
 )
 from app.services.audit_store import (
     AuditStore,
@@ -47,6 +49,15 @@ from app.services.misp_config import (
 )
 from app.services.persistence_config import (
     build_persistence_stores_from_env,
+)
+from app.services.benign_investigation import (
+    build_benign_investigation,
+)
+from app.services.incident_correlator import (
+    correlate_or_create_incident,
+)
+from app.services.ml_classifier import (
+    MLClassifier,
 )
 
 
@@ -79,6 +90,9 @@ def create_app(
     audit_store: (
         AuditStore | None
     ) = None,
+    ml_classifier: (
+        MLClassifier | None
+    ) = None,
 ) -> FastAPI:
     app = FastAPI(
         title="AthenaSec Agent API",
@@ -89,19 +103,30 @@ def create_app(
         ),
     )
 
+    configured_ml_classifier = (
+        ml_classifier
+    )
+
     if investigation_graph is not None:
         graph = investigation_graph
+
     else:
-        ml_classifier = (
-            build_live_ml_classifier()
-        )
+        if (
+            configured_ml_classifier
+            is None
+        ):
+            configured_ml_classifier = (
+                build_live_ml_classifier()
+            )
 
         misp_client = (
             build_live_misp_client()
         )
 
         graph = build_investigation_graph(
-            ml_classifier=ml_classifier,
+            ml_classifier=(
+                configured_ml_classifier
+            ),
             misp_client=misp_client,
         )
 
@@ -169,18 +194,61 @@ def create_app(
             record
         )
 
+    def save_incident_audit_event(
+        *,
+        incident_id: str,
+        event_type: str,
+        entity_type: str,
+        entity_id: str,
+        message: str,
+        details: dict[str, object],
+    ) -> None:
+        record = (
+            create_incident_audit_record(
+                incident_id=incident_id,
+                event_type=event_type,
+                entity_type=entity_type,
+                entity_id=entity_id,
+                message=message,
+                details=details,
+            )
+        )
+
+        configured_audit_store.save_incident_event(
+            record
+        )
+
     def run_investigation(
         alert: SecurityAlertInput,
+        *,
+        incident_id: str | None = None,
+        ml_prediction: (
+            AttackPrediction | None
+        ) = None,
+        ml_error: str | None = None,
     ) -> InvestigationResponse:
+        initial_state = {
+            "alert": alert,
+            "status": "received",
+        }
+
+        if ml_prediction is not None:
+            initial_state[
+                "ml_prediction"
+            ] = ml_prediction
+
+        if ml_error is not None:
+            initial_state[
+                "ml_error"
+            ] = ml_error
+
         result = graph.invoke(
-            {
-                "alert": alert,
-                "status": "received",
-            }
+            initial_state
         )
 
         investigation = InvestigationResponse(
             alert_id=result["alert"].alert_id,
+            incident_id=incident_id,
             source=result["alert"].source,
             alert_metadata=dict(
                 result["alert"].metadata
@@ -190,10 +258,12 @@ def create_app(
                 result["normalized_event"]
             ),
             ml_prediction=result.get(
-                "ml_prediction"
+                "ml_prediction",
+                ml_prediction,
             ),
             ml_error=result.get(
-                "ml_error"
+                "ml_error",
+                ml_error,
             ),
             misp_enrichment=result.get(
                 "misp_enrichment"
@@ -676,6 +746,77 @@ def create_app(
             )
         return investigation
 
+    def run_benign_wazuh_investigation(
+        *,
+        alert: SecurityAlertInput,
+        prediction: AttackPrediction,
+    ) -> InvestigationResponse:
+        investigation = (
+            build_benign_investigation(
+                alert=alert,
+                prediction=prediction,
+            )
+        )
+
+        store.save(
+            investigation
+        )
+
+        save_audit_event(
+            alert_id=alert.alert_id,
+            event_type=(
+                "investigation_created"
+            ),
+            message=(
+                "Benign investigation "
+                "record was created."
+            ),
+            details={
+                "source": alert.source,
+                "classification": "benign",
+                "risk_score": 0,
+            },
+        )
+
+        save_audit_event(
+            alert_id=alert.alert_id,
+            event_type=(
+                "ml_classification_completed"
+            ),
+            message=(
+                "ML classification completed."
+            ),
+            details={
+                "classification": (
+                    prediction.classification
+                ),
+                "confidence": (
+                    prediction.confidence
+                ),
+                "model_version": (
+                    prediction.model_version
+                ),
+            },
+        )
+
+        save_audit_event(
+            alert_id=alert.alert_id,
+            event_type="policy_evaluated",
+            message=(
+                "Benign no-action policy "
+                "was evaluated."
+            ),
+            details={
+                "policy_id": (
+                    "POL-BENIGN-NO-ACTION"
+                ),
+                "matched": True,
+                "response_allowed": False,
+            },
+        )
+
+        return investigation
+
     @app.get(
         "/health"
     )
@@ -743,8 +884,171 @@ def create_app(
                 detail=str(exc),
             ) from exc
 
+        if configured_ml_classifier is None:
+            return run_investigation(
+                alert
+            )
+
+        try:
+            prediction = (
+                configured_ml_classifier
+                .classify(
+                    alert
+                )
+            )
+
+            ml_error = None
+
+        except Exception as exc:
+            prediction = AttackPrediction(
+                classification="unknown",
+                confidence=0.0,
+                model_version="unavailable",
+            )
+
+            ml_error = str(exc)
+
+        if (
+            prediction.classification
+            == "benign"
+            and ml_error is None
+        ):
+            return (
+                run_benign_wazuh_investigation(
+                    alert=alert,
+                    prediction=prediction,
+                )
+            )
+
+        correlation = (
+            correlate_or_create_incident(
+                alert=alert,
+                prediction=prediction,
+                store=store,
+            )
+        )
+
+        if correlation.duplicate_alert:
+            save_incident_audit_event(
+                incident_id=(
+                    correlation
+                    .incident
+                    .incident_id
+                ),
+                event_type=(
+                    "duplicate_alert_received"
+                ),
+                entity_type="alert",
+                entity_id=alert.alert_id,
+                message=(
+                    "Duplicate Wazuh alert "
+                    "was received."
+                ),
+                details={
+                    "classification": (
+                        prediction
+                        .classification
+                    ),
+                    "correlation_score": (
+                        correlation
+                        .correlation_score
+                    ),
+                    "correlation_reasons": (
+                        correlation
+                        .correlation_reasons
+                    ),
+                },
+            )
+
+            existing_investigation = (
+                store.get(
+                    alert.alert_id
+                )
+            )
+
+            if (
+                existing_investigation
+                is not None
+            ):
+                return (
+                    existing_investigation
+                )
+
+        else:
+            if (
+                correlation
+                .created_new_incident
+            ):
+                event_type = (
+                    "incident_created"
+                )
+
+                entity_type = (
+                    "incident"
+                )
+
+                entity_id = (
+                    correlation
+                    .incident
+                    .incident_id
+                )
+
+                message = (
+                    "A new incident was "
+                    "created for the Wazuh alert."
+                )
+
+            else:
+                event_type = (
+                    "alert_correlated"
+                )
+
+                entity_type = "alert"
+
+                entity_id = (
+                    alert.alert_id
+                )
+
+                message = (
+                    "Wazuh alert was correlated "
+                    "to an existing incident."
+                )
+
+            save_incident_audit_event(
+                incident_id=(
+                    correlation
+                    .incident
+                    .incident_id
+                ),
+                event_type=event_type,
+                entity_type=entity_type,
+                entity_id=entity_id,
+                message=message,
+                details={
+                    "classification": (
+                        prediction
+                        .classification
+                    ),
+                    "correlation_score": (
+                        correlation
+                        .correlation_score
+                    ),
+                    "correlation_reasons": (
+                        correlation
+                        .correlation_reasons
+                    ),
+                },
+            )
+
         return run_investigation(
-            alert
+            alert,
+            incident_id=(
+                correlation
+                .incident
+                .incident_id
+            ),
+            ml_prediction=prediction,
+            ml_error=ml_error,
         )
 
     @app.get(

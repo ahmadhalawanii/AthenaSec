@@ -1,11 +1,17 @@
 import sqlite3
 import psycopg
+from datetime import (
+    datetime,
+    timedelta,
+)
 from pathlib import Path
 from typing import Protocol
 
 from app.schemas import (
+    AttackClassification,
     CaseRecord,
     IncidentAlertRecord,
+    IncidentCorrelationProfile,
     IncidentInvestigationRecord,
     IncidentRecord,
     InvestigationEvidenceRecord,
@@ -25,6 +31,27 @@ class InvestigationStore(Protocol):
         self,
         incident_id: str,
     ) -> IncidentRecord | None:
+        ...
+
+    def save_correlation_profile(
+        self,
+        profile: IncidentCorrelationProfile,
+    ) -> IncidentCorrelationProfile:
+        ...
+
+    def get_correlation_profile(
+        self,
+        incident_id: str,
+    ) -> IncidentCorrelationProfile | None:
+        ...
+
+    def list_correlation_candidates(
+        self,
+        *,
+        classification: AttackClassification,
+        observed_at: datetime,
+        window: timedelta,
+    ) -> list[IncidentCorrelationProfile]:
         ...
 
     def save_incident_alert(
@@ -159,6 +186,11 @@ class InMemoryInvestigationStore:
             CaseRecord,
         ] = {}
 
+        self._correlation_profiles: dict[
+            str,
+            IncidentCorrelationProfile,
+        ] = {}
+
     def save_incident(
         self,
         incident: IncidentRecord,
@@ -175,6 +207,63 @@ class InMemoryInvestigationStore:
     ) -> IncidentRecord | None:
         return self._incidents.get(
             incident_id
+        )
+
+    def save_correlation_profile(
+        self,
+        profile: IncidentCorrelationProfile,
+    ) -> IncidentCorrelationProfile:
+        self._correlation_profiles[
+            profile.incident_id
+        ] = profile
+
+        return profile
+
+    def get_correlation_profile(
+        self,
+        incident_id: str,
+    ) -> IncidentCorrelationProfile | None:
+        return self._correlation_profiles.get(
+            incident_id
+        )
+
+    def list_correlation_candidates(
+        self,
+        *,
+        classification: AttackClassification,
+        observed_at: datetime,
+        window: timedelta,
+    ) -> list[IncidentCorrelationProfile]:
+        earliest_allowed = (
+            observed_at
+            - window
+        )
+
+        latest_allowed = (
+            observed_at
+            + window
+        )
+
+        candidates = [
+            profile
+            for profile
+            in self._correlation_profiles.values()
+            if (
+                profile.classification
+                == classification
+                and profile.first_seen
+                <= latest_allowed
+                and profile.last_seen
+                >= earliest_allowed
+            )
+        ]
+
+        return sorted(
+            candidates,
+            key=lambda profile: (
+                -profile.last_seen.timestamp(),
+                profile.incident_id,
+            ),
         )
 
     def save_incident_alert(
@@ -540,6 +629,31 @@ class SQLiteInvestigationStore:
 
             connection.execute(
                 """
+                CREATE TABLE IF NOT EXISTS
+                incident_correlation_profiles (
+                    incident_id TEXT PRIMARY KEY,
+                    classification TEXT NOT NULL,
+                    first_seen TEXT NOT NULL,
+                    last_seen TEXT NOT NULL,
+                    payload TEXT NOT NULL
+                )
+                """
+            )
+
+            connection.execute(
+                """
+                CREATE INDEX IF NOT EXISTS
+                idx_incident_correlation_profiles_lookup
+                ON incident_correlation_profiles(
+                    classification,
+                    last_seen,
+                    first_seen
+                )
+                """
+            )
+
+            connection.execute(
+                """
                 CREATE TABLE IF NOT EXISTS cases (
                     case_id TEXT PRIMARY KEY,
                     alert_id TEXT NOT NULL UNIQUE,
@@ -593,6 +707,113 @@ class SQLiteInvestigationStore:
         return IncidentRecord.model_validate_json(
             row[0]
         )
+
+    def save_correlation_profile(
+        self,
+        profile: IncidentCorrelationProfile,
+    ) -> IncidentCorrelationProfile:
+        payload = (
+            profile.model_dump_json()
+        )
+
+        with self._connect() as connection:
+            connection.execute(
+                """
+                INSERT INTO incident_correlation_profiles (
+                    incident_id,
+                    classification,
+                    first_seen,
+                    last_seen,
+                    payload
+                )
+                VALUES (?, ?, ?, ?, ?)
+                ON CONFLICT (incident_id)
+                DO UPDATE SET
+                    classification = excluded.classification,
+                    first_seen = excluded.first_seen,
+                    last_seen = excluded.last_seen,
+                    payload = excluded.payload
+                """,
+                (
+                    profile.incident_id,
+                    profile.classification,
+                    profile.first_seen.isoformat(),
+                    profile.last_seen.isoformat(),
+                    payload,
+                ),
+            )
+
+        return profile
+
+    def get_correlation_profile(
+        self,
+        incident_id: str,
+    ) -> IncidentCorrelationProfile | None:
+        with self._connect() as connection:
+            row = connection.execute(
+                """
+                SELECT payload
+                FROM incident_correlation_profiles
+                WHERE incident_id = ?
+                """,
+                (
+                    incident_id,
+                ),
+            ).fetchone()
+
+        if row is None:
+            return None
+
+        return (
+            IncidentCorrelationProfile
+            .model_validate_json(
+                row[0]
+            )
+        )
+
+    def list_correlation_candidates(
+        self,
+        *,
+        classification: AttackClassification,
+        observed_at: datetime,
+        window: timedelta,
+    ) -> list[IncidentCorrelationProfile]:
+        earliest_allowed = (
+            observed_at
+            - window
+        )
+
+        latest_allowed = (
+            observed_at
+            + window
+        )
+
+        with self._connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT payload
+                FROM incident_correlation_profiles
+                WHERE classification = ?
+                AND first_seen <= ?
+                AND last_seen >= ?
+                ORDER BY last_seen DESC, incident_id ASC
+                """,
+                (
+                    classification,
+                    latest_allowed.isoformat(),
+                    earliest_allowed.isoformat(),
+                ),
+            ).fetchall()
+
+        return [
+            (
+                IncidentCorrelationProfile
+                .model_validate_json(
+                    row[0]
+                )
+            )
+            for row in rows
+        ]
 
     def save_incident_alert(
         self,
@@ -1144,6 +1365,34 @@ class PostgresInvestigationStore:
                 """
             )
 
+            connection.execute(
+                """
+                CREATE TABLE IF NOT EXISTS
+                incident_correlation_profiles (
+                    incident_id TEXT PRIMARY KEY,
+                    classification TEXT NOT NULL,
+                    first_seen TIMESTAMPTZ NOT NULL,
+                    last_seen TIMESTAMPTZ NOT NULL,
+                    payload TEXT NOT NULL,
+                    FOREIGN KEY (incident_id)
+                        REFERENCES incidents(incident_id)
+                        ON DELETE CASCADE
+                )
+                """
+            )
+
+            connection.execute(
+                """
+                CREATE INDEX IF NOT EXISTS
+                idx_incident_correlation_profiles_lookup
+                ON incident_correlation_profiles(
+                    classification,
+                    last_seen,
+                    first_seen
+                )
+                """
+            )
+
     def save_incident(
         self,
         incident: IncidentRecord,
@@ -1201,6 +1450,119 @@ class PostgresInvestigationStore:
                 row[0]
             )
         )
+
+    def save_correlation_profile(
+        self,
+        profile: IncidentCorrelationProfile,
+    ) -> IncidentCorrelationProfile:
+        payload = (
+            profile.model_dump_json()
+        )
+
+        with self._connect(
+            self.database_url
+        ) as connection:
+            connection.execute(
+                """
+                INSERT INTO incident_correlation_profiles (
+                    incident_id,
+                    classification,
+                    first_seen,
+                    last_seen,
+                    payload
+                )
+                VALUES (%s, %s, %s, %s, %s)
+                ON CONFLICT (incident_id)
+                DO UPDATE SET
+                    classification = EXCLUDED.classification,
+                    first_seen = EXCLUDED.first_seen,
+                    last_seen = EXCLUDED.last_seen,
+                    payload = EXCLUDED.payload
+                """,
+                (
+                    profile.incident_id,
+                    profile.classification,
+                    profile.first_seen,
+                    profile.last_seen,
+                    payload,
+                ),
+            )
+
+        return profile
+
+    def get_correlation_profile(
+        self,
+        incident_id: str,
+    ) -> IncidentCorrelationProfile | None:
+        with self._connect(
+            self.database_url
+        ) as connection:
+            row = connection.execute(
+                """
+                SELECT payload
+                FROM incident_correlation_profiles
+                WHERE incident_id = %s
+                """,
+                (
+                    incident_id,
+                ),
+            ).fetchone()
+
+        if row is None:
+            return None
+
+        return (
+            IncidentCorrelationProfile
+            .model_validate_json(
+                row[0]
+            )
+        )
+
+    def list_correlation_candidates(
+        self,
+        *,
+        classification: AttackClassification,
+        observed_at: datetime,
+        window: timedelta,
+    ) -> list[IncidentCorrelationProfile]:
+        earliest_allowed = (
+            observed_at
+            - window
+        )
+
+        latest_allowed = (
+            observed_at
+            + window
+        )
+
+        with self._connect(
+            self.database_url
+        ) as connection:
+            rows = connection.execute(
+                """
+                SELECT payload
+                FROM incident_correlation_profiles
+                WHERE classification = %s
+                AND first_seen <= %s
+                AND last_seen >= %s
+                ORDER BY last_seen DESC, incident_id ASC
+                """,
+                (
+                    classification,
+                    latest_allowed,
+                    earliest_allowed,
+                ),
+            ).fetchall()
+
+        return [
+            (
+                IncidentCorrelationProfile
+                .model_validate_json(
+                    row[0]
+                )
+            )
+            for row in rows
+        ]
 
     def save_incident_alert(
         self,
