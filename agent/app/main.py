@@ -19,6 +19,8 @@ from app.graph.graph import (
     build_investigation_graph,
 )
 from app.schemas import (
+    ApprovalDecisionRequest,
+    ApprovalRequestRecord,
     AttackPrediction,
     AuditRecord,
     CaseRecord,
@@ -74,8 +76,15 @@ from app.services.incident_response_store import (
 from app.services.response_risk_lifecycle import (
     persist_response_risk_lifecycle,
 )
-from app.services.structured_response_hold import (
-    hold_legacy_execution_for_structured_response,
+from app.services.action_policy_lifecycle import (
+    persist_action_policy_lifecycle,
+)
+from app.services.structured_action_policy import (
+    apply_structured_action_policy,
+    process_structured_policy_outcomes,
+)
+from app.services.approval_resolution import (
+    resolve_approval_request,
 )
 
 
@@ -377,6 +386,18 @@ def create_app(
                     [],
                 )
             ),
+            action_policy_decisions=(
+                result.get(
+                    "action_policy_decisions",
+                    [],
+                )
+            ),
+            approval_requests=(
+                result.get(
+                    "approval_requests",
+                    [],
+                )
+            ),
             investigation_budget_exhausted=(
                 result.get(
                     "investigation_budget_exhausted",
@@ -407,7 +428,7 @@ def create_app(
         )
 
         investigation = (
-            hold_legacy_execution_for_structured_response(
+            apply_structured_action_policy(
                 investigation
             )
         )
@@ -438,6 +459,13 @@ def create_app(
                 ),
                 investigation=investigation,
             )
+        )
+
+        persist_action_policy_lifecycle(
+            store=(
+                configured_incident_response_store
+            ),
+            investigation=investigation,
         )
 
         store.save(
@@ -815,7 +843,152 @@ def create_app(
             },
         )
 
-        if configured_response_executor is not None:
+        if (
+            investigation.response_proposal
+            is not None
+        ):
+            structured_outcome = (
+                process_structured_policy_outcomes(
+                    investigation=investigation,
+                    store=(
+                        configured_incident_response_store
+                    ),
+                )
+            )
+
+            if (
+                investigation.incident_id
+                is not None
+            ):
+                for decision in (
+                    investigation
+                    .action_policy_decisions
+                ):
+                    save_incident_audit_event(
+                        incident_id=(
+                            investigation
+                            .incident_id
+                        ),
+                        event_type=(
+                            "action_policy_evaluated"
+                        ),
+                        entity_type=(
+                            "policy_decision"
+                        ),
+                        entity_id=(
+                            decision.decision_id
+                        ),
+                        message=(
+                            "Deterministic action "
+                            "policy was evaluated."
+                        ),
+                        details={
+                            "proposed_action_id": (
+                                decision
+                                .proposed_action_id
+                            ),
+                            "policy_id": (
+                                decision.policy_id
+                            ),
+                            "outcome": (
+                                decision.outcome
+                            ),
+                        },
+                    )
+
+                for approval in (
+                    investigation
+                    .approval_requests
+                ):
+                    save_incident_audit_event(
+                        incident_id=(
+                            investigation
+                            .incident_id
+                        ),
+                        event_type=(
+                            "approval_requested"
+                        ),
+                        entity_type=(
+                            "approval_request"
+                        ),
+                        entity_id=(
+                            approval.approval_id
+                        ),
+                        message=(
+                            "Human approval was "
+                            "requested for an exact "
+                            "structured response "
+                            "action."
+                        ),
+                        details={
+                            "proposed_action_id": (
+                                approval
+                                .proposed_action_id
+                            ),
+                            "action_fingerprint": (
+                                approval
+                                .action_fingerprint
+                            ),
+                            "status": (
+                                approval.status
+                            ),
+                            "expires_at": (
+                                approval
+                                .expires_at
+                                .isoformat()
+                                if (
+                                    approval
+                                    .expires_at
+                                    is not None
+                                )
+                                else None
+                            ),
+                        },
+                    )
+
+                if (
+                    structured_outcome[
+                        "outcome"
+                    ]
+                    == "case_created"
+                ):
+                    case = (
+                        structured_outcome[
+                            "case"
+                        ]
+                    )
+
+                    save_incident_audit_event(
+                        incident_id=(
+                            investigation
+                            .incident_id
+                        ),
+                        event_type=(
+                            "case_created"
+                        ),
+                        entity_type="case",
+                        entity_id=(
+                            case.case_id
+                        ),
+                        message=(
+                            "AthenaSec created an "
+                            "incident case because "
+                            "structured action policy "
+                            "denied the proposed "
+                            "action."
+                        ),
+                        details={
+                            "policy_decision_id": (
+                                case
+                                .policy_decision_id
+                            ),
+                            "reason": (
+                                case.reason
+                            ),
+                        },
+                    )
+
+        elif configured_response_executor is not None:
             ready_for_execution = (
                 investigation.response_plan.status
                 == "ready_for_execution"
@@ -1450,5 +1623,154 @@ def create_app(
                 alert_id
             )
         )
+
+    @app.get(
+        "/api/v1/approvals/{approval_id}",
+        response_model=(
+            ApprovalRequestRecord
+        ),
+    )
+    def get_approval_request(
+        approval_id: str,
+    ) -> ApprovalRequestRecord:
+        approval = (
+            configured_incident_response_store
+            .get_approval_request(
+                approval_id
+            )
+        )
+
+        if approval is None:
+            raise HTTPException(
+                status_code=404,
+                detail=(
+                    "Approval request "
+                    "was not found."
+                ),
+            )
+
+        return approval
+
+    @app.post(
+        (
+            "/api/v1/approvals/"
+            "{approval_id}/decision"
+        ),
+        response_model=(
+            ApprovalRequestRecord
+        ),
+    )
+    def decide_approval(
+        approval_id: str,
+        request: ApprovalDecisionRequest,
+    ) -> ApprovalRequestRecord:
+        try:
+            resolution = (
+                resolve_approval_request(
+                    store=(
+                        configured_incident_response_store
+                    ),
+                    approval_id=(
+                        approval_id
+                    ),
+                    decision=(
+                        request.decision
+                    ),
+                    decided_by=(
+                        request.decided_by
+                    ),
+                    reason=request.reason,
+                )
+            )
+
+        except LookupError as exc:
+            raise HTTPException(
+                status_code=404,
+                detail=str(exc),
+            ) from exc
+
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=409,
+                detail=str(exc),
+            ) from exc
+
+        approval = (
+            resolution.approval
+        )
+
+        save_incident_audit_event(
+            incident_id=(
+                approval.incident_id
+            ),
+            event_type=(
+                "approval_decided"
+            ),
+            entity_type=(
+                "approval_request"
+            ),
+            entity_id=(
+                approval.approval_id
+            ),
+            message=(
+                "Human approval decision "
+                "was recorded."
+            ),
+            details={
+                "proposed_action_id": (
+                    approval
+                    .proposed_action_id
+                ),
+                "status": (
+                    approval.status
+                ),
+                "decided_by": (
+                    approval.decided_by
+                ),
+                "decision_reason": (
+                    approval
+                    .decision_reason
+                ),
+            },
+        )
+
+        if (
+            resolution.incident_case
+            is not None
+        ):
+            case = (
+                resolution.incident_case
+            )
+
+            save_incident_audit_event(
+                incident_id=(
+                    case.incident_id
+                ),
+                event_type=(
+                    "case_created"
+                ),
+                entity_type="case",
+                entity_id=(
+                    case.case_id
+                ),
+                message=(
+                    "AthenaSec created "
+                    "an incident case "
+                    "after the approval "
+                    "workflow did not "
+                    "authorize execution."
+                ),
+                details={
+                    "policy_decision_id": (
+                        case
+                        .policy_decision_id
+                    ),
+                    "reason": (
+                        case.reason
+                    ),
+                },
+            )
+
+        return approval
 
     return app

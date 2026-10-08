@@ -78,17 +78,17 @@ def make_action_risk_node(
             )
         )
 
-        if not incident_id:
-            raise ValueError(
-                "Action-risk assessment "
-                "requires incident_id."
-            )
-
-        if not investigation_id:
-            raise ValueError(
-                "Action-risk assessment "
-                "requires investigation_id."
-            )
+        if (
+            not incident_id
+            or not investigation_id
+        ):
+            return {
+                "proposed_actions": [],
+                "action_risk_assessments": [],
+                "status": (
+                    "action_risk_assessed"
+                ),
+            }
 
         assessed_at = clock()
 

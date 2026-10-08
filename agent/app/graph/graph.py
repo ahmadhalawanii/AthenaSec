@@ -68,6 +68,10 @@ from app.graph.nodes.propose_response import (
     ResponseProposer,
     make_response_proposal_node,
 )
+from app.graph.nodes.action_policy import (
+    ActionPolicyClock,
+    make_action_policy_node,
+)
 
 
 Analyzer = Callable[
@@ -101,6 +105,9 @@ def build_investigation_graph(
     ) = None,
     action_risk_context_provider: (
         ActionRiskContextProvider | None
+    ) = None,
+    action_policy_clock: (
+        ActionPolicyClock | None
     ) = None,
 ):
     if evidence_provider is None:
@@ -185,6 +192,23 @@ def build_investigation_graph(
                 make_action_risk_node(
                     context_provider=(
                         action_risk_context_provider
+                    ),
+                ),
+            )
+
+    if response_proposer is not None:
+        if action_policy_clock is None:
+            builder.add_node(
+                "evaluate_action_policy_v2",
+                make_action_policy_node(),
+            )
+
+        else:
+            builder.add_node(
+                "evaluate_action_policy_v2",
+                make_action_policy_node(
+                    clock=(
+                        action_policy_clock
                     ),
                 ),
             )
@@ -290,6 +314,11 @@ def build_investigation_graph(
 
         builder.add_edge(
             "assess_action_risk",
+            "evaluate_action_policy_v2",
+        )
+
+        builder.add_edge(
+            "evaluate_action_policy_v2",
             "evaluate_policy",
         )
 

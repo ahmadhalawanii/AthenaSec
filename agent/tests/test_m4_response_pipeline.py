@@ -11,9 +11,7 @@ from app.schemas import (
     AnalysisVerificationResult,
     EvidenceRecord,
     InvestigationResponse,
-    PolicyDecision,
     ResponseActionProposal,
-    ResponsePlan,
     RiskAssessment,
     SecurityAlertInput,
     StructuredResponseProposal,
@@ -24,11 +22,6 @@ from app.services.incident_response_store import (
 from app.services.response_risk_lifecycle import (
     persist_response_risk_lifecycle,
 )
-from app.services.structured_response_hold import (
-    hold_legacy_execution_for_structured_response,
-)
-
-
 FIXED_TIME = datetime(
     2026,
     10,
@@ -374,113 +367,3 @@ def test_response_risk_persistence_requires_incident_identity():
     )
 
     assert persisted is None
-
-
-def test_structured_response_is_held_before_m5_policy():
-    investigation = (
-        make_investigation()
-    )
-
-    legacy_allowed = (
-        investigation.model_copy(
-            update={
-                "policy_decision": (
-                    PolicyDecision(
-                        policy_id=(
-                            "POL-BF-CRITICAL"
-                        ),
-                        policy_name=(
-                            "Legacy Critical "
-                            "Brute Force"
-                        ),
-                        matched=True,
-                        response_allowed=True,
-                        actions=[
-                            "block_ip",
-                        ],
-                        reason=(
-                            "Legacy policy "
-                            "allowed execution."
-                        ),
-                    )
-                ),
-                "response_plan": (
-                    ResponsePlan(
-                        policy_id=(
-                            "POL-BF-CRITICAL"
-                        ),
-                        actions=[
-                            "block_ip",
-                        ],
-                        response_allowed=True,
-                        status=(
-                            "ready_for_execution"
-                        ),
-                        reason=(
-                            "Legacy policy "
-                            "allowed execution."
-                        ),
-                    )
-                ),
-            }
-        )
-    )
-
-    held = (
-        hold_legacy_execution_for_structured_response(
-            legacy_allowed
-        )
-    )
-
-    assert (
-        held.policy_decision
-        .response_allowed
-        is False
-    )
-
-    assert (
-        held.policy_decision.actions
-        == []
-    )
-
-    assert (
-        held.response_plan
-        .response_allowed
-        is False
-    )
-
-    assert (
-        held.response_plan.actions
-        == []
-    )
-
-    assert (
-        held.response_plan.status
-        == "create_case"
-    )
-
-    assert (
-        "action policy"
-        in held.response_plan.reason.lower()
-    )
-
-
-def test_legacy_investigation_without_structured_proposal_is_unchanged():
-    investigation = (
-        make_investigation()
-        .model_copy(
-            update={
-                "response_proposal": None,
-                "proposed_actions": [],
-                "action_risk_assessments": [],
-            }
-        )
-    )
-
-    held = (
-        hold_legacy_execution_for_structured_response(
-            investigation
-        )
-    )
-
-    assert held == investigation

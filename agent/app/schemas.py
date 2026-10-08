@@ -796,6 +796,21 @@ class ApprovalRequestRecord(BaseModel):
     decision_reason: str | None = None
 
 
+class ApprovalDecisionRequest(BaseModel):
+    decision: Literal[
+        "APPROVED",
+        "REJECTED",
+    ]
+
+    decided_by: str = Field(
+        min_length=1,
+    )
+
+    reason: str = Field(
+        min_length=1,
+    )
+
+
 class ResponseActionRecord(BaseModel):
     response_action_id: str = Field(
         min_length=1,
@@ -948,6 +963,8 @@ ResponsePlanStatus = Literal[
     "no_action",
     "create_case",
     "ready_for_execution",
+    "awaiting_approval",
+    "ready_for_structured_execution",
 ]
 
 
@@ -1103,6 +1120,18 @@ class InvestigationResponse(BaseModel):
 
     action_risk_assessments: list[
         ActionRiskAssessmentRecord
+    ] = Field(
+        default_factory=list,
+    )
+
+    action_policy_decisions: list[
+        IncidentPolicyDecisionRecord
+    ] = Field(
+        default_factory=list,
+    )
+
+    approval_requests: list[
+        ApprovalRequestRecord
     ] = Field(
         default_factory=list,
     )

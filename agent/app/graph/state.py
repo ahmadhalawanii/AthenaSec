@@ -16,6 +16,8 @@ from app.schemas import (
     StructuredResponseProposal,
     ActionRiskAssessmentRecord,
     ProposedActionRecord,
+    ApprovalRequestRecord,
+    IncidentPolicyDecisionRecord,
 )
 
 
@@ -38,6 +40,7 @@ InvestigationStatus = Literal[
     "response_proposed",
     "response_proposal_blocked",
     "action_risk_assessed",
+    "action_policy_evaluated",
 ]
 
 
@@ -98,4 +101,12 @@ class InvestigationState(TypedDict, total=False):
 
     action_risk_assessments: list[
         ActionRiskAssessmentRecord
+    ]
+
+    action_policy_decisions: list[
+        IncidentPolicyDecisionRecord
+    ]
+
+    approval_requests: list[
+        ApprovalRequestRecord
     ]
