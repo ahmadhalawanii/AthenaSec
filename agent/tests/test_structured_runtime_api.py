@@ -237,6 +237,9 @@ def make_runtime(
             autonomous_response_enabled
         ),
         response_mode=response_mode,
+        operator_control_key=(
+            "operator-key"
+        ),
         structured_action_executor=(
             executor
         ),
@@ -519,9 +522,316 @@ def test_runtime_status_reports_mode_and_kill_switch():
 
     assert response.status_code == 200
 
-    assert response.json() == {
-        "response_mode": "SHADOW",
-        "autonomous_response_enabled": False,
-        "structured_runtime_configured": True,
-        "cortex_execution_possible": False,
-    }
+    body = response.json()
+
+    assert (
+        body["response_mode"]
+        == "SHADOW"
+    )
+
+    assert (
+        body["autonomous_response_enabled"]
+        is False
+    )
+
+    assert (
+        body["operator_execution_enabled"]
+        is True
+    )
+
+    assert (
+        body["effective_execution_enabled"]
+        is False
+    )
+
+    assert (
+        body["structured_runtime_configured"]
+        is True
+    )
+
+    assert (
+        body["cortex_execution_possible"]
+        is False
+    )
+
+    assert body["control_version"] == 0
+
+
+def test_operator_control_requires_valid_key():
+    (
+        client,
+        _,
+        _,
+        _,
+        _,
+        _,
+    ) = make_runtime()
+
+    response = client.put(
+        "/api/v1/runtime/control",
+        json={
+            "response_mode": "SHADOW",
+            "changed_by": "analyst-001",
+            "reason": "Test control.",
+        },
+    )
+
+    assert response.status_code == 401
+
+
+def test_operator_can_switch_to_shadow_and_stop_next_execution():
+    (
+        client,
+        response_store,
+        _,
+        executor,
+        verifier,
+        rollback,
+    ) = make_runtime(
+        response_mode="SUPERVISED"
+    )
+
+    control = client.put(
+        "/api/v1/runtime/control",
+        headers={
+            "X-AthenaSec-Operator-Key": (
+                "operator-key"
+            )
+        },
+        json={
+            "response_mode": "SHADOW",
+            "changed_by": "analyst-001",
+            "reason": (
+                "Observe without response."
+            ),
+        },
+    )
+
+    assert control.status_code == 200
+
+    assert (
+        control.json()["response_mode"]
+        == "SHADOW"
+    )
+
+    response = submit(
+        client
+    )
+
+    assert response.status_code == 200
+
+    assert executor.calls == []
+    assert verifier.calls == []
+    assert rollback.calls == []
+
+    incident_id = (
+        response.json()["incident_id"]
+    )
+
+    assert (
+        response_store
+        .list_incident_cases(
+            incident_id
+        )
+        == []
+    )
+
+
+def test_operator_execution_switch_disables_cortex():
+    (
+        client,
+        _,
+        _,
+        executor,
+        verifier,
+        rollback,
+    ) = make_runtime()
+
+    control = client.put(
+        "/api/v1/runtime/control",
+        headers={
+            "X-AthenaSec-Operator-Key": (
+                "operator-key"
+            )
+        },
+        json={
+            "operator_execution_enabled": False,
+            "changed_by": "analyst-001",
+            "reason": (
+                "Emergency operator stop."
+            ),
+        },
+    )
+
+    assert control.status_code == 200
+
+    assert (
+        control.json()[
+            "operator_execution_enabled"
+        ]
+        is False
+    )
+
+    response = submit(
+        client
+    )
+
+    assert response.status_code == 200
+
+    assert executor.calls == []
+    assert verifier.calls == []
+    assert rollback.calls == []
+
+
+def test_master_kill_switch_cannot_be_bypassed_by_operator():
+    (
+        client,
+        _,
+        _,
+        _,
+        _,
+        _,
+    ) = make_runtime(
+        autonomous_response_enabled=False
+    )
+
+    control = client.put(
+        "/api/v1/runtime/control",
+        headers={
+            "X-AthenaSec-Operator-Key": (
+                "operator-key"
+            )
+        },
+        json={
+            "operator_execution_enabled": True,
+            "changed_by": "analyst-001",
+            "reason": (
+                "Attempt to enable response."
+            ),
+        },
+    )
+
+    assert control.status_code == 200
+
+    body = control.json()
+
+    assert (
+        body["operator_execution_enabled"]
+        is True
+    )
+
+    assert (
+        body["autonomous_response_enabled"]
+        is False
+    )
+
+    assert (
+        body["effective_execution_enabled"]
+        is False
+    )
+
+    assert (
+        body["cortex_execution_possible"]
+        is False
+    )
+
+
+def test_operator_control_history_is_protected_and_auditable():
+    (
+        client,
+        _,
+        _,
+        _,
+        _,
+        _,
+    ) = make_runtime()
+
+    update = client.put(
+        "/api/v1/runtime/control",
+        headers={
+            "X-AthenaSec-Operator-Key": (
+                "operator-key"
+            )
+        },
+        json={
+            "response_mode": "SHADOW",
+            "changed_by": "analyst-001",
+            "reason": (
+                "Investigate response behavior."
+            ),
+        },
+    )
+
+    assert update.status_code == 200
+
+    unauthorized = client.get(
+        "/api/v1/runtime/control/history"
+    )
+
+    assert unauthorized.status_code == 401
+
+    history = client.get(
+        "/api/v1/runtime/control/history",
+        headers={
+            "X-AthenaSec-Operator-Key": (
+                "operator-key"
+            )
+        },
+    )
+
+    assert history.status_code == 200
+
+    records = history.json()
+
+    assert len(records) == 1
+
+    assert (
+        records[0]["changed_by"]
+        == "analyst-001"
+    )
+
+    assert (
+        records[0]["reason"]
+        == "Investigate response behavior."
+    )
+
+    assert (
+        records[0]["previous_response_mode"]
+        == "SUPERVISED"
+    )
+
+    assert (
+        records[0]["new_response_mode"]
+        == "SHADOW"
+    )
+
+
+def test_shadow_to_autonomous_direct_transition_is_rejected():
+    (
+        client,
+        _,
+        _,
+        _,
+        _,
+        _,
+    ) = make_runtime(
+        response_mode="SHADOW"
+    )
+
+    response = client.put(
+        "/api/v1/runtime/control",
+        headers={
+            "X-AthenaSec-Operator-Key": (
+                "operator-key"
+            )
+        },
+        json={
+            "response_mode": "AUTONOMOUS",
+            "changed_by": "analyst-001",
+            "reason": (
+                "Unsafe direct escalation."
+            ),
+        },
+    )
+
+    assert response.status_code == 409

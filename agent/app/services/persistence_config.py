@@ -12,6 +12,10 @@ from app.services.incident_response_store import (
     PostgresIncidentResponseStore,
     SQLiteIncidentResponseStore,
 )
+from app.services.runtime_control_store import (
+    PostgresRuntimeControlStore,
+    SQLiteRuntimeControlStore,
+)
 
 
 def build_persistence_stores_from_env(
@@ -135,6 +139,55 @@ def build_incident_response_store_from_env(
 
     return (
         postgres_response_store_class(
+            database_url
+        )
+    )
+
+
+def build_runtime_control_store_from_env(
+    *,
+    postgres_runtime_store_class=(
+        PostgresRuntimeControlStore
+    ),
+    sqlite_runtime_store_class=(
+        SQLiteRuntimeControlStore
+    ),
+):
+    backend = os.getenv(
+        "ATHENASEC_PERSISTENCE_BACKEND",
+        "postgres",
+    ).strip().lower()
+
+    if backend == "sqlite":
+        database_path = os.getenv(
+            "ATHENASEC_DB_PATH",
+            "data/athenasec.db",
+        )
+
+        return (
+            sqlite_runtime_store_class(
+                database_path
+            )
+        )
+
+    if backend != "postgres":
+        raise ValueError(
+            "Unsupported "
+            "ATHENASEC_PERSISTENCE_BACKEND: "
+            f"{backend}"
+        )
+
+    database_url = os.getenv(
+        "ATHENASEC_DATABASE_URL"
+    )
+
+    if not database_url:
+        raise ValueError(
+            "ATHENASEC_DATABASE_URL is required."
+        )
+
+    return (
+        postgres_runtime_store_class(
             database_url
         )
     )

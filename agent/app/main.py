@@ -25,6 +25,7 @@ from app.schemas import (
     AuditRecord,
     CaseRecord,
     InvestigationResponse,
+    RuntimeControlUpdateRequest,
     SecurityAlertInput,
 )
 from app.services.audit_service import (
@@ -55,6 +56,7 @@ from app.services.misp_config import (
 from app.services.persistence_config import (
     build_incident_response_store_from_env,
     build_persistence_stores_from_env,
+    build_runtime_control_store_from_env,
 )
 from app.services.benign_investigation import (
     build_benign_investigation,
@@ -91,6 +93,12 @@ from app.services.structured_response_runtime import (
 )
 from app.services.response_mode import (
     normalize_response_mode,
+)
+from app.services.runtime_control import (
+    RuntimeControlManager,
+)
+from app.services.runtime_control_store import (
+    InMemoryRuntimeControlStore,
 )
 
 
@@ -133,6 +141,8 @@ def create_app(
     structured_action_verifier: Any = None,
     structured_rollback_executor: Any = None,
     response_mode: str | None = None,
+    operator_control_key: str | None = None,
+    runtime_control_store: Any = None,
 ) -> FastAPI:
     app = FastAPI(
         title="AthenaSec Agent API",
@@ -245,6 +255,44 @@ def create_app(
         )
     )
 
+    configured_operator_control_key = (
+        operator_control_key
+        if operator_control_key is not None
+        else os.getenv(
+            "ATHENASEC_OPERATOR_CONTROL_KEY"
+        )
+    )
+
+    if runtime_control_store is not None:
+        configured_runtime_control_store = (
+            runtime_control_store
+        )
+
+    elif (
+        default_investigation_store
+        is not None
+        or default_audit_store
+        is not None
+    ):
+        configured_runtime_control_store = (
+            build_runtime_control_store_from_env()
+        )
+
+    else:
+        configured_runtime_control_store = (
+            InMemoryRuntimeControlStore()
+        )
+
+    runtime_controls = RuntimeControlManager(
+        store=(
+            configured_runtime_control_store
+        ),
+        initial_response_mode=(
+            configured_response_mode
+        ),
+        initial_operator_execution_enabled=True,
+    )
+
     configured_response_executor = (
         response_executor
         if response_executor is not None
@@ -314,11 +362,38 @@ def create_app(
         )
     )
 
-    structured_runtime_reachable = (
-        structured_runtime_configured
-        or configured_response_mode
-        == "SHADOW"
-    )
+    def current_runtime_control():
+        return (
+            runtime_controls.snapshot()
+        )
+
+    def effective_execution_enabled():
+        control = (
+            current_runtime_control()
+        )
+
+        return (
+            configured_autonomous_response_enabled
+            and (
+                control
+                .operator_execution_enabled
+            )
+            and (
+                control.response_mode
+                != "SHADOW"
+            )
+        )
+
+    def structured_runtime_reachable():
+        control = (
+            current_runtime_control()
+        )
+
+        return (
+            structured_runtime_configured
+            or control.response_mode
+            == "SHADOW"
+        )
 
     def save_audit_event(
         alert_id: str,
@@ -367,6 +442,10 @@ def create_app(
         policy_decision,
         approval_id=None,
     ):
+        control = (
+            current_runtime_control()
+        )
+
         outcome = (
             process_structured_response_action(
                 store=(
@@ -389,9 +468,13 @@ def create_app(
                 ),
                 autonomous_response_enabled=(
                     configured_autonomous_response_enabled
+                    and (
+                        control
+                        .operator_execution_enabled
+                    )
                 ),
                 response_mode=(
-                    configured_response_mode
+                    control.response_mode
                 ),
                 approval_id=approval_id,
             )
@@ -419,7 +502,7 @@ def create_app(
                 ),
                 details={
                     "response_mode": (
-                        configured_response_mode
+                        control.response_mode
                     ),
                     "policy_decision_id": (
                         policy_decision
@@ -1316,7 +1399,7 @@ def create_app(
                     "outcome"
                 ]
                 == "auto_allowed"
-                and structured_runtime_reachable
+                and structured_runtime_reachable()
             ):
                 actions_by_id = {
                     action.proposed_action_id: (
@@ -1367,13 +1450,23 @@ def create_app(
                 == "ready_for_execution"
             )
 
+            control = (
+                current_runtime_control()
+            )
+
+            operator_and_master_enabled = (
+                configured_autonomous_response_enabled
+                and (
+                    control
+                    .operator_execution_enabled
+                )
+            )
+
             should_execute = (
                 ready_for_execution
+                and operator_and_master_enabled
                 and (
-                    configured_autonomous_response_enabled
-                )
-                and (
-                    configured_response_mode
+                    control.response_mode
                     != "SHADOW"
                 )
             )
@@ -1381,11 +1474,11 @@ def create_app(
             kill_switch_blocked = (
                 ready_for_execution
                 and (
-                    configured_response_mode
+                    control.response_mode
                     != "SHADOW"
                 )
                 and not (
-                    configured_autonomous_response_enabled
+                    operator_and_master_enabled
                 )
             )
 
@@ -1449,9 +1542,9 @@ def create_app(
                         configured_response_executor
                     ),
                     autonomous_response_enabled=(
-                        configured_autonomous_response_enabled
+                        operator_and_master_enabled
                         and (
-                            configured_response_mode
+                            control.response_mode
                             != "SHADOW"
                         )
                     ),
@@ -1708,31 +1801,135 @@ def create_app(
 
         return investigation
 
-    @app.get(
-        "/api/v1/runtime/status"
-    )
-    def runtime_status():
+    def build_runtime_status():
+        control = (
+            current_runtime_control()
+        )
+
+        effective = (
+            configured_autonomous_response_enabled
+            and (
+                control
+                .operator_execution_enabled
+            )
+            and (
+                control.response_mode
+                != "SHADOW"
+            )
+        )
+
         return {
             "response_mode": (
-                configured_response_mode
+                control.response_mode
             ),
             "autonomous_response_enabled": (
                 configured_autonomous_response_enabled
+            ),
+            "operator_execution_enabled": (
+                control
+                .operator_execution_enabled
+            ),
+            "effective_execution_enabled": (
+                effective
             ),
             "structured_runtime_configured": (
                 structured_runtime_configured
             ),
             "cortex_execution_possible": (
                 structured_runtime_configured
-                and (
-                    configured_autonomous_response_enabled
-                )
-                and (
-                    configured_response_mode
-                    != "SHADOW"
-                )
+                and effective
+            ),
+            "control_version": (
+                control.version
             ),
         }
+
+    def require_operator_control_key(
+        provided_key,
+    ):
+        if not configured_operator_control_key:
+            raise HTTPException(
+                status_code=503,
+                detail=(
+                    "AthenaSec operator "
+                    "controls are not configured."
+                ),
+            )
+
+        if not secrets.compare_digest(
+            provided_key or "",
+            configured_operator_control_key,
+        ):
+            raise HTTPException(
+                status_code=401,
+                detail=(
+                    "Invalid AthenaSec "
+                    "operator control key."
+                ),
+            )
+
+    @app.get(
+        "/api/v1/runtime/status"
+    )
+    def runtime_status():
+        return build_runtime_status()
+
+    @app.put(
+        "/api/v1/runtime/control"
+    )
+    def update_runtime_control(
+        request: RuntimeControlUpdateRequest,
+        x_athenasec_operator_key: (
+            str | None
+        ) = Header(
+            default=None
+        ),
+    ):
+        require_operator_control_key(
+            x_athenasec_operator_key
+        )
+
+        try:
+            runtime_controls.update(
+                response_mode=(
+                    request.response_mode
+                ),
+                operator_execution_enabled=(
+                    request
+                    .operator_execution_enabled
+                ),
+                changed_by=(
+                    request.changed_by
+                ),
+                reason=request.reason,
+            )
+
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=409,
+                detail=str(exc),
+            ) from exc
+
+        return build_runtime_status()
+
+    @app.get(
+        "/api/v1/runtime/control/history"
+    )
+    def runtime_control_history(
+        x_athenasec_operator_key: (
+            str | None
+        ) = Header(
+            default=None
+        ),
+    ):
+        require_operator_control_key(
+            x_athenasec_operator_key
+        )
+
+        return (
+            configured_runtime_control_store
+            .list_changes()
+        )
 
     @app.get(
         "/health"
@@ -2184,7 +2381,7 @@ def create_app(
 
         if (
             approval.status == "APPROVED"
-            and structured_runtime_reachable
+            and structured_runtime_reachable()
         ):
             proposed_action = (
                 configured_incident_response_store

@@ -1255,3 +1255,91 @@ class MISPMatch(BaseModel):
 class MISPEnrichment(BaseModel):
     queried_indicators: list[str]
     matches: list[MISPMatch]
+
+
+RuntimeControlResponseMode = Literal[
+    "SHADOW",
+    "SUPERVISED",
+    "AUTONOMOUS",
+]
+
+
+class RuntimeControlStateRecord(BaseModel):
+    control_id: str = Field(
+        default="ATHENASEC_RUNTIME",
+        min_length=1,
+    )
+
+    response_mode: RuntimeControlResponseMode
+
+    operator_execution_enabled: bool
+
+    version: int = Field(
+        ge=0,
+    )
+
+    updated_at: datetime
+
+    updated_by: str = Field(
+        min_length=1,
+    )
+
+    update_reason: str = Field(
+        min_length=1,
+    )
+
+
+class RuntimeControlChangeRecord(BaseModel):
+    change_id: str = Field(
+        min_length=1,
+    )
+
+    control_id: str = Field(
+        default="ATHENASEC_RUNTIME",
+        min_length=1,
+    )
+
+    version: int = Field(
+        ge=1,
+    )
+
+    previous_response_mode: (
+        RuntimeControlResponseMode
+    )
+
+    new_response_mode: (
+        RuntimeControlResponseMode
+    )
+
+    previous_operator_execution_enabled: bool
+
+    new_operator_execution_enabled: bool
+
+    changed_at: datetime
+
+    changed_by: str = Field(
+        min_length=1,
+    )
+
+    reason: str = Field(
+        min_length=1,
+    )
+
+
+class RuntimeControlUpdateRequest(BaseModel):
+    response_mode: (
+        RuntimeControlResponseMode
+        | None
+    ) = None
+
+    operator_execution_enabled: (
+        bool | None
+    ) = None
+
+    changed_by: str = Field(
+        min_length=1,
+    )
+
+    reason: str = Field(
+        min_length=1,
+    )
