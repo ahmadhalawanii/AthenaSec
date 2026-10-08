@@ -492,4 +492,3 @@ def test_postgres_target_protection_update_locks_and_guards_version():
         "AND version = %s"
         in update_sql
     )
-
