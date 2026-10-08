@@ -5,13 +5,83 @@ from typing import Protocol
 
 from app.schemas import (
     CaseRecord,
+    IncidentAlertRecord,
+    IncidentInvestigationRecord,
+    IncidentRecord,
+    InvestigationEvidenceRecord,
     InvestigationResponse,
     ResponseExecutionResult,
     ResponsePlan,
 )
 
-
 class InvestigationStore(Protocol):
+    def save_incident(
+        self,
+        incident: IncidentRecord,
+    ) -> IncidentRecord:
+        ...
+
+    def get_incident(
+        self,
+        incident_id: str,
+    ) -> IncidentRecord | None:
+        ...
+
+    def save_incident_alert(
+        self,
+        alert: IncidentAlertRecord,
+    ) -> IncidentAlertRecord:
+        ...
+
+    def get_incident_alert(
+        self,
+        alert_id: str,
+    ) -> IncidentAlertRecord | None:
+        ...
+
+    def list_incident_alerts(
+        self,
+        incident_id: str,
+    ) -> list[IncidentAlertRecord]:
+        ...
+
+    def save_incident_investigation(
+        self,
+        investigation: IncidentInvestigationRecord,
+    ) -> IncidentInvestigationRecord:
+        ...
+
+    def get_incident_investigation(
+        self,
+        investigation_id: str,
+    ) -> IncidentInvestigationRecord | None:
+        ...
+
+    def list_incident_investigations(
+        self,
+        incident_id: str,
+    ) -> list[IncidentInvestigationRecord]:
+        ...
+
+    def save_investigation_evidence(
+        self,
+        evidence: InvestigationEvidenceRecord,
+    ) -> InvestigationEvidenceRecord:
+        ...
+
+    def get_investigation_evidence(
+        self,
+        investigation_id: str,
+        evidence_id: str,
+    ) -> InvestigationEvidenceRecord | None:
+        ...
+
+    def list_investigation_evidence(
+        self,
+        investigation_id: str,
+    ) -> list[InvestigationEvidenceRecord]:
+        ...
+
     def save(
         self,
         investigation: InvestigationResponse,
@@ -59,6 +129,26 @@ class InvestigationStore(Protocol):
 
 class InMemoryInvestigationStore:
     def __init__(self):
+        self._incidents: dict[
+            str,
+            IncidentRecord,
+        ] = {}
+
+        self._incident_alerts: dict[
+            str,
+            IncidentAlertRecord,
+        ] = {}
+
+        self._incident_investigations: dict[
+            str,
+            IncidentInvestigationRecord,
+        ] = {}
+
+        self._investigation_evidence: dict[
+            tuple[str, str],
+            InvestigationEvidenceRecord,
+        ] = {}
+
         self._investigations: dict[
             str,
             InvestigationResponse,
@@ -68,6 +158,149 @@ class InMemoryInvestigationStore:
             str,
             CaseRecord,
         ] = {}
+
+    def save_incident(
+        self,
+        incident: IncidentRecord,
+    ) -> IncidentRecord:
+        self._incidents[
+            incident.incident_id
+        ] = incident
+
+        return incident
+
+    def get_incident(
+        self,
+        incident_id: str,
+    ) -> IncidentRecord | None:
+        return self._incidents.get(
+            incident_id
+        )
+
+    def save_incident_alert(
+        self,
+        alert: IncidentAlertRecord,
+    ) -> IncidentAlertRecord:
+        self._incident_alerts[
+            alert.alert_id
+        ] = alert
+
+        return alert
+
+    def get_incident_alert(
+        self,
+        alert_id: str,
+    ) -> IncidentAlertRecord | None:
+        return self._incident_alerts.get(
+            alert_id
+        )
+
+    def list_incident_alerts(
+        self,
+        incident_id: str,
+    ) -> list[IncidentAlertRecord]:
+        alerts = [
+            alert
+            for alert in self._incident_alerts.values()
+            if alert.incident_id == incident_id
+        ]
+
+        return sorted(
+            alerts,
+            key=lambda alert: (
+                alert.observed_at,
+                alert.alert_id,
+            ),
+        )
+
+    def save_incident_investigation(
+        self,
+        investigation: IncidentInvestigationRecord,
+    ) -> IncidentInvestigationRecord:
+        self._incident_investigations[
+            investigation.investigation_id
+        ] = investigation
+
+        return investigation
+
+    def get_incident_investigation(
+        self,
+        investigation_id: str,
+    ) -> IncidentInvestigationRecord | None:
+        return self._incident_investigations.get(
+            investigation_id
+        )
+
+    def list_incident_investigations(
+        self,
+        incident_id: str,
+    ) -> list[IncidentInvestigationRecord]:
+        investigations = [
+            investigation
+            for investigation
+            in self._incident_investigations.values()
+            if investigation.incident_id == incident_id
+        ]
+
+        return sorted(
+            investigations,
+            key=lambda investigation: (
+                investigation.started_at,
+                investigation.investigation_id,
+            ),
+        )
+
+    def save_investigation_evidence(
+        self,
+        evidence: InvestigationEvidenceRecord,
+    ) -> InvestigationEvidenceRecord:
+        key = (
+            evidence.investigation_id,
+            evidence.evidence_id,
+        )
+
+        self._investigation_evidence[
+            key
+        ] = evidence
+
+        return evidence
+
+    def get_investigation_evidence(
+        self,
+        investigation_id: str,
+        evidence_id: str,
+    ) -> InvestigationEvidenceRecord | None:
+        return self._investigation_evidence.get(
+            (
+                investigation_id,
+                evidence_id,
+            )
+        )
+
+    def list_investigation_evidence(
+        self,
+        investigation_id: str,
+    ) -> list[InvestigationEvidenceRecord]:
+        evidence = [
+            record
+            for (
+                stored_investigation_id,
+                _,
+            ), record
+            in self._investigation_evidence.items()
+            if (
+                stored_investigation_id
+                == investigation_id
+            )
+        ]
+
+        return sorted(
+            evidence,
+            key=lambda record: (
+                record.captured_at,
+                record.evidence_id,
+            ),
+        )
 
     def save(
         self,
@@ -197,6 +430,107 @@ class SQLiteInvestigationStore:
         with self._connect() as connection:
             connection.execute(
                 """
+                CREATE TABLE IF NOT EXISTS incidents (
+                    incident_id TEXT PRIMARY KEY,
+                    payload TEXT NOT NULL
+                )
+                """
+            )
+
+            connection.execute(
+                """
+                CREATE TABLE IF NOT EXISTS incident_alerts (
+                    alert_id TEXT PRIMARY KEY,
+                    incident_id TEXT NOT NULL,
+                    observed_at TEXT NOT NULL,
+                    payload TEXT NOT NULL,
+                    FOREIGN KEY (incident_id)
+                        REFERENCES incidents(incident_id)
+                        ON DELETE CASCADE
+                )
+                """
+            )
+
+            connection.execute(
+                """
+                CREATE TABLE IF NOT EXISTS incident_investigations (
+                    investigation_id TEXT PRIMARY KEY,
+                    incident_id TEXT NOT NULL,
+                    primary_alert_id TEXT NOT NULL,
+                    started_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    payload TEXT NOT NULL,
+                    FOREIGN KEY (incident_id)
+                        REFERENCES incidents(incident_id)
+                        ON DELETE CASCADE,
+                    FOREIGN KEY (primary_alert_id)
+                        REFERENCES incident_alerts(alert_id)
+                )
+                """
+            )
+
+            connection.execute(
+                """
+                CREATE INDEX IF NOT EXISTS
+                idx_incident_investigations_incident_id
+                ON incident_investigations(incident_id)
+                """
+            )
+
+            connection.execute(
+                """
+                CREATE INDEX IF NOT EXISTS
+                idx_incident_investigations_started_at
+                ON incident_investigations(started_at)
+                """
+            )
+
+            connection.execute(
+                """
+                CREATE TABLE IF NOT EXISTS investigation_evidence (
+                    investigation_id TEXT NOT NULL,
+                    evidence_id TEXT NOT NULL,
+                    captured_at TEXT NOT NULL,
+                    payload TEXT NOT NULL,
+                    PRIMARY KEY (
+                        investigation_id,
+                        evidence_id
+                    ),
+                    FOREIGN KEY (investigation_id)
+                        REFERENCES incident_investigations(
+                            investigation_id
+                        )
+                        ON DELETE CASCADE
+                )
+                """
+            )
+
+            connection.execute(
+                """
+                CREATE INDEX IF NOT EXISTS
+                idx_investigation_evidence_captured_at
+                ON investigation_evidence(captured_at)
+                """
+            )
+
+            connection.execute(
+                """
+                CREATE INDEX IF NOT EXISTS
+                idx_incident_alerts_incident_id
+                ON incident_alerts(incident_id)
+                """
+            )
+
+            connection.execute(
+                """
+                CREATE INDEX IF NOT EXISTS
+                idx_incident_alerts_observed_at
+                ON incident_alerts(observed_at)
+                """
+            )
+
+            connection.execute(
+                """
                 CREATE TABLE IF NOT EXISTS investigations (
                     alert_id TEXT PRIMARY KEY,
                     payload TEXT NOT NULL
@@ -213,6 +547,295 @@ class SQLiteInvestigationStore:
                 )
                 """
             )
+
+    def save_incident(
+        self,
+        incident: IncidentRecord,
+    ) -> IncidentRecord:
+        payload = incident.model_dump_json()
+
+        with self._connect() as connection:
+            connection.execute(
+                """
+                INSERT OR REPLACE INTO incidents (
+                    incident_id,
+                    payload
+                )
+                VALUES (?, ?)
+                """,
+                (
+                    incident.incident_id,
+                    payload,
+                ),
+            )
+
+        return incident
+
+    def get_incident(
+        self,
+        incident_id: str,
+    ) -> IncidentRecord | None:
+        with self._connect() as connection:
+            row = connection.execute(
+                """
+                SELECT payload
+                FROM incidents
+                WHERE incident_id = ?
+                """,
+                (
+                    incident_id,
+                ),
+            ).fetchone()
+
+        if row is None:
+            return None
+
+        return IncidentRecord.model_validate_json(
+            row[0]
+        )
+
+    def save_incident_alert(
+        self,
+        alert: IncidentAlertRecord,
+    ) -> IncidentAlertRecord:
+        payload = alert.model_dump_json()
+
+        with self._connect() as connection:
+            connection.execute(
+                """
+                INSERT OR REPLACE INTO incident_alerts (
+                    alert_id,
+                    incident_id,
+                    observed_at,
+                    payload
+                )
+                VALUES (?, ?, ?, ?)
+                """,
+                (
+                    alert.alert_id,
+                    alert.incident_id,
+                    alert.observed_at.isoformat(),
+                    payload,
+                ),
+            )
+
+        return alert
+
+    def get_incident_alert(
+        self,
+        alert_id: str,
+    ) -> IncidentAlertRecord | None:
+        with self._connect() as connection:
+            row = connection.execute(
+                """
+                SELECT payload
+                FROM incident_alerts
+                WHERE alert_id = ?
+                """,
+                (
+                    alert_id,
+                ),
+            ).fetchone()
+
+        if row is None:
+            return None
+
+        return IncidentAlertRecord.model_validate_json(
+            row[0]
+        )
+
+    def list_incident_alerts(
+        self,
+        incident_id: str,
+    ) -> list[IncidentAlertRecord]:
+        with self._connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT payload
+                FROM incident_alerts
+                WHERE incident_id = ?
+                ORDER BY observed_at ASC, alert_id ASC
+                """,
+                (
+                    incident_id,
+                ),
+            ).fetchall()
+
+        return [
+            IncidentAlertRecord.model_validate_json(
+                row[0]
+            )
+            for row in rows
+        ]
+
+    def save_incident_investigation(
+        self,
+        investigation: IncidentInvestigationRecord,
+    ) -> IncidentInvestigationRecord:
+        payload = (
+            investigation.model_dump_json()
+        )
+
+        with self._connect() as connection:
+            connection.execute(
+                """
+                INSERT OR REPLACE INTO incident_investigations (
+                    investigation_id,
+                    incident_id,
+                    primary_alert_id,
+                    started_at,
+                    updated_at,
+                    payload
+                )
+                VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    investigation.investigation_id,
+                    investigation.incident_id,
+                    investigation.primary_alert_id,
+                    investigation.started_at.isoformat(),
+                    investigation.updated_at.isoformat(),
+                    payload,
+                ),
+            )
+
+        return investigation
+
+    def get_incident_investigation(
+        self,
+        investigation_id: str,
+    ) -> IncidentInvestigationRecord | None:
+        with self._connect() as connection:
+            row = connection.execute(
+                """
+                SELECT payload
+                FROM incident_investigations
+                WHERE investigation_id = ?
+                """,
+                (
+                    investigation_id,
+                ),
+            ).fetchone()
+
+        if row is None:
+            return None
+
+        return (
+            IncidentInvestigationRecord
+            .model_validate_json(
+                row[0]
+            )
+        )
+
+    def list_incident_investigations(
+        self,
+        incident_id: str,
+    ) -> list[IncidentInvestigationRecord]:
+        with self._connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT payload
+                FROM incident_investigations
+                WHERE incident_id = ?
+                ORDER BY started_at ASC, investigation_id ASC
+                """,
+                (
+                    incident_id,
+                ),
+            ).fetchall()
+
+        return [
+            (
+                IncidentInvestigationRecord
+                .model_validate_json(
+                    row[0]
+                )
+            )
+            for row in rows
+        ]
+
+    def save_investigation_evidence(
+        self,
+        evidence: InvestigationEvidenceRecord,
+    ) -> InvestigationEvidenceRecord:
+        payload = evidence.model_dump_json()
+
+        with self._connect() as connection:
+            connection.execute(
+                """
+                INSERT OR REPLACE INTO investigation_evidence (
+                    investigation_id,
+                    evidence_id,
+                    captured_at,
+                    payload
+                )
+                VALUES (?, ?, ?, ?)
+                """,
+                (
+                    evidence.investigation_id,
+                    evidence.evidence_id,
+                    evidence.captured_at.isoformat(),
+                    payload,
+                ),
+            )
+
+        return evidence
+
+    def get_investigation_evidence(
+        self,
+        investigation_id: str,
+        evidence_id: str,
+    ) -> InvestigationEvidenceRecord | None:
+        with self._connect() as connection:
+            row = connection.execute(
+                """
+                SELECT payload
+                FROM investigation_evidence
+                WHERE investigation_id = ?
+                AND evidence_id = ?
+                """,
+                (
+                    investigation_id,
+                    evidence_id,
+                ),
+            ).fetchone()
+
+        if row is None:
+            return None
+
+        return (
+            InvestigationEvidenceRecord
+            .model_validate_json(
+                row[0]
+            )
+        )
+
+    def list_investigation_evidence(
+        self,
+        investigation_id: str,
+    ) -> list[InvestigationEvidenceRecord]:
+        with self._connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT payload
+                FROM investigation_evidence
+                WHERE investigation_id = ?
+                ORDER BY captured_at ASC, evidence_id ASC
+                """,
+                (
+                    investigation_id,
+                ),
+            ).fetchall()
+
+        return [
+            (
+                InvestigationEvidenceRecord
+                .model_validate_json(
+                    row[0]
+                )
+            )
+            for row in rows
+        ]
 
     def save(
         self,
@@ -403,6 +1026,107 @@ class PostgresInvestigationStore:
         ) as connection:
             connection.execute(
                 """
+                CREATE TABLE IF NOT EXISTS incidents (
+                    incident_id TEXT PRIMARY KEY,
+                    payload TEXT NOT NULL
+                )
+                """
+            )
+
+            connection.execute(
+                """
+                CREATE TABLE IF NOT EXISTS incident_alerts (
+                    alert_id TEXT PRIMARY KEY,
+                    incident_id TEXT NOT NULL,
+                    observed_at TIMESTAMPTZ NOT NULL,
+                    payload TEXT NOT NULL,
+                    FOREIGN KEY (incident_id)
+                        REFERENCES incidents(incident_id)
+                        ON DELETE CASCADE
+                )
+                """
+            )
+
+            connection.execute(
+                """
+                CREATE TABLE IF NOT EXISTS incident_investigations (
+                    investigation_id TEXT PRIMARY KEY,
+                    incident_id TEXT NOT NULL,
+                    primary_alert_id TEXT NOT NULL,
+                    started_at TIMESTAMPTZ NOT NULL,
+                    updated_at TIMESTAMPTZ NOT NULL,
+                    payload TEXT NOT NULL,
+                    FOREIGN KEY (incident_id)
+                        REFERENCES incidents(incident_id)
+                        ON DELETE CASCADE,
+                    FOREIGN KEY (primary_alert_id)
+                        REFERENCES incident_alerts(alert_id)
+                )
+                """
+            )
+
+            connection.execute(
+                """
+                CREATE INDEX IF NOT EXISTS
+                idx_incident_investigations_incident_id
+                ON incident_investigations(incident_id)
+                """
+            )
+
+            connection.execute(
+                """
+                CREATE INDEX IF NOT EXISTS
+                idx_incident_investigations_started_at
+                ON incident_investigations(started_at)
+                """
+            )
+
+            connection.execute(
+                """
+                CREATE TABLE IF NOT EXISTS investigation_evidence (
+                    investigation_id TEXT NOT NULL,
+                    evidence_id TEXT NOT NULL,
+                    captured_at TIMESTAMPTZ NOT NULL,
+                    payload TEXT NOT NULL,
+                    PRIMARY KEY (
+                        investigation_id,
+                        evidence_id
+                    ),
+                    FOREIGN KEY (investigation_id)
+                        REFERENCES incident_investigations(
+                            investigation_id
+                        )
+                        ON DELETE CASCADE
+                )
+                """
+            )
+
+            connection.execute(
+                """
+                CREATE INDEX IF NOT EXISTS
+                idx_investigation_evidence_captured_at
+                ON investigation_evidence(captured_at)
+                """
+            )
+
+            connection.execute(
+                """
+                CREATE INDEX IF NOT EXISTS
+                idx_incident_alerts_incident_id
+                ON incident_alerts(incident_id)
+                """
+            )
+
+            connection.execute(
+                """
+                CREATE INDEX IF NOT EXISTS
+                idx_incident_alerts_observed_at
+                ON incident_alerts(observed_at)
+                """
+            )
+
+            connection.execute(
+                """
                 CREATE TABLE IF NOT EXISTS investigations (
                     alert_id TEXT PRIMARY KEY,
                     payload TEXT NOT NULL
@@ -419,6 +1143,351 @@ class PostgresInvestigationStore:
                 )
                 """
             )
+
+    def save_incident(
+        self,
+        incident: IncidentRecord,
+    ) -> IncidentRecord:
+        payload = (
+            incident.model_dump_json()
+        )
+
+        with self._connect(
+            self.database_url
+        ) as connection:
+            connection.execute(
+                """
+                INSERT INTO incidents (
+                    incident_id,
+                    payload
+                )
+                VALUES (%s, %s)
+                ON CONFLICT (incident_id)
+                DO UPDATE SET
+                    payload = EXCLUDED.payload
+                """,
+                (
+                    incident.incident_id,
+                    payload,
+                ),
+            )
+
+        return incident
+
+    def get_incident(
+        self,
+        incident_id: str,
+    ) -> IncidentRecord | None:
+        with self._connect(
+            self.database_url
+        ) as connection:
+            row = connection.execute(
+                """
+                SELECT payload
+                FROM incidents
+                WHERE incident_id = %s
+                """,
+                (
+                    incident_id,
+                ),
+            ).fetchone()
+
+        if row is None:
+            return None
+
+        return (
+            IncidentRecord
+            .model_validate_json(
+                row[0]
+            )
+        )
+
+    def save_incident_alert(
+        self,
+        alert: IncidentAlertRecord,
+    ) -> IncidentAlertRecord:
+        payload = (
+            alert.model_dump_json()
+        )
+
+        with self._connect(
+            self.database_url
+        ) as connection:
+            connection.execute(
+                """
+                INSERT INTO incident_alerts (
+                    alert_id,
+                    incident_id,
+                    observed_at,
+                    payload
+                )
+                VALUES (%s, %s, %s, %s)
+                ON CONFLICT (alert_id)
+                DO UPDATE SET
+                    incident_id = EXCLUDED.incident_id,
+                    observed_at = EXCLUDED.observed_at,
+                    payload = EXCLUDED.payload
+                """,
+                (
+                    alert.alert_id,
+                    alert.incident_id,
+                    alert.observed_at,
+                    payload,
+                ),
+            )
+
+        return alert
+
+    def get_incident_alert(
+        self,
+        alert_id: str,
+    ) -> IncidentAlertRecord | None:
+        with self._connect(
+            self.database_url
+        ) as connection:
+            row = connection.execute(
+                """
+                SELECT payload
+                FROM incident_alerts
+                WHERE alert_id = %s
+                """,
+                (
+                    alert_id,
+                ),
+            ).fetchone()
+
+        if row is None:
+            return None
+
+        return (
+            IncidentAlertRecord
+            .model_validate_json(
+                row[0]
+            )
+        )
+
+    def list_incident_alerts(
+        self,
+        incident_id: str,
+    ) -> list[IncidentAlertRecord]:
+        with self._connect(
+            self.database_url
+        ) as connection:
+            rows = connection.execute(
+                """
+                SELECT payload
+                FROM incident_alerts
+                WHERE incident_id = %s
+                ORDER BY observed_at ASC, alert_id ASC
+                """,
+                (
+                    incident_id,
+                ),
+            ).fetchall()
+
+        return [
+            IncidentAlertRecord.model_validate_json(
+                row[0]
+            )
+            for row in rows
+        ]
+
+    def save_incident_investigation(
+        self,
+        investigation: IncidentInvestigationRecord,
+    ) -> IncidentInvestigationRecord:
+        payload = (
+            investigation.model_dump_json()
+        )
+
+        with self._connect(
+            self.database_url
+        ) as connection:
+            connection.execute(
+                """
+                INSERT INTO incident_investigations (
+                    investigation_id,
+                    incident_id,
+                    primary_alert_id,
+                    started_at,
+                    updated_at,
+                    payload
+                )
+                VALUES (%s, %s, %s, %s, %s, %s)
+                ON CONFLICT (investigation_id)
+                DO UPDATE SET
+                    incident_id = EXCLUDED.incident_id,
+                    primary_alert_id = EXCLUDED.primary_alert_id,
+                    started_at = EXCLUDED.started_at,
+                    updated_at = EXCLUDED.updated_at,
+                    payload = EXCLUDED.payload
+                """,
+                (
+                    investigation.investigation_id,
+                    investigation.incident_id,
+                    investigation.primary_alert_id,
+                    investigation.started_at,
+                    investigation.updated_at,
+                    payload,
+                ),
+            )
+
+        return investigation
+
+    def get_incident_investigation(
+        self,
+        investigation_id: str,
+    ) -> IncidentInvestigationRecord | None:
+        with self._connect(
+            self.database_url
+        ) as connection:
+            row = connection.execute(
+                """
+                SELECT payload
+                FROM incident_investigations
+                WHERE investigation_id = %s
+                """,
+                (
+                    investigation_id,
+                ),
+            ).fetchone()
+
+        if row is None:
+            return None
+
+        return (
+            IncidentInvestigationRecord
+            .model_validate_json(
+                row[0]
+            )
+        )
+
+    def list_incident_investigations(
+        self,
+        incident_id: str,
+    ) -> list[IncidentInvestigationRecord]:
+        with self._connect(
+            self.database_url
+        ) as connection:
+            rows = connection.execute(
+                """
+                SELECT payload
+                FROM incident_investigations
+                WHERE incident_id = %s
+                ORDER BY started_at ASC, investigation_id ASC
+                """,
+                (
+                    incident_id,
+                ),
+            ).fetchall()
+
+        return [
+            (
+                IncidentInvestigationRecord
+                .model_validate_json(
+                    row[0]
+                )
+            )
+            for row in rows
+        ]
+
+    def save_investigation_evidence(
+        self,
+        evidence: InvestigationEvidenceRecord,
+    ) -> InvestigationEvidenceRecord:
+        payload = (
+            evidence.model_dump_json()
+        )
+
+        with self._connect(
+            self.database_url
+        ) as connection:
+            connection.execute(
+                """
+                INSERT INTO investigation_evidence (
+                    investigation_id,
+                    evidence_id,
+                    captured_at,
+                    payload
+                )
+                VALUES (%s, %s, %s, %s)
+                ON CONFLICT (
+                    investigation_id,
+                    evidence_id
+                )
+                DO UPDATE SET
+                    captured_at = EXCLUDED.captured_at,
+                    payload = EXCLUDED.payload
+                """,
+                (
+                    evidence.investigation_id,
+                    evidence.evidence_id,
+                    evidence.captured_at,
+                    payload,
+                ),
+            )
+
+        return evidence
+
+    def get_investigation_evidence(
+        self,
+        investigation_id: str,
+        evidence_id: str,
+    ) -> InvestigationEvidenceRecord | None:
+        with self._connect(
+            self.database_url
+        ) as connection:
+            row = connection.execute(
+                """
+                SELECT payload
+                FROM investigation_evidence
+                WHERE investigation_id = %s
+                AND evidence_id = %s
+                """,
+                (
+                    investigation_id,
+                    evidence_id,
+                ),
+            ).fetchone()
+
+        if row is None:
+            return None
+
+        return (
+            InvestigationEvidenceRecord
+            .model_validate_json(
+                row[0]
+            )
+        )
+
+    def list_investigation_evidence(
+        self,
+        investigation_id: str,
+    ) -> list[InvestigationEvidenceRecord]:
+        with self._connect(
+            self.database_url
+        ) as connection:
+            rows = connection.execute(
+                """
+                SELECT payload
+                FROM investigation_evidence
+                WHERE investigation_id = %s
+                ORDER BY captured_at ASC, evidence_id ASC
+                """,
+                (
+                    investigation_id,
+                ),
+            ).fetchall()
+
+        return [
+            (
+                InvestigationEvidenceRecord
+                .model_validate_json(
+                    row[0]
+                )
+            )
+            for row in rows
+        ]
 
     def save(
         self,

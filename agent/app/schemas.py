@@ -225,6 +225,54 @@ class RiskAssessment(BaseModel):
 
     factors: list[RiskFactor]
 
+IncidentStatus = Literal[
+    "open",
+    "contained",
+    "resolved",
+    "closed",
+]
+
+
+class IncidentRecord(BaseModel):
+    incident_id: str = Field(
+        min_length=1,
+    )
+
+    title: str = Field(
+        min_length=1,
+    )
+
+    status: IncidentStatus
+
+    created_at: datetime
+
+    updated_at: datetime
+
+class IncidentAlertRecord(BaseModel):
+    incident_id: str = Field(
+        min_length=1,
+    )
+
+    alert_id: str = Field(
+        min_length=1,
+    )
+
+    source: Literal[
+        "manual",
+        "mock",
+        "wazuh",
+        "dataset",
+    ]
+
+    event_text: str = Field(
+        min_length=1,
+    )
+
+    metadata: dict[str, Any] = Field(
+        default_factory=dict,
+    )
+
+    observed_at: datetime
 
 AllowedAction = Literal[
     "block_ip",
@@ -235,6 +283,396 @@ AllowedAction = Literal[
     "record_response",
 ]
 
+IncidentInvestigationStatus = Literal[
+    "open",
+    "investigating",
+    "complete",
+    "failed",
+]
+
+
+class IncidentInvestigationRecord(BaseModel):
+    investigation_id: str = Field(
+        min_length=1,
+    )
+
+    incident_id: str = Field(
+        min_length=1,
+    )
+
+    primary_alert_id: str = Field(
+        min_length=1,
+    )
+
+    status: IncidentInvestigationStatus
+
+    started_at: datetime
+
+    updated_at: datetime
+
+    completed_at: datetime | None = None
+
+
+class InvestigationEvidenceRecord(BaseModel):
+    investigation_id: str = Field(
+        min_length=1,
+    )
+
+    evidence_id: EvidenceReference
+
+    source: EvidenceSource
+
+    content: str = Field(
+        min_length=1,
+    )
+
+    captured_at: datetime
+
+    @field_validator("evidence_id")
+    @classmethod
+    def check_evidence_id(
+        cls,
+        value: str,
+    ) -> str:
+        return validate_evidence_reference(
+            value
+        )
+
+PolicyOutcome = Literal[
+    "AUTO_ALLOWED",
+    "APPROVAL_REQUIRED",
+    "NOT_ALLOWED",
+]
+
+
+ApprovalStatus = Literal[
+    "PENDING",
+    "APPROVED",
+    "REJECTED",
+    "EXPIRED",
+    "CANCELLED",
+]
+
+
+ActionTargetType = Literal[
+    "ip",
+    "account",
+    "endpoint",
+    "network",
+    "other",
+]
+
+
+ActionBlastRadius = Literal[
+    "single",
+    "limited",
+    "broad",
+    "unknown",
+]
+
+
+ResponseActionStatus = Literal[
+    "planned",
+    "started",
+    "completed",
+    "failed",
+    "blocked",
+]
+
+
+class IncidentRiskAssessmentRecord(BaseModel):
+    risk_assessment_id: str = Field(
+        min_length=1,
+    )
+
+    incident_id: str = Field(
+        min_length=1,
+    )
+
+    investigation_id: str = Field(
+        min_length=1,
+    )
+
+    score: int = Field(
+        ge=0,
+        le=100,
+    )
+
+    band: RiskBand
+
+    factors: list[RiskFactor]
+
+    assessed_at: datetime
+
+
+class ProposedActionRecord(BaseModel):
+    proposed_action_id: str = Field(
+        min_length=1,
+    )
+
+    incident_id: str = Field(
+        min_length=1,
+    )
+
+    investigation_id: str = Field(
+        min_length=1,
+    )
+
+    action_type: str = Field(
+        min_length=1,
+    )
+
+    target_type: ActionTargetType
+
+    target: str = Field(
+        min_length=1,
+    )
+
+    parameters: dict[str, Any] = Field(
+        default_factory=dict,
+    )
+
+    reversible: bool
+
+    rollback_action_type: str | None = None
+
+    rollback_parameters: dict[str, Any] = Field(
+        default_factory=dict,
+    )
+
+    reason: str = Field(
+        min_length=1,
+    )
+
+    proposed_at: datetime
+
+
+class ActionRiskAssessmentRecord(BaseModel):
+    action_risk_id: str = Field(
+        min_length=1,
+    )
+
+    proposed_action_id: str = Field(
+        min_length=1,
+    )
+
+    score: int = Field(
+        ge=0,
+        le=100,
+    )
+
+    band: RiskBand
+
+    blast_radius: ActionBlastRadius
+
+    reversible: bool
+
+    protected_target: bool
+
+    requires_approval: bool
+
+    reasons: list[str]
+
+    assessed_at: datetime
+
+
+class IncidentPolicyDecisionRecord(BaseModel):
+    decision_id: str = Field(
+        min_length=1,
+    )
+
+    incident_id: str = Field(
+        min_length=1,
+    )
+
+    proposed_action_id: str = Field(
+        min_length=1,
+    )
+
+    policy_id: str = Field(
+        min_length=1,
+    )
+
+    outcome: PolicyOutcome
+
+    reason: str = Field(
+        min_length=1,
+    )
+
+    decided_at: datetime
+
+
+class ApprovalRequestRecord(BaseModel):
+    approval_id: str = Field(
+        min_length=1,
+    )
+
+    incident_id: str = Field(
+        min_length=1,
+    )
+
+    proposed_action_id: str = Field(
+        min_length=1,
+    )
+
+    policy_decision_id: str = Field(
+        min_length=1,
+    )
+
+    action_fingerprint: str = Field(
+        min_length=1,
+    )
+
+    status: ApprovalStatus
+
+    requested_by: str = Field(
+        min_length=1,
+    )
+
+    requested_at: datetime
+
+    expires_at: datetime | None = None
+
+    decided_at: datetime | None = None
+
+    decided_by: str | None = None
+
+    decision_reason: str | None = None
+
+
+class ResponseActionRecord(BaseModel):
+    response_action_id: str = Field(
+        min_length=1,
+    )
+
+    incident_id: str = Field(
+        min_length=1,
+    )
+
+    proposed_action_id: str = Field(
+        min_length=1,
+    )
+
+    approval_id: str | None = None
+
+    executor: Literal[
+        "cortex",
+    ]
+
+    status: ResponseActionStatus
+
+    created_at: datetime
+
+
+class ActionExecutionResultRecord(BaseModel):
+    action_result_id: str = Field(
+        min_length=1,
+    )
+
+    response_action_id: str = Field(
+        min_length=1,
+    )
+
+    status: Literal[
+        "completed",
+        "failed",
+    ]
+
+    message: str = Field(
+        min_length=1,
+    )
+
+    details: dict[str, Any] = Field(
+        default_factory=dict,
+    )
+
+    recorded_at: datetime
+
+IncidentCaseStatus = Literal[
+    "open",
+    "investigating",
+    "contained",
+    "resolved",
+    "closed",
+]
+
+
+IncidentAuditEntityType = Literal[
+    "incident",
+    "alert",
+    "investigation",
+    "evidence",
+    "incident_risk",
+    "proposed_action",
+    "action_risk",
+    "policy_decision",
+    "approval_request",
+    "response_action",
+    "action_result",
+    "case",
+    "verification",
+    "rollback",
+]
+
+
+class IncidentCaseRecord(BaseModel):
+    case_id: str = Field(
+        min_length=1,
+    )
+
+    incident_id: str = Field(
+        min_length=1,
+    )
+
+    investigation_id: str | None = None
+
+    policy_decision_id: str | None = None
+
+    status: IncidentCaseStatus
+
+    reason: str = Field(
+        min_length=1,
+    )
+
+    created_at: datetime
+
+    updated_at: datetime
+
+
+class IncidentAuditRecord(BaseModel):
+    audit_id: str = Field(
+        min_length=1,
+    )
+
+    incident_id: str = Field(
+        min_length=1,
+    )
+
+    event_type: str = Field(
+        min_length=1,
+    )
+
+    entity_type: IncidentAuditEntityType
+
+    entity_id: str = Field(
+        min_length=1,
+    )
+
+    message: str = Field(
+        min_length=1,
+    )
+
+    details: dict[str, Any] = Field(
+        default_factory=dict,
+    )
+
+    timestamp: datetime = Field(
+        default_factory=lambda: (
+            datetime.now(
+                timezone.utc
+            )
+        )
+    )
 
 class PolicyDecision(BaseModel):
     policy_id: str

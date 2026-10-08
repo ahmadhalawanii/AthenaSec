@@ -7,7 +7,10 @@ from datetime import (
 from pathlib import Path
 from typing import Protocol
 
-from app.schemas import AuditRecord
+from app.schemas import (
+    AuditRecord,
+    IncidentAuditRecord,
+)
 from psycopg.errors import UniqueViolation
 
 class AuditStore(Protocol):
@@ -29,6 +32,24 @@ class AuditStore(Protocol):
     ) -> list[AuditRecord]:
         ...
 
+    def save_incident_event(
+        self,
+        record: IncidentAuditRecord,
+    ) -> IncidentAuditRecord:
+        ...
+
+    def get_incident_event(
+        self,
+        audit_id: str,
+    ) -> IncidentAuditRecord | None:
+        ...
+
+    def list_by_incident_id(
+        self,
+        incident_id: str,
+    ) -> list[IncidentAuditRecord]:
+        ...
+
 
 class InMemoryAuditStore:
     def __init__(self):
@@ -36,6 +57,60 @@ class InMemoryAuditStore:
             str,
             AuditRecord,
         ] = {}
+        self._incident_records: dict[
+            str,
+            IncidentAuditRecord,
+        ] = {}
+
+    def save_incident_event(
+        self,
+        record: IncidentAuditRecord,
+    ) -> IncidentAuditRecord:
+        if (
+            record.audit_id
+            in self._incident_records
+        ):
+            raise ValueError(
+                "Audit record with audit_id "
+                f"{record.audit_id} "
+                "already exists."
+            )
+
+        self._incident_records[
+            record.audit_id
+        ] = record
+
+        return record
+
+    def get_incident_event(
+        self,
+        audit_id: str,
+    ) -> IncidentAuditRecord | None:
+        return self._incident_records.get(
+            audit_id
+        )
+
+    def list_by_incident_id(
+        self,
+        incident_id: str,
+    ) -> list[IncidentAuditRecord]:
+        records = [
+            record
+            for record
+            in self._incident_records.values()
+            if (
+                record.incident_id
+                == incident_id
+            )
+        ]
+
+        return sorted(
+            records,
+            key=lambda record: (
+                record.timestamp,
+                record.audit_id,
+            ),
+        )
 
     def save(
         self,
@@ -171,6 +246,35 @@ class SQLiteAuditStore:
                 )
                 """
             )
+            connection.execute(
+                """
+                CREATE TABLE IF NOT EXISTS incident_audit_events (
+                    audit_id TEXT PRIMARY KEY,
+                    incident_id TEXT NOT NULL,
+                    event_type TEXT NOT NULL,
+                    entity_type TEXT NOT NULL,
+                    entity_id TEXT NOT NULL,
+                    timestamp TEXT NOT NULL,
+                    payload TEXT NOT NULL
+                )
+                """
+            )
+
+            connection.execute(
+                """
+                CREATE INDEX IF NOT EXISTS
+                idx_incident_audit_events_incident_id
+                ON incident_audit_events(incident_id)
+                """
+            )
+
+            connection.execute(
+                """
+                CREATE INDEX IF NOT EXISTS
+                idx_incident_audit_events_timestamp
+                ON incident_audit_events(timestamp)
+                """
+            )
 
             self._migrate_legacy_table(
                 connection
@@ -191,6 +295,99 @@ class SQLiteAuditStore:
                 ON audit_records(timestamp)
                 """
             )
+
+    def save_incident_event(
+        self,
+        record: IncidentAuditRecord,
+    ) -> IncidentAuditRecord:
+        payload = (
+            record.model_dump_json()
+        )
+
+        try:
+            with self._connect() as connection:
+                connection.execute(
+                    """
+                    INSERT INTO incident_audit_events (
+                        audit_id,
+                        incident_id,
+                        event_type,
+                        entity_type,
+                        entity_id,
+                        timestamp,
+                        payload
+                    )
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        record.audit_id,
+                        record.incident_id,
+                        record.event_type,
+                        record.entity_type,
+                        record.entity_id,
+                        record.timestamp.isoformat(),
+                        payload,
+                    ),
+                )
+
+        except sqlite3.IntegrityError as exc:
+            raise ValueError(
+                "Audit record with audit_id "
+                f"{record.audit_id} "
+                "already exists."
+            ) from exc
+
+        return record
+
+    def get_incident_event(
+        self,
+        audit_id: str,
+    ) -> IncidentAuditRecord | None:
+        with self._connect() as connection:
+            row = connection.execute(
+                """
+                SELECT payload
+                FROM incident_audit_events
+                WHERE audit_id = ?
+                """,
+                (
+                    audit_id,
+                ),
+            ).fetchone()
+
+        if row is None:
+            return None
+
+        return (
+            IncidentAuditRecord
+            .model_validate_json(
+                row[0]
+            )
+        )
+
+    def list_by_incident_id(
+        self,
+        incident_id: str,
+    ) -> list[IncidentAuditRecord]:
+        with self._connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT payload
+                FROM incident_audit_events
+                WHERE incident_id = ?
+                ORDER BY timestamp ASC, audit_id ASC
+                """,
+                (
+                    incident_id,
+                ),
+            ).fetchall()
+
+        return [
+            IncidentAuditRecord.model_validate_json(
+                row[0]
+            )
+            for row in rows
+        ]
 
     def save(
         self,
@@ -309,6 +506,36 @@ class PostgresAuditStore:
 
             connection.execute(
                 """
+                CREATE TABLE IF NOT EXISTS incident_audit_events (
+                    audit_id TEXT PRIMARY KEY,
+                    incident_id TEXT NOT NULL,
+                    event_type TEXT NOT NULL,
+                    entity_type TEXT NOT NULL,
+                    entity_id TEXT NOT NULL,
+                    timestamp TIMESTAMPTZ NOT NULL,
+                    payload TEXT NOT NULL
+                )
+                """
+            )
+
+            connection.execute(
+                """
+                CREATE INDEX IF NOT EXISTS
+                idx_incident_audit_events_incident_id
+                ON incident_audit_events(incident_id)
+                """
+            )
+
+            connection.execute(
+                """
+                CREATE INDEX IF NOT EXISTS
+                idx_incident_audit_events_timestamp
+                ON incident_audit_events(timestamp)
+                """
+            )
+
+            connection.execute(
+                """
                 CREATE INDEX IF NOT EXISTS
                 idx_audit_records_alert_id
                 ON audit_records(alert_id)
@@ -322,6 +549,105 @@ class PostgresAuditStore:
                 ON audit_records(timestamp)
                 """
             )
+
+    def save_incident_event(
+        self,
+        record: IncidentAuditRecord,
+    ) -> IncidentAuditRecord:
+        payload = (
+            record.model_dump_json()
+        )
+
+        try:
+            with self._connect(
+                self.database_url
+            ) as connection:
+                connection.execute(
+                    """
+                    INSERT INTO incident_audit_events (
+                        audit_id,
+                        incident_id,
+                        event_type,
+                        entity_type,
+                        entity_id,
+                        timestamp,
+                        payload
+                    )
+                    VALUES (%s, %s, %s, %s, %s, %s, %s)
+                    """,
+                    (
+                        record.audit_id,
+                        record.incident_id,
+                        record.event_type,
+                        record.entity_type,
+                        record.entity_id,
+                        record.timestamp,
+                        payload,
+                    ),
+                )
+
+        except UniqueViolation as exc:
+            raise ValueError(
+                "Audit record with audit_id "
+                f"{record.audit_id} "
+                "already exists."
+            ) from exc
+
+        return record
+
+    def get_incident_event(
+        self,
+        audit_id: str,
+    ) -> IncidentAuditRecord | None:
+        with self._connect(
+            self.database_url
+        ) as connection:
+            row = connection.execute(
+                """
+                SELECT payload
+                FROM incident_audit_events
+                WHERE audit_id = %s
+                """,
+                (
+                    audit_id,
+                ),
+            ).fetchone()
+
+        if row is None:
+            return None
+
+        return (
+            IncidentAuditRecord
+            .model_validate_json(
+                row[0]
+            )
+        )
+
+    def list_by_incident_id(
+        self,
+        incident_id: str,
+    ) -> list[IncidentAuditRecord]:
+        with self._connect(
+            self.database_url
+        ) as connection:
+            rows = connection.execute(
+                """
+                SELECT payload
+                FROM incident_audit_events
+                WHERE incident_id = %s
+                ORDER BY timestamp ASC, audit_id ASC
+                """,
+                (
+                    incident_id,
+                ),
+            ).fetchall()
+
+        return [
+            IncidentAuditRecord.model_validate_json(
+                row[0]
+            )
+            for row in rows
+        ]
 
     def save(
         self,
