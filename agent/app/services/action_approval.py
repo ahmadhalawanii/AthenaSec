@@ -1,4 +1,4 @@
-﻿import hashlib
+import hashlib
 import json
 from datetime import datetime
 from typing import Literal
@@ -237,7 +237,7 @@ def decide_approval_request(
         approval.expires_at
         is not None
         and decided_at
-        > approval.expires_at
+        >= approval.expires_at
     ):
         return approval.model_copy(
             update={

@@ -86,6 +86,9 @@ from app.services.structured_action_policy import (
 from app.services.approval_resolution import (
     resolve_approval_request,
 )
+from app.services.structured_response_runtime import (
+    process_structured_response_action,
+)
 
 
 def _read_autonomous_response_enabled() -> bool:
@@ -123,6 +126,9 @@ def create_app(
     incident_response_store: (
         IncidentResponseStore | None
     ) = None,
+    structured_action_executor: Any = None,
+    structured_action_verifier: Any = None,
+    structured_rollback_executor: Any = None,
 ) -> FastAPI:
     app = FastAPI(
         title="AthenaSec Agent API",
@@ -233,6 +239,56 @@ def create_app(
         )
     )
 
+    structured_cortex_runtime = (
+        cortex_config
+        .build_structured_cortex_runtime_from_env()
+        if (
+            structured_action_executor
+            is None
+            or structured_rollback_executor
+            is None
+        )
+        else None
+    )
+
+    configured_structured_action_executor = (
+        structured_action_executor
+        if structured_action_executor
+        is not None
+        else (
+            structured_cortex_runtime.executor
+            if structured_cortex_runtime
+            is not None
+            else None
+        )
+    )
+
+    configured_structured_rollback_executor = (
+        structured_rollback_executor
+        if structured_rollback_executor
+        is not None
+        else (
+            structured_cortex_runtime
+            .rollback_executor
+            if structured_cortex_runtime
+            is not None
+            else None
+        )
+    )
+
+    configured_structured_action_verifier = (
+        structured_action_verifier
+    )
+
+    structured_runtime_configured = any(
+        component is not None
+        for component in (
+            configured_structured_action_executor,
+            configured_structured_action_verifier,
+            configured_structured_rollback_executor,
+        )
+    )
+
     def save_audit_event(
         alert_id: str,
         event_type: str,
@@ -273,6 +329,205 @@ def create_app(
         configured_audit_store.save_incident_event(
             record
         )
+
+    def run_structured_action_runtime(
+        *,
+        proposed_action,
+        policy_decision,
+        approval_id=None,
+    ):
+        outcome = (
+            process_structured_response_action(
+                store=(
+                    configured_incident_response_store
+                ),
+                proposed_action=(
+                    proposed_action
+                ),
+                policy_decision=(
+                    policy_decision
+                ),
+                executor=(
+                    configured_structured_action_executor
+                ),
+                verifier=(
+                    configured_structured_action_verifier
+                ),
+                rollback_executor=(
+                    configured_structured_rollback_executor
+                ),
+                autonomous_response_enabled=(
+                    configured_autonomous_response_enabled
+                ),
+                approval_id=approval_id,
+            )
+        )
+
+        execution = outcome.execution
+
+        if (
+            execution is not None
+            and execution.response_action
+            is not None
+        ):
+            response_action = (
+                execution.response_action
+            )
+
+            save_incident_audit_event(
+                incident_id=(
+                    proposed_action.incident_id
+                ),
+                event_type=(
+                    "structured_cortex_execution_"
+                    + response_action.status
+                ),
+                entity_type="response_action",
+                entity_id=(
+                    response_action
+                    .response_action_id
+                ),
+                message=(
+                    "Structured Cortex "
+                    "execution lifecycle "
+                    "was recorded."
+                ),
+                details={
+                    "proposed_action_id": (
+                        proposed_action
+                        .proposed_action_id
+                    ),
+                    "status": (
+                        response_action.status
+                    ),
+                    "approval_id": (
+                        response_action
+                        .approval_id
+                    ),
+                },
+            )
+
+        if (
+            execution is not None
+            and execution.action_result
+            is not None
+        ):
+            action_result = (
+                execution.action_result
+            )
+
+            save_incident_audit_event(
+                incident_id=(
+                    proposed_action.incident_id
+                ),
+                event_type=(
+                    "structured_cortex_result_recorded"
+                ),
+                entity_type="action_result",
+                entity_id=(
+                    action_result
+                    .action_result_id
+                ),
+                message=(
+                    "Structured Cortex "
+                    "execution result "
+                    "was persisted."
+                ),
+                details={
+                    "status": (
+                        action_result.status
+                    ),
+                },
+            )
+
+        if outcome.verification is not None:
+            verification = (
+                outcome.verification
+            )
+
+            save_incident_audit_event(
+                incident_id=(
+                    proposed_action.incident_id
+                ),
+                event_type=(
+                    "action_verification_completed"
+                ),
+                entity_type="verification",
+                entity_id=(
+                    verification.verification_id
+                ),
+                message=(
+                    "Post-action verification "
+                    "was completed."
+                ),
+                details={
+                    "status": (
+                        verification.status
+                    ),
+                    "proposed_action_id": (
+                        proposed_action
+                        .proposed_action_id
+                    ),
+                },
+            )
+
+        if outcome.rollback is not None:
+            rollback = outcome.rollback
+
+            save_incident_audit_event(
+                incident_id=(
+                    proposed_action.incident_id
+                ),
+                event_type=(
+                    "action_rollback_"
+                    + rollback.status
+                ),
+                entity_type="rollback",
+                entity_id=(
+                    rollback.rollback_id
+                ),
+                message=(
+                    "Structured response "
+                    "rollback was recorded."
+                ),
+                details={
+                    "status": rollback.status,
+                    "rollback_action_type": (
+                        rollback
+                        .rollback_action_type
+                    ),
+                    "target": (
+                        rollback.target
+                    ),
+                },
+            )
+
+        if outcome.incident_case is not None:
+            case = outcome.incident_case
+
+            save_incident_audit_event(
+                incident_id=(
+                    case.incident_id
+                ),
+                event_type="case_created",
+                entity_type="case",
+                entity_id=case.case_id,
+                message=(
+                    "AthenaSec created "
+                    "an incident case from "
+                    "the structured response "
+                    "runtime."
+                ),
+                details={
+                    "policy_decision_id": (
+                        case
+                        .policy_decision_id
+                    ),
+                    "reason": case.reason,
+                },
+            )
+
+        return outcome
 
     def run_investigation(
         alert: SecurityAlertInput,
@@ -986,6 +1241,56 @@ def create_app(
                                 case.reason
                             ),
                         },
+                    )
+
+            if (
+                structured_outcome[
+                    "outcome"
+                ]
+                == "auto_allowed"
+                and structured_runtime_configured
+            ):
+                actions_by_id = {
+                    action.proposed_action_id: (
+                        action
+                    )
+                    for action
+                    in investigation
+                    .proposed_actions
+                }
+
+                for decision in (
+                    investigation
+                    .action_policy_decisions
+                ):
+                    if (
+                        decision.outcome
+                        != "AUTO_ALLOWED"
+                    ):
+                        continue
+
+                    proposed_action = (
+                        actions_by_id.get(
+                            decision
+                            .proposed_action_id
+                        )
+                    )
+
+                    if proposed_action is None:
+                        raise ValueError(
+                            "Structured policy "
+                            "decision references "
+                            "a missing proposed "
+                            "action."
+                        )
+
+                    run_structured_action_runtime(
+                        proposed_action=(
+                            proposed_action
+                        ),
+                        policy_decision=(
+                            decision
+                        ),
                     )
 
         elif configured_response_executor is not None:
@@ -1769,6 +2074,51 @@ def create_app(
                         case.reason
                     ),
                 },
+            )
+
+        if (
+            approval.status == "APPROVED"
+            and structured_runtime_configured
+        ):
+            proposed_action = (
+                configured_incident_response_store
+                .get_proposed_action(
+                    approval
+                    .proposed_action_id
+                )
+            )
+
+            policy_decision = (
+                configured_incident_response_store
+                .get_policy_decision(
+                    approval
+                    .policy_decision_id
+                )
+            )
+
+            if (
+                proposed_action is None
+                or policy_decision is None
+            ):
+                raise HTTPException(
+                    status_code=409,
+                    detail=(
+                        "Approved action "
+                        "references missing "
+                        "runtime records."
+                    ),
+                )
+
+            run_structured_action_runtime(
+                proposed_action=(
+                    proposed_action
+                ),
+                policy_decision=(
+                    policy_decision
+                ),
+                approval_id=(
+                    approval.approval_id
+                ),
             )
 
         return approval

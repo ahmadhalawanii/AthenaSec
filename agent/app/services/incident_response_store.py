@@ -6,6 +6,8 @@ import psycopg
 
 from app.schemas import (
     ActionExecutionResultRecord,
+    ActionRollbackRecord,
+    ActionVerificationRecord,
     ActionRiskAssessmentRecord,
     ApprovalRequestRecord,
     IncidentCaseRecord,
@@ -100,6 +102,32 @@ class IncidentResponseStore(Protocol):
         record_id: str,
     ) -> ActionExecutionResultRecord | None:
         ...
+
+    def save_action_verification(
+        self,
+        record: ActionVerificationRecord,
+    ) -> ActionVerificationRecord:
+        ...
+
+    def get_action_verification(
+        self,
+        record_id: str,
+    ) -> ActionVerificationRecord | None:
+        ...
+
+
+    def save_action_rollback(
+        self,
+        record: ActionRollbackRecord,
+    ) -> ActionRollbackRecord:
+        ...
+
+    def get_action_rollback(
+        self,
+        record_id: str,
+    ) -> ActionRollbackRecord | None:
+        ...
+
     def save_incident_case(
         self,
         record: IncidentCaseRecord,
@@ -128,6 +156,8 @@ class InMemoryIncidentResponseStore:
         self._approval_requests = {}
         self._response_actions = {}
         self._action_results = {}
+        self._action_verifications = {}
+        self._action_rollbacks = {}
         self._incident_cases = {}
 
     def save_incident_risk(self, record):
@@ -205,6 +235,49 @@ class InMemoryIncidentResponseStore:
     def get_action_result(self, record_id):
         return self._action_results.get(
             record_id
+        )
+
+    def save_action_verification(
+        self,
+        record,
+    ):
+        self._action_verifications[
+            record.verification_id
+        ] = record
+
+        return record
+
+    def get_action_verification(
+        self,
+        record_id,
+    ):
+        return (
+            self._action_verifications
+            .get(
+                record_id
+            )
+        )
+
+
+    def save_action_rollback(
+        self,
+        record,
+    ):
+        self._action_rollbacks[
+            record.rollback_id
+        ] = record
+
+        return record
+
+    def get_action_rollback(
+        self,
+        record_id,
+    ):
+        return (
+            self._action_rollbacks
+            .get(
+                record_id
+            )
         )
 
     def save_incident_case(
@@ -347,6 +420,27 @@ class SQLiteIncidentResponseStore:
             CREATE TABLE IF NOT EXISTS action_results (
                 action_result_id TEXT PRIMARY KEY,
                 response_action_id TEXT NOT NULL,
+                status TEXT NOT NULL,
+                recorded_at TEXT NOT NULL,
+                payload TEXT NOT NULL
+            )
+            """,
+            """
+            CREATE TABLE IF NOT EXISTS action_verifications (
+                verification_id TEXT PRIMARY KEY,
+                response_action_id TEXT NOT NULL,
+                proposed_action_id TEXT NOT NULL,
+                status TEXT NOT NULL,
+                verified_at TEXT NOT NULL,
+                payload TEXT NOT NULL
+            )
+            """,
+            """
+            CREATE TABLE IF NOT EXISTS action_rollbacks (
+                rollback_id TEXT PRIMARY KEY,
+                response_action_id TEXT NOT NULL,
+                proposed_action_id TEXT NOT NULL,
+                verification_id TEXT NOT NULL,
                 status TEXT NOT NULL,
                 recorded_at TEXT NOT NULL,
                 payload TEXT NOT NULL
@@ -709,6 +803,85 @@ class SQLiteIncidentResponseStore:
             model=ActionExecutionResultRecord,
         )
 
+    def save_action_verification(
+        self,
+        record,
+    ):
+        self._save(
+            table="action_verifications",
+            id_column="verification_id",
+            id_value=(
+                record.verification_id
+            ),
+            columns=[
+                "response_action_id",
+                "proposed_action_id",
+                "status",
+                "verified_at",
+            ],
+            values=[
+                record.response_action_id,
+                record.proposed_action_id,
+                record.status,
+                record.verified_at,
+            ],
+            payload=record.model_dump_json(),
+        )
+
+        return record
+
+    def get_action_verification(
+        self,
+        record_id,
+    ):
+        return self._get(
+            table="action_verifications",
+            id_column="verification_id",
+            id_value=record_id,
+            model=ActionVerificationRecord,
+        )
+
+
+    def save_action_rollback(
+        self,
+        record,
+    ):
+        self._save(
+            table="action_rollbacks",
+            id_column="rollback_id",
+            id_value=record.rollback_id,
+            columns=[
+                "response_action_id",
+                "proposed_action_id",
+                "verification_id",
+                "status",
+                "recorded_at",
+            ],
+            values=[
+                record.response_action_id,
+                record.proposed_action_id,
+                record.verification_id,
+                record.status,
+                record.recorded_at.isoformat(),
+            ],
+            payload=record.model_dump_json(),
+        )
+
+        return record
+
+    def get_action_rollback(
+        self,
+        record_id,
+    ):
+        return self._get(
+            table="action_rollbacks",
+            id_column="rollback_id",
+            id_value=record_id,
+            model=ActionRollbackRecord,
+        )
+
+
+
 
 class PostgresIncidentResponseStore:
     def __init__(
@@ -804,6 +977,27 @@ class PostgresIncidentResponseStore:
             CREATE TABLE IF NOT EXISTS action_results (
                 action_result_id TEXT PRIMARY KEY,
                 response_action_id TEXT NOT NULL,
+                status TEXT NOT NULL,
+                recorded_at TIMESTAMPTZ NOT NULL,
+                payload TEXT NOT NULL
+            )
+            """,
+            """
+            CREATE TABLE IF NOT EXISTS action_verifications (
+                verification_id TEXT PRIMARY KEY,
+                response_action_id TEXT NOT NULL,
+                proposed_action_id TEXT NOT NULL,
+                status TEXT NOT NULL,
+                verified_at TIMESTAMPTZ NOT NULL,
+                payload TEXT NOT NULL
+            )
+            """,
+            """
+            CREATE TABLE IF NOT EXISTS action_rollbacks (
+                rollback_id TEXT PRIMARY KEY,
+                response_action_id TEXT NOT NULL,
+                proposed_action_id TEXT NOT NULL,
+                verification_id TEXT NOT NULL,
                 status TEXT NOT NULL,
                 recorded_at TIMESTAMPTZ NOT NULL,
                 payload TEXT NOT NULL
@@ -1168,4 +1362,81 @@ class PostgresIncidentResponseStore:
             id_column="action_result_id",
             id_value=record_id,
             model=ActionExecutionResultRecord,
+        )
+
+    def save_action_verification(
+        self,
+        record,
+    ):
+        self._save(
+            table="action_verifications",
+            id_column="verification_id",
+            id_value=(
+                record.verification_id
+            ),
+            columns=[
+                "response_action_id",
+                "proposed_action_id",
+                "status",
+                "verified_at",
+            ],
+            values=[
+                record.response_action_id,
+                record.proposed_action_id,
+                record.status,
+                record.verified_at,
+            ],
+            payload=record.model_dump_json(),
+        )
+
+        return record
+
+    def get_action_verification(
+        self,
+        record_id,
+    ):
+        return self._get(
+            table="action_verifications",
+            id_column="verification_id",
+            id_value=record_id,
+            model=ActionVerificationRecord,
+        )
+
+
+    def save_action_rollback(
+        self,
+        record,
+    ):
+        self._save(
+            table="action_rollbacks",
+            id_column="rollback_id",
+            id_value=record.rollback_id,
+            columns=[
+                "response_action_id",
+                "proposed_action_id",
+                "verification_id",
+                "status",
+                "recorded_at",
+            ],
+            values=[
+                record.response_action_id,
+                record.proposed_action_id,
+                record.verification_id,
+                record.status,
+                record.recorded_at,
+            ],
+            payload=record.model_dump_json(),
+        )
+
+        return record
+
+    def get_action_rollback(
+        self,
+        record_id,
+    ):
+        return self._get(
+            table="action_rollbacks",
+            id_column="rollback_id",
+            id_value=record_id,
+            model=ActionRollbackRecord,
         )

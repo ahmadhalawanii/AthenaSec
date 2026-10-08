@@ -859,6 +859,85 @@ class ActionExecutionResultRecord(BaseModel):
 
     recorded_at: datetime
 
+
+ActionVerificationStatus = Literal[
+    "SUCCESS",
+    "PARTIAL",
+    "FAILED",
+    "UNVERIFIED",
+]
+
+
+class ActionVerificationRecord(BaseModel):
+    verification_id: str = Field(
+        min_length=1,
+    )
+
+    response_action_id: str = Field(
+        min_length=1,
+    )
+
+    proposed_action_id: str = Field(
+        min_length=1,
+    )
+
+    status: ActionVerificationStatus
+
+    message: str = Field(
+        min_length=1,
+    )
+
+    details: dict[str, Any] = Field(
+        default_factory=dict,
+    )
+
+    verified_at: datetime
+
+
+ActionRollbackStatus = Literal[
+    "completed",
+    "failed",
+]
+
+
+class ActionRollbackRecord(BaseModel):
+    rollback_id: str = Field(
+        min_length=1,
+    )
+
+    response_action_id: str = Field(
+        min_length=1,
+    )
+
+    proposed_action_id: str = Field(
+        min_length=1,
+    )
+
+    verification_id: str = Field(
+        min_length=1,
+    )
+
+    rollback_action_type: str = Field(
+        min_length=1,
+    )
+
+    target: str = Field(
+        min_length=1,
+    )
+
+    status: ActionRollbackStatus
+
+    message: str = Field(
+        min_length=1,
+    )
+
+    details: dict[str, Any] = Field(
+        default_factory=dict,
+    )
+
+    recorded_at: datetime
+
+
 IncidentCaseStatus = Literal[
     "open",
     "investigating",

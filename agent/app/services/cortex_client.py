@@ -12,6 +12,7 @@ class HttpCortexClient:
         self.base_url = base_url.rstrip("/")
         self.api_key = api_key
         self.responder_id = responder_id
+
         self.http_client = (
             http_client
             if http_client is not None
@@ -25,7 +26,10 @@ class HttpCortexClient:
         action: str,
         target: str,
     ) -> dict:
-        if action != "block_ip":
+        if action not in {
+            "block_ip",
+            "unblock_ip",
+        }:
             raise ValueError(
                 "Unsupported Cortex action: "
                 f"{action}"
@@ -58,6 +62,7 @@ class HttpCortexClient:
 
         try:
             payload = response.json()
+
         except ValueError as exc:
             raise RuntimeError(
                 "Cortex returned an invalid "

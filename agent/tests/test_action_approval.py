@@ -1,4 +1,4 @@
-﻿from datetime import (
+from datetime import (
     datetime,
     timedelta,
     timezone,
@@ -518,3 +518,26 @@ def test_approval_id_is_deterministic():
         first.approval_id
         == second.approval_id
     )
+
+def test_approval_expires_at_exact_boundary():
+    action = make_action()
+
+    approval = create_approval_request(
+        proposed_action=action,
+        policy_decision=(
+            make_policy_decision()
+        ),
+        requested_at=REQUESTED_AT,
+        expires_at=EXPIRES_AT,
+    )
+
+    decided = decide_approval_request(
+        approval=approval,
+        proposed_action=action,
+        decision="APPROVED",
+        decided_by="analyst-001",
+        reason="Boundary decision.",
+        decided_at=EXPIRES_AT,
+    )
+
+    assert decided.status == "EXPIRED"
