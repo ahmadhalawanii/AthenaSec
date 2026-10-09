@@ -25,6 +25,7 @@ from app.services.structured_execution import (
 )
 from app.services.containment_expiry_worker import (
     process_due_containment_expiries,
+    reconcile_expired_containment_claims,
 )
 
 
@@ -434,4 +435,233 @@ def test_lost_lease_ownership_prevents_cortex_unblock():
     assert len(
         response.list_incident_cases(expiry.incident_id)
     ) == 1
+
+def test_newer_containment_prevents_old_unblock():
+    response, expiries, audits, expiry = setup_records()
+
+    newer = expiry.model_copy(
+        update={
+            "expiry_id": "EXPIRY-NEWER-002",
+            "incident_id": "INC-NEWER-002",
+            "proposed_action_id": "PACT-NEWER-002",
+            "response_action_id": "ACT-NEWER-002",
+            "created_at": BASE + timedelta(minutes=10),
+            "updated_at": BASE + timedelta(minutes=10),
+            "due_at": BASE + timedelta(minutes=60),
+        }
+    )
+
+    expiries.save_expiry(newer)
+
+    rollback = FakeRollback()
+    verifier = FakeVerifier()
+
+    results = run_worker(
+        response, expiries, audits,
+        rollback, verifier,
+    )
+
+    assert len(results) == 1
+    assert results[0].status == "FAILED"
+    assert rollback.calls == []
+    assert verifier.calls == []
+
+    assert len(
+        response.list_incident_cases(expiry.incident_id)
+    ) == 1
+
+
+def test_older_active_containment_prevents_newer_unblock():
+    response, expiries, audits, expiry = setup_records()
+
+    older = expiry.model_copy(
+        update={
+            "expiry_id": "EXPIRY-OLDER-002",
+            "incident_id": "INC-OLDER-002",
+            "proposed_action_id": "PACT-OLDER-002",
+            "response_action_id": "ACT-OLDER-002",
+            "created_at": BASE - timedelta(minutes=10),
+            "updated_at": BASE - timedelta(minutes=10),
+            "due_at": BASE + timedelta(minutes=90),
+        }
+    )
+
+    expiries.save_expiry(older)
+
+    rollback = FakeRollback()
+    verifier = FakeVerifier()
+
+    results = run_worker(
+        response, expiries, audits,
+        rollback, verifier,
+    )
+
+    assert len(results) == 1
+    assert results[0].status == "FAILED"
+    assert rollback.calls == []
+    assert verifier.calls == []
+
+    assert len(
+        response.list_incident_cases(expiry.incident_id)
+    ) == 1
+
+
+def test_unrelated_ip_containment_does_not_block_unblock():
+    response, expiries, audits, expiry = setup_records()
+
+    other = expiry.model_copy(
+        update={
+            "expiry_id": "EXPIRY-OTHER-IP",
+            "incident_id": "INC-OTHER-IP",
+            "proposed_action_id": "PACT-OTHER-IP",
+            "response_action_id": "ACT-OTHER-IP",
+            "target": "198.51.100.25",
+            "due_at": BASE + timedelta(minutes=60),
+        }
+    )
+
+    expiries.save_expiry(other)
+
+    rollback = FakeRollback()
+    verifier = FakeVerifier()
+
+    results = run_worker(
+        response, expiries, audits,
+        rollback, verifier,
+    )
+
+    assert len(results) == 1
+    assert results[0].status == "COMPLETED"
+    assert len(rollback.calls) == 1
+    assert verifier.calls == ["203.0.113.10"]
+
+
+def test_expired_claim_reconciliation_creates_case_once():
+    response, expiries, audits, expiry = setup_records()
+
+    claimed = expiries.claim_due_expiries(
+        now=NOW,
+        worker_id="crashed-worker",
+        lease_seconds=30,
+    )[0]
+
+    later = NOW + timedelta(seconds=31)
+
+    first = reconcile_expired_containment_claims(
+        expiry_store=expiries,
+        response_store=response,
+        audit_store=audits,
+        clock=lambda: later,
+    )
+
+    second = reconcile_expired_containment_claims(
+        expiry_store=expiries,
+        response_store=response,
+        audit_store=audits,
+        clock=lambda: later,
+    )
+
+    assert first == [claimed]
+    assert second == [claimed]
+
+    assert expiries.get_expiry(
+        expiry.expiry_id
+    ).status == "CLAIMED"
+
+    assert len(response.list_incident_cases(
+        expiry.incident_id
+    )) == 1
+
+    events = audits.list_by_incident_id(
+        expiry.incident_id
+    )
+
+    assert len([
+        event for event in events
+        if event.event_type
+        == "containment_expiry_reconciliation_required"
+    ]) == 1
+
+
+def test_active_claim_is_not_reconciled():
+    response, expiries, audits, expiry = setup_records()
+
+    expiries.claim_due_expiries(
+        now=NOW,
+        worker_id="active-worker",
+        lease_seconds=120,
+    )
+
+    result = reconcile_expired_containment_claims(
+        expiry_store=expiries,
+        response_store=response,
+        audit_store=audits,
+        clock=lambda: NOW + timedelta(seconds=30),
+    )
+
+    assert result == []
+    assert response.list_incident_cases(
+        expiry.incident_id
+    ) == []
+
+
+def test_live_execution_switch_prevents_unblock():
+    response, expiries, audits, expiry = setup_records()
+    rollback = FakeRollback()
+    verifier = FakeVerifier()
+
+    results = process_due_containment_expiries(
+        expiry_store=expiries,
+        response_store=response,
+        audit_store=audits,
+        rollback_executor=rollback,
+        verifier=verifier,
+        worker_id="worker-001",
+        autonomous_response_enabled=True,
+        can_execute_now=lambda: False,
+        clock=lambda: NOW,
+    )
+
+    assert len(results) == 1
+    assert results[0].status == "FAILED"
+    assert rollback.calls == []
+    assert verifier.calls == []
+
+    assert len(response.list_incident_cases(
+        expiry.incident_id
+    )) == 1
+
+
+def test_sqlite_stale_claim_detected_after_restart(tmp_path):
+    database = tmp_path / "stale-claims.db"
+
+    store = SQLiteContainmentExpiryStore(database)
+
+    response, _, audits, expiry = setup_records(
+        store
+    )
+
+    store.claim_due_expiries(
+        now=NOW,
+        worker_id="crashed-worker",
+        lease_seconds=30,
+    )
+
+    restarted = SQLiteContainmentExpiryStore(
+        database
+    )
+
+    stale = reconcile_expired_containment_claims(
+        expiry_store=restarted,
+        response_store=response,
+        audit_store=audits,
+        clock=lambda: NOW + timedelta(seconds=31),
+    )
+
+    assert len(stale) == 1
+    assert stale[0].expiry_id == expiry.expiry_id
+
+    assert len(response.list_incident_cases(
+        expiry.incident_id
+    )) == 1
 

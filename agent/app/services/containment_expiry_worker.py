@@ -246,6 +246,7 @@ def process_due_containment_expiries(
     verifier,
     worker_id: str,
     autonomous_response_enabled: bool,
+    can_execute_now: Callable[[], bool] | None = None,
     clock: Callable[[], datetime] = _utc_now,
     lease_seconds: int = 120,
     limit: int = 25,
@@ -312,6 +313,27 @@ def process_due_containment_expiries(
                     "longer valid before Cortex execution."
                 )
 
+            stage = "overlap"
+
+            if expiry_store.has_other_unresolved_containment(
+                expiry_id=expiry.expiry_id,
+                target=expiry.target,
+            ):
+                raise RuntimeError(
+                    "Another unresolved containment "
+                    "exists for the same IP."
+                )
+
+            stage = "source"
+
+            if (
+                can_execute_now is not None
+                and can_execute_now() is not True
+            ):
+                raise RuntimeError(
+                    "Autonomous execution is currently disabled."
+                )
+
             stage = "rollback"
 
             rollback = rollback_verified_structured_action(
@@ -351,6 +373,11 @@ def process_due_containment_expiries(
             status = "FAILED"
 
             reasons = {
+                "overlap": (
+                    "Automatic unblock was withheld "
+                    "because another unresolved "
+                    "containment exists for the IP."
+                ),
                 "source": (
                     "Original containment validation "
                     "or required runtime capability failed."
@@ -415,3 +442,72 @@ def process_due_containment_expiries(
         finished_records.append(terminal)
 
     return finished_records
+
+
+def reconcile_expired_containment_claims(
+    *,
+    expiry_store: ContainmentExpiryStore,
+    response_store: IncidentResponseStore,
+    audit_store: AuditStore,
+    clock: Callable[[], datetime] = _utc_now,
+    limit: int = 100,
+) -> list[ContainmentExpiryRecord]:
+    now = clock()
+
+    stale = expiry_store.list_expired_claimed_expiries(
+        now=now,
+        limit=limit,
+    )
+
+    for expiry in stale:
+        _create_failure_case(
+            expiry=expiry,
+            response_store=response_store,
+            reason=(
+                "Containment expiry worker lease expired "
+                "without a durable terminal outcome. "
+                "Reconciliation is required before "
+                "any additional unblock attempt."
+            ),
+            now=now,
+        )
+
+        audit_id = _identity(
+            "IAUDIT-",
+            (
+                "athenasec-expiry-stale:"
+                + expiry.expiry_id
+                + ":"
+                + str(expiry.attempt_count)
+            ),
+        )
+
+        if audit_store.get_incident_event(audit_id) is not None:
+            continue
+
+        audit_store.save_incident_event(
+            IncidentAuditRecord(
+                audit_id=audit_id,
+                incident_id=expiry.incident_id,
+                event_type=(
+                    "containment_expiry_reconciliation_required"
+                ),
+                entity_type="containment_expiry",
+                entity_id=expiry.expiry_id,
+                message=(
+                    "Containment expiry lease expired "
+                    "with an uncertain execution outcome."
+                ),
+                details={
+                    "expiry_id": expiry.expiry_id,
+                    "attempt_count": expiry.attempt_count,
+                    "lease_owner": expiry.lease_owner,
+                    "status": expiry.status,
+                    "automatic_retry": False,
+                },
+                timestamp=now,
+            )
+        )
+
+    return stale
+

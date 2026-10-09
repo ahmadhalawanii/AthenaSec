@@ -1,3 +1,4 @@
+import ipaddress
 import sqlite3
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -148,9 +149,98 @@ def _finish_record(
     )
 
 
+class _ExpirySafetyQueries:
+    def has_other_unresolved_containment(
+        self,
+        *,
+        expiry_id: str,
+        target: str,
+    ) -> bool:
+        expected_ip = ipaddress.ip_address(target)
+
+        for record in self._read_safety_records():
+            if record.expiry_id == expiry_id:
+                continue
+
+            if record.status == "COMPLETED":
+                continue
+
+            recorded_ip = ipaddress.ip_address(
+                record.target
+            )
+
+            if recorded_ip == expected_ip:
+                return True
+
+        return False
+
+    def list_expired_claimed_expiries(
+        self,
+        *,
+        now: datetime,
+        limit: int = 100,
+    ) -> list[ContainmentExpiryRecord]:
+        if (
+            not isinstance(now, datetime)
+            or now.tzinfo is None
+            or now.utcoffset() is None
+        ):
+            raise ValueError(
+                "Reconciliation time must be timezone-aware."
+            )
+
+        if type(limit) is not int or not 1 <= limit <= 100:
+            raise ValueError(
+                "Reconciliation limit must be 1-100."
+            )
+
+        now = now.astimezone(timezone.utc)
+
+        stale = []
+
+        for record in self._read_safety_records():
+            if record.status != "CLAIMED":
+                continue
+
+            lease = record.lease_expires_at
+
+            if (
+                lease is None
+                or lease.tzinfo is None
+                or lease.utcoffset() is None
+                or lease.astimezone(timezone.utc) <= now
+            ):
+                stale.append(record)
+
+        stale.sort(
+            key=lambda record: (
+                record.due_at,
+                record.expiry_id,
+            )
+        )
+
+        return stale[:limit]
+
+
 class ContainmentExpiryStore(
     Protocol
 ):
+    def has_other_unresolved_containment(
+        self,
+        *,
+        expiry_id: str,
+        target: str,
+    ) -> bool:
+        ...
+
+    def list_expired_claimed_expiries(
+        self,
+        *,
+        now: datetime,
+        limit: int = 100,
+    ) -> list[ContainmentExpiryRecord]:
+        ...
+
     def finish_claimed_expiry(
         self,
         *,
@@ -205,10 +295,14 @@ class ContainmentExpiryStore(
         ...
 
 
-class InMemoryContainmentExpiryStore:
+class InMemoryContainmentExpiryStore(_ExpirySafetyQueries):
     def __init__(self):
         self._records = {}
         self._claim_lock = RLock()
+
+    def _read_safety_records(self):
+        with self._claim_lock:
+            return list(self._records.values())
 
     def finish_claimed_expiry(
         self,
@@ -357,7 +451,7 @@ class InMemoryContainmentExpiryStore:
         ]
 
 
-class SQLiteContainmentExpiryStore:
+class SQLiteContainmentExpiryStore(_ExpirySafetyQueries):
     def __init__(
         self,
         database_path: str | Path,
@@ -411,6 +505,23 @@ class SQLiteContainmentExpiryStore:
                 connection.execute(
                     statement
                 )
+
+    def _read_safety_records(self):
+        with self._connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT payload
+                FROM containment_expiries
+                WHERE status != 'COMPLETED'
+                """
+            ).fetchall()
+
+        return [
+            ContainmentExpiryRecord.model_validate_json(
+                row[0]
+            )
+            for row in rows
+        ]
 
     def finish_claimed_expiry(
         self,
@@ -724,7 +835,7 @@ class SQLiteContainmentExpiryStore:
         ]
 
 
-class PostgresContainmentExpiryStore:
+class PostgresContainmentExpiryStore(_ExpirySafetyQueries):
     def __init__(
         self,
         database_url: str,
@@ -774,6 +885,23 @@ class PostgresContainmentExpiryStore:
                 connection.execute(
                     statement
                 )
+
+    def _read_safety_records(self):
+        with self._connect(self.database_url) as connection:
+            rows = connection.execute(
+                """
+                SELECT payload
+                FROM containment_expiries
+                WHERE status != 'COMPLETED'
+                """
+            ).fetchall()
+
+        return [
+            ContainmentExpiryRecord.model_validate_json(
+                row[0]
+            )
+            for row in rows
+        ]
 
     def finish_claimed_expiry(
         self,
