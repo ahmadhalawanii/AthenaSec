@@ -397,3 +397,122 @@ def test_postgres_create_if_absent_uses_conflict_do_nothing():
     assert "ON CONFLICT(expiry_id)" in sql
     assert "DO NOTHING" in sql
     assert "DO UPDATE" not in sql
+
+def test_in_memory_claim_only_due_pending_records():
+    store = InMemoryContainmentExpiryStore()
+
+    due = make_expiry()
+    future = make_expiry(
+        expiry_id="EXPIRY-FUTURE",
+        due_at=FIXED_TIME + timedelta(hours=2),
+    )
+
+    store.save_expiry(due)
+    store.save_expiry(future)
+
+    now = FIXED_TIME + timedelta(minutes=31)
+
+    first = store.claim_due_expiries(
+        now=now,
+        worker_id="worker-001",
+        lease_seconds=120,
+        limit=10,
+    )
+
+    assert len(first) == 1
+    assert first[0].expiry_id == due.expiry_id
+    assert first[0].status == "CLAIMED"
+    assert first[0].attempt_count == 1
+    assert first[0].lease_owner == "worker-001"
+    assert first[0].lease_expires_at == (
+        now + timedelta(seconds=120)
+    )
+
+    second = store.claim_due_expiries(
+        now=now,
+        worker_id="worker-002",
+    )
+
+    assert second == []
+    assert store.get_expiry(future.expiry_id) == future
+
+
+def test_sqlite_two_workers_cannot_claim_same_expiry(tmp_path):
+    database_path = tmp_path / "worker-claims.db"
+
+    first_store = SQLiteContainmentExpiryStore(
+        database_path
+    )
+    second_store = SQLiteContainmentExpiryStore(
+        database_path
+    )
+
+    due = make_expiry()
+    first_store.save_expiry(due)
+
+    now = FIXED_TIME + timedelta(minutes=31)
+
+    first = first_store.claim_due_expiries(
+        now=now,
+        worker_id="worker-A",
+    )
+
+    second = second_store.claim_due_expiries(
+        now=now,
+        worker_id="worker-B",
+    )
+
+    assert len(first) == 1
+    assert second == []
+    assert first[0].status == "CLAIMED"
+    assert first[0].attempt_count == 1
+
+    assert (
+        second_store.get_expiry(due.expiry_id)
+        == first[0]
+    )
+
+
+def test_postgres_claim_uses_skip_locked_and_update():
+    connection = MagicMock()
+    connection.__enter__.return_value = connection
+
+    store = PostgresContainmentExpiryStore(
+        "postgresql://athenasec:test@localhost/athenasec",
+        connect=MagicMock(return_value=connection),
+    )
+
+    due = make_expiry()
+
+    query_cursor = MagicMock()
+    query_cursor.fetchall.return_value = [
+        (due.expiry_id, due.model_dump_json()),
+    ]
+
+    update_cursor = MagicMock()
+    update_cursor.rowcount = 1
+
+    connection.execute.reset_mock()
+    connection.execute.side_effect = [
+        query_cursor,
+        update_cursor,
+    ]
+
+    claimed = store.claim_due_expiries(
+        now=FIXED_TIME + timedelta(minutes=31),
+        worker_id="postgres-worker",
+        lease_seconds=120,
+    )
+
+    assert len(claimed) == 1
+    assert claimed[0].status == "CLAIMED"
+    assert claimed[0].lease_owner == "postgres-worker"
+
+    sql = [
+        " ".join(call.args[0].split())
+        for call in connection.execute.call_args_list
+    ]
+
+    assert "FOR UPDATE SKIP LOCKED" in sql[0]
+    assert "UPDATE containment_expiries" in sql[1]
+    assert "status = 'CLAIMED'" in sql[1]

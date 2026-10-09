@@ -1,5 +1,7 @@
 import sqlite3
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from threading import RLock
 from typing import Protocol
 
 import psycopg
@@ -9,9 +11,81 @@ from app.schemas import (
 )
 
 
+def _validate_claim(
+    *,
+    now,
+    worker_id,
+    lease_seconds,
+    limit,
+):
+    if (
+        not isinstance(now, datetime)
+        or now.tzinfo is None
+        or now.utcoffset() is None
+    ):
+        raise ValueError(
+            "Claim time must be timezone-aware."
+        )
+
+    if not isinstance(worker_id, str) or not worker_id.strip():
+        raise ValueError("Worker ID is required.")
+
+    if (
+        type(lease_seconds) is not int
+        or not 1 <= lease_seconds <= 3600
+    ):
+        raise ValueError(
+            "Lease must be 1-3600 seconds."
+        )
+
+    if type(limit) is not int or not 1 <= limit <= 100:
+        raise ValueError("Claim limit must be 1-100.")
+
+    return now.astimezone(timezone.utc)
+
+
+def _claimed_record(
+    record,
+    *,
+    now,
+    worker_id,
+    lease_seconds,
+):
+    if (
+        record.status != "PENDING"
+        or record.due_at.tzinfo is None
+        or record.due_at.astimezone(timezone.utc) > now
+    ):
+        raise RuntimeError(
+            "Expiry is not eligible for claiming."
+        )
+
+    return record.model_copy(
+        update={
+            "status": "CLAIMED",
+            "attempt_count": record.attempt_count + 1,
+            "lease_owner": worker_id,
+            "lease_expires_at": (
+                now + timedelta(seconds=lease_seconds)
+            ),
+            "updated_at": now,
+        }
+    )
+
+
 class ContainmentExpiryStore(
     Protocol
 ):
+    def claim_due_expiries(
+        self,
+        *,
+        now: datetime,
+        worker_id: str,
+        lease_seconds: int = 120,
+        limit: int = 25,
+    ) -> list[ContainmentExpiryRecord]:
+        ...
+
     def create_expiry_if_absent(
         self,
         record: ContainmentExpiryRecord,
@@ -47,6 +121,53 @@ class ContainmentExpiryStore(
 class InMemoryContainmentExpiryStore:
     def __init__(self):
         self._records = {}
+        self._claim_lock = RLock()
+
+    def claim_due_expiries(
+        self,
+        *,
+        now,
+        worker_id,
+        lease_seconds=120,
+        limit=25,
+    ):
+        now = _validate_claim(
+            now=now,
+            worker_id=worker_id,
+            lease_seconds=lease_seconds,
+            limit=limit,
+        )
+
+        with self._claim_lock:
+            eligible = sorted(
+                (
+                    record
+                    for record in self._records.values()
+                    if (
+                        record.status == "PENDING"
+                        and record.due_at <= now
+                    )
+                ),
+                key=lambda record: (
+                    record.due_at,
+                    record.expiry_id,
+                ),
+            )[:limit]
+
+            claimed = [
+                _claimed_record(
+                    record,
+                    now=now,
+                    worker_id=worker_id,
+                    lease_seconds=lease_seconds,
+                )
+                for record in eligible
+            ]
+
+            for record in claimed:
+                self._records[record.expiry_id] = record
+
+            return claimed
 
     def create_expiry_if_absent(
         self,
@@ -165,6 +286,85 @@ class SQLiteContainmentExpiryStore:
                 connection.execute(
                     statement
                 )
+
+    def claim_due_expiries(
+        self,
+        *,
+        now,
+        worker_id,
+        lease_seconds=120,
+        limit=25,
+    ):
+        now = _validate_claim(
+            now=now,
+            worker_id=worker_id,
+            lease_seconds=lease_seconds,
+            limit=limit,
+        )
+
+        connection = self._connect()
+
+        try:
+            connection.execute("BEGIN IMMEDIATE")
+
+            rows = connection.execute(
+                """
+                SELECT expiry_id, payload
+                FROM containment_expiries
+                WHERE status = 'PENDING'
+                  AND due_at <= ?
+                ORDER BY due_at ASC, expiry_id ASC
+                LIMIT ?
+                """,
+                (now.isoformat(), limit),
+            ).fetchall()
+
+            claimed = []
+
+            for expiry_id, payload in rows:
+                original = (
+                    ContainmentExpiryRecord.model_validate_json(
+                        payload
+                    )
+                )
+
+                record = _claimed_record(
+                    original,
+                    now=now,
+                    worker_id=worker_id,
+                    lease_seconds=lease_seconds,
+                )
+
+                cursor = connection.execute(
+                    """
+                    UPDATE containment_expiries
+                    SET status = 'CLAIMED',
+                        payload = ?
+                    WHERE expiry_id = ?
+                      AND status = 'PENDING'
+                    """,
+                    (
+                        record.model_dump_json(),
+                        expiry_id,
+                    ),
+                )
+
+                if cursor.rowcount != 1:
+                    raise RuntimeError(
+                        "Expiry claim update failed."
+                    )
+
+                claimed.append(record)
+
+            connection.commit()
+            return claimed
+
+        except Exception:
+            connection.rollback()
+            raise
+
+        finally:
+            connection.close()
 
     def create_expiry_if_absent(
         self,
@@ -365,6 +565,74 @@ class PostgresContainmentExpiryStore:
                 connection.execute(
                     statement
                 )
+
+    def claim_due_expiries(
+        self,
+        *,
+        now,
+        worker_id,
+        lease_seconds=120,
+        limit=25,
+    ):
+        now = _validate_claim(
+            now=now,
+            worker_id=worker_id,
+            lease_seconds=lease_seconds,
+            limit=limit,
+        )
+
+        claimed = []
+
+        with self._connect(self.database_url) as connection:
+            rows = connection.execute(
+                """
+                SELECT expiry_id, payload
+                FROM containment_expiries
+                WHERE status = 'PENDING'
+                  AND due_at <= %s
+                ORDER BY due_at ASC, expiry_id ASC
+                LIMIT %s
+                FOR UPDATE SKIP LOCKED
+                """,
+                (now, limit),
+            ).fetchall()
+
+            for expiry_id, payload in rows:
+                original = (
+                    ContainmentExpiryRecord.model_validate_json(
+                        payload
+                    )
+                )
+
+                record = _claimed_record(
+                    original,
+                    now=now,
+                    worker_id=worker_id,
+                    lease_seconds=lease_seconds,
+                )
+
+                cursor = connection.execute(
+                    """
+                    UPDATE containment_expiries
+                    SET status = 'CLAIMED',
+                        payload = %s
+                    WHERE expiry_id = %s
+                      AND status = 'PENDING'
+                    """,
+                    (
+                        record.model_dump_json(),
+                        expiry_id,
+                    ),
+                )
+
+                if cursor.rowcount != 1:
+                    raise RuntimeError(
+                        "Expiry claim update failed."
+                    )
+
+                claimed.append(record)
+
+        return claimed
 
     def create_expiry_if_absent(
         self,
