@@ -73,9 +73,96 @@ def _claimed_record(
     )
 
 
+def _validate_finish(
+    *,
+    now,
+    worker_id,
+    attempt_count,
+    status,
+    error,
+):
+    if (
+        not isinstance(now, datetime)
+        or now.tzinfo is None
+        or now.utcoffset() is None
+    ):
+        raise ValueError(
+            "Finish time must be timezone-aware."
+        )
+
+    if not isinstance(worker_id, str) or not worker_id.strip():
+        raise ValueError("Worker ID is required.")
+
+    if type(attempt_count) is not int or attempt_count < 1:
+        raise ValueError("Attempt count must be positive.")
+
+    if status not in {"COMPLETED", "FAILED"}:
+        raise ValueError("Unsupported terminal expiry status.")
+
+    if status == "FAILED" and (
+        not isinstance(error, str)
+        or not error.strip()
+    ):
+        raise ValueError(
+            "Failed expiry requires a safe error reason."
+        )
+
+    if status == "COMPLETED" and error is not None:
+        raise ValueError(
+            "Completed expiry cannot contain an error."
+        )
+
+    return now.astimezone(timezone.utc)
+
+
+def _finish_record(
+    record,
+    *,
+    now,
+    worker_id,
+    attempt_count,
+    status,
+    error,
+):
+    if (
+        record.status != "CLAIMED"
+        or record.lease_owner != worker_id
+        or record.attempt_count != attempt_count
+        or record.lease_expires_at is None
+        or record.lease_expires_at.tzinfo is None
+        or record.lease_expires_at <= now
+    ):
+        return None
+
+    return record.model_copy(
+        update={
+            "status": status,
+            "lease_owner": None,
+            "lease_expires_at": None,
+            "completed_at": (
+                now if status == "COMPLETED" else None
+            ),
+            "last_error": error,
+            "updated_at": now,
+        }
+    )
+
+
 class ContainmentExpiryStore(
     Protocol
 ):
+    def finish_claimed_expiry(
+        self,
+        *,
+        expiry_id: str,
+        worker_id: str,
+        attempt_count: int,
+        status: str,
+        now: datetime,
+        error: str | None = None,
+    ) -> ContainmentExpiryRecord | None:
+        ...
+
     def claim_due_expiries(
         self,
         *,
@@ -122,6 +209,44 @@ class InMemoryContainmentExpiryStore:
     def __init__(self):
         self._records = {}
         self._claim_lock = RLock()
+
+    def finish_claimed_expiry(
+        self,
+        *,
+        expiry_id,
+        worker_id,
+        attempt_count,
+        status,
+        now,
+        error=None,
+    ):
+        now = _validate_finish(
+            now=now,
+            worker_id=worker_id,
+            attempt_count=attempt_count,
+            status=status,
+            error=error,
+        )
+
+        with self._claim_lock:
+            current = self._records.get(expiry_id)
+
+            if current is None:
+                return None
+
+            updated = _finish_record(
+                current,
+                now=now,
+                worker_id=worker_id,
+                attempt_count=attempt_count,
+                status=status,
+                error=error,
+            )
+
+            if updated is not None:
+                self._records[expiry_id] = updated
+
+            return updated
 
     def claim_due_expiries(
         self,
@@ -286,6 +411,90 @@ class SQLiteContainmentExpiryStore:
                 connection.execute(
                     statement
                 )
+
+    def finish_claimed_expiry(
+        self,
+        *,
+        expiry_id,
+        worker_id,
+        attempt_count,
+        status,
+        now,
+        error=None,
+    ):
+        now = _validate_finish(
+            now=now,
+            worker_id=worker_id,
+            attempt_count=attempt_count,
+            status=status,
+            error=error,
+        )
+
+        connection = self._connect()
+
+        try:
+            connection.execute("BEGIN IMMEDIATE")
+
+            row = connection.execute(
+                """
+                SELECT payload FROM containment_expiries
+                WHERE expiry_id = ?
+                """,
+                (expiry_id,),
+            ).fetchone()
+
+            if row is None:
+                connection.commit()
+                return None
+
+            current = (
+                ContainmentExpiryRecord.model_validate_json(
+                    row[0]
+                )
+            )
+
+            updated = _finish_record(
+                current,
+                now=now,
+                worker_id=worker_id,
+                attempt_count=attempt_count,
+                status=status,
+                error=error,
+            )
+
+            if updated is None:
+                connection.commit()
+                return None
+
+            cursor = connection.execute(
+                """
+                UPDATE containment_expiries
+                SET status = ?,
+                    payload = ?
+                WHERE expiry_id = ?
+                  AND status = 'CLAIMED'
+                """,
+                (
+                    status,
+                    updated.model_dump_json(),
+                    expiry_id,
+                ),
+            )
+
+            if cursor.rowcount != 1:
+                raise RuntimeError(
+                    "Expiry completion update failed."
+                )
+
+            connection.commit()
+            return updated
+
+        except Exception:
+            connection.rollback()
+            raise
+
+        finally:
+            connection.close()
 
     def claim_due_expiries(
         self,
@@ -565,6 +774,77 @@ class PostgresContainmentExpiryStore:
                 connection.execute(
                     statement
                 )
+
+    def finish_claimed_expiry(
+        self,
+        *,
+        expiry_id,
+        worker_id,
+        attempt_count,
+        status,
+        now,
+        error=None,
+    ):
+        now = _validate_finish(
+            now=now,
+            worker_id=worker_id,
+            attempt_count=attempt_count,
+            status=status,
+            error=error,
+        )
+
+        with self._connect(self.database_url) as connection:
+            row = connection.execute(
+                """
+                SELECT payload FROM containment_expiries
+                WHERE expiry_id = %s
+                FOR UPDATE
+                """,
+                (expiry_id,),
+            ).fetchone()
+
+            if row is None:
+                return None
+
+            current = (
+                ContainmentExpiryRecord.model_validate_json(
+                    row[0]
+                )
+            )
+
+            updated = _finish_record(
+                current,
+                now=now,
+                worker_id=worker_id,
+                attempt_count=attempt_count,
+                status=status,
+                error=error,
+            )
+
+            if updated is None:
+                return None
+
+            cursor = connection.execute(
+                """
+                UPDATE containment_expiries
+                SET status = %s,
+                    payload = %s
+                WHERE expiry_id = %s
+                  AND status = 'CLAIMED'
+                """,
+                (
+                    status,
+                    updated.model_dump_json(),
+                    expiry_id,
+                ),
+            )
+
+            if cursor.rowcount != 1:
+                raise RuntimeError(
+                    "Expiry completion update failed."
+                )
+
+            return updated
 
     def claim_due_expiries(
         self,

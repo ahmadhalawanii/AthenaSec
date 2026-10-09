@@ -516,3 +516,172 @@ def test_postgres_claim_uses_skip_locked_and_update():
     assert "FOR UPDATE SKIP LOCKED" in sql[0]
     assert "UPDATE containment_expiries" in sql[1]
     assert "status = 'CLAIMED'" in sql[1]
+
+def test_in_memory_finish_claimed_expiry():
+    store = InMemoryContainmentExpiryStore()
+    store.save_expiry(make_expiry())
+
+    now = FIXED_TIME + timedelta(minutes=31)
+
+    claimed = store.claim_due_expiries(
+        now=now,
+        worker_id="worker-A",
+    )[0]
+
+    finished_at = now + timedelta(seconds=20)
+
+    completed = store.finish_claimed_expiry(
+        expiry_id=claimed.expiry_id,
+        worker_id="worker-A",
+        attempt_count=claimed.attempt_count,
+        status="COMPLETED",
+        now=finished_at,
+    )
+
+    assert completed.status == "COMPLETED"
+    assert completed.completed_at == finished_at
+    assert completed.lease_owner is None
+    assert completed.lease_expires_at is None
+    assert completed.attempt_count == 1
+
+    assert store.finish_claimed_expiry(
+        expiry_id=claimed.expiry_id,
+        worker_id="worker-A",
+        attempt_count=1,
+        status="COMPLETED",
+        now=finished_at,
+    ) is None
+
+    assert store.get_expiry(
+        claimed.expiry_id
+    ) == completed
+
+
+def test_finish_claim_rejects_wrong_worker_and_expired_lease():
+    store = InMemoryContainmentExpiryStore()
+    store.save_expiry(make_expiry())
+
+    now = FIXED_TIME + timedelta(minutes=31)
+
+    claimed = store.claim_due_expiries(
+        now=now,
+        worker_id="worker-A",
+        lease_seconds=120,
+    )[0]
+
+    assert store.finish_claimed_expiry(
+        expiry_id=claimed.expiry_id,
+        worker_id="worker-B",
+        attempt_count=1,
+        status="COMPLETED",
+        now=now + timedelta(seconds=10),
+    ) is None
+
+    assert store.finish_claimed_expiry(
+        expiry_id=claimed.expiry_id,
+        worker_id="worker-A",
+        attempt_count=1,
+        status="FAILED",
+        error="Unblock verification was uncertain.",
+        now=now + timedelta(seconds=121),
+    ) is None
+
+    assert store.get_expiry(
+        claimed.expiry_id
+    ) == claimed
+
+
+def test_sqlite_finish_claim_persists_across_restart(tmp_path):
+    database = tmp_path / "expiry-completion.db"
+
+    first = SQLiteContainmentExpiryStore(database)
+    first.save_expiry(make_expiry())
+
+    now = FIXED_TIME + timedelta(minutes=31)
+
+    claimed = first.claim_due_expiries(
+        now=now,
+        worker_id="worker-A",
+    )[0]
+
+    restarted = SQLiteContainmentExpiryStore(database)
+
+    failed = restarted.finish_claimed_expiry(
+        expiry_id=claimed.expiry_id,
+        worker_id="worker-A",
+        attempt_count=1,
+        status="FAILED",
+        error="Independent verifier unavailable.",
+        now=now + timedelta(seconds=10),
+    )
+
+    assert failed.status == "FAILED"
+    assert failed.last_error == (
+        "Independent verifier unavailable."
+    )
+    assert failed.completed_at is None
+
+    assert first.get_expiry(claimed.expiry_id) == failed
+
+    assert first.finish_claimed_expiry(
+        expiry_id=claimed.expiry_id,
+        worker_id="worker-A",
+        attempt_count=1,
+        status="COMPLETED",
+        now=now + timedelta(seconds=20),
+    ) is None
+
+
+def test_postgres_finish_claim_uses_locked_transition():
+    connection = MagicMock()
+    connection.__enter__.return_value = connection
+
+    store = PostgresContainmentExpiryStore(
+        "postgresql://athenasec:test@localhost/athenasec",
+        connect=MagicMock(return_value=connection),
+    )
+
+    now = FIXED_TIME + timedelta(minutes=31)
+
+    claimed = make_expiry().model_copy(
+        update={
+            "status": "CLAIMED",
+            "attempt_count": 1,
+            "lease_owner": "worker-A",
+            "lease_expires_at": now + timedelta(seconds=120),
+            "updated_at": now,
+        }
+    )
+
+    select_cursor = MagicMock()
+    select_cursor.fetchone.return_value = (
+        claimed.model_dump_json(),
+    )
+
+    update_cursor = MagicMock()
+    update_cursor.rowcount = 1
+
+    connection.execute.reset_mock()
+    connection.execute.side_effect = [
+        select_cursor,
+        update_cursor,
+    ]
+
+    result = store.finish_claimed_expiry(
+        expiry_id=claimed.expiry_id,
+        worker_id="worker-A",
+        attempt_count=1,
+        status="COMPLETED",
+        now=now + timedelta(seconds=10),
+    )
+
+    assert result.status == "COMPLETED"
+
+    statements = [
+        " ".join(call.args[0].split())
+        for call in connection.execute.call_args_list
+    ]
+
+    assert "FOR UPDATE" in statements[0]
+    assert "UPDATE containment_expiries" in statements[1]
+    assert "status = 'CLAIMED'" in statements[1]

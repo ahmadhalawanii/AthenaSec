@@ -264,3 +264,97 @@ def test_verifier_rejects_unsupported_action():
         )
 
     assert client.calls == []
+
+def test_unblock_verification_confirms_ip_is_unblocked():
+    client = FakeVerificationClient({
+        "success": True,
+        "full": {
+            "target": "203.0.113.10",
+            "blocked": False,
+        },
+    })
+
+    observation = CortexBlockIpStateVerifier(
+        client=client
+    ).verify_unblocked("203.0.113.10")
+
+    assert observation.status == "SUCCESS"
+    assert observation.details["blocked"] is False
+    assert client.calls == [
+        ("verify_block_ip", "203.0.113.10"),
+    ]
+
+
+def test_unblock_verification_fails_if_still_blocked():
+    client = FakeVerificationClient({
+        "success": True,
+        "full": {
+            "target": "203.0.113.10",
+            "blocked": True,
+        },
+    })
+
+    observation = CortexBlockIpStateVerifier(
+        client=client
+    ).verify_unblocked("203.0.113.10")
+
+    assert observation.status == "FAILED"
+
+
+def test_unblock_verification_rejects_wrong_target():
+    client = FakeVerificationClient({
+        "success": True,
+        "full": {
+            "target": "198.51.100.25",
+            "blocked": False,
+        },
+    })
+
+    with pytest.raises(RuntimeError, match="target"):
+        CortexBlockIpStateVerifier(
+            client=client
+        ).verify_unblocked("203.0.113.10")
+
+
+def test_unblock_verification_requires_boolean_state():
+    client = FakeVerificationClient({
+        "success": True,
+        "full": {
+            "target": "203.0.113.10",
+            "blocked": "false",
+        },
+    })
+
+    with pytest.raises(RuntimeError, match="boolean"):
+        CortexBlockIpStateVerifier(
+            client=client
+        ).verify_unblocked("203.0.113.10")
+
+
+def test_unblock_verification_rejects_responder_failure():
+    client = FakeVerificationClient({
+        "success": False,
+        "full": {
+            "target": "203.0.113.10",
+            "blocked": False,
+        },
+    })
+
+    with pytest.raises(RuntimeError, match="failure"):
+        CortexBlockIpStateVerifier(
+            client=client
+        ).verify_unblocked("203.0.113.10")
+
+
+def test_unblock_verification_rejects_invalid_ip_before_cortex():
+    client = FakeVerificationClient({
+        "success": True,
+        "full": {},
+    })
+
+    with pytest.raises(ValueError, match="valid IP"):
+        CortexBlockIpStateVerifier(
+            client=client
+        ).verify_unblocked("not-an-ip")
+
+    assert client.calls == []

@@ -165,3 +165,92 @@ class CortexBlockIpStateVerifier:
                 },
             )
         )
+
+    def verify_unblocked(
+        self,
+        target: str,
+    ) -> StructuredVerificationObservation:
+        if (
+            not isinstance(target, str)
+            or target != target.strip()
+        ):
+            raise ValueError(
+                "Unblock verification target "
+                "must be a valid IP address."
+            )
+
+        try:
+            ipaddress.ip_address(target)
+
+        except ValueError as exc:
+            raise ValueError(
+                "Unblock verification target "
+                "must be a valid IP address."
+            ) from exc
+
+        payload = self.client.run_responder(
+            action="verify_block_ip",
+            target=target,
+        )
+
+        if (
+            not isinstance(payload, dict)
+            or payload.get("success") is not True
+        ):
+            raise RuntimeError(
+                "Cortex unblock verification "
+                "responder reported failure."
+            )
+
+        full = payload.get("full")
+
+        if not isinstance(full, dict):
+            raise RuntimeError(
+                "Cortex unblock verification "
+                "is missing structured full data."
+            )
+
+        if full.get("target") != target:
+            raise RuntimeError(
+                "Cortex unblock verification "
+                "target does not match."
+            )
+
+        blocked = full.get("blocked")
+
+        if not isinstance(blocked, bool):
+            raise RuntimeError(
+                "Cortex unblock verification "
+                "requires a boolean blocked state."
+            )
+
+        if blocked:
+            return StructuredVerificationObservation(
+                status="FAILED",
+                message=(
+                    "The temporary IP block "
+                    "is still present."
+                ),
+                details={
+                    "target": target,
+                    "blocked": True,
+                    "verification_source": (
+                        "cortex_read_only_responder"
+                    ),
+                },
+            )
+
+        return StructuredVerificationObservation(
+            status="SUCCESS",
+            message=(
+                "The temporary IP block "
+                "is confirmed absent."
+            ),
+            details={
+                "target": target,
+                "blocked": False,
+                "verification_source": (
+                    "cortex_read_only_responder"
+                ),
+            },
+        )

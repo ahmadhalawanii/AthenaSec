@@ -1025,6 +1025,7 @@ IncidentAuditEntityType = Literal[
     "case",
     "verification",
     "rollback",
+    "containment_expiry",
 ]
 
 
