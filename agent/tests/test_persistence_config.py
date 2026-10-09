@@ -4,6 +4,7 @@ from unittest.mock import MagicMock
 from app.services.persistence_config import (
     build_persistence_stores_from_env,
     build_target_protection_store_from_env,
+    build_containment_expiry_store_from_env,
 )
 
 
@@ -342,6 +343,85 @@ def test_target_protection_store_builder_uses_sqlite(
 
     store_class.assert_called_once_with(
         "data/target-protection-test.db"
+    )
+
+    assert (
+        result
+        is store_class.return_value
+    )
+
+
+def test_containment_expiry_store_builder_uses_postgres(
+    monkeypatch,
+):
+    store_class = MagicMock()
+
+    monkeypatch.delenv(
+        "ATHENASEC_PERSISTENCE_BACKEND",
+        raising=False,
+    )
+
+    monkeypatch.setenv(
+        "ATHENASEC_DATABASE_URL",
+        (
+            "postgresql://"
+            "athenasec:test@localhost/"
+            "athenasec"
+        ),
+    )
+
+    result = (
+        build_containment_expiry_store_from_env(
+            postgres_store_class=(
+                store_class
+            )
+        )
+    )
+
+    store_class.assert_called_once_with(
+        (
+            "postgresql://"
+            "athenasec:test@localhost/"
+            "athenasec"
+        )
+    )
+
+    assert (
+        result
+        is store_class.return_value
+    )
+
+
+def test_containment_expiry_store_builder_uses_sqlite(
+    monkeypatch,
+):
+    store_class = MagicMock()
+
+    monkeypatch.setenv(
+        "ATHENASEC_PERSISTENCE_BACKEND",
+        "sqlite",
+    )
+
+    monkeypatch.setenv(
+        "ATHENASEC_DB_PATH",
+        "data/containment-expiry-test.db",
+    )
+
+    monkeypatch.delenv(
+        "ATHENASEC_DATABASE_URL",
+        raising=False,
+    )
+
+    result = (
+        build_containment_expiry_store_from_env(
+            sqlite_store_class=(
+                store_class
+            )
+        )
+    )
+
+    store_class.assert_called_once_with(
+        "data/containment-expiry-test.db"
     )
 
     assert (

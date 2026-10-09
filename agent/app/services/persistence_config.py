@@ -20,6 +20,10 @@ from app.services.target_protection_store import (
     PostgresTargetProtectionStore,
     SQLiteTargetProtectionStore,
 )
+from app.services.containment_expiry_store import (
+    PostgresContainmentExpiryStore,
+    SQLiteContainmentExpiryStore,
+)
 
 
 def build_persistence_stores_from_env(
@@ -204,6 +208,51 @@ def build_target_protection_store_from_env(
     ),
     sqlite_store_class=(
         SQLiteTargetProtectionStore
+    ),
+):
+    backend = os.getenv(
+        "ATHENASEC_PERSISTENCE_BACKEND",
+        "postgres",
+    ).strip().lower()
+
+    if backend == "sqlite":
+        database_path = os.getenv(
+            "ATHENASEC_DB_PATH",
+            "data/athenasec.db",
+        )
+
+        return sqlite_store_class(
+            database_path
+        )
+
+    if backend != "postgres":
+        raise ValueError(
+            "Unsupported "
+            "ATHENASEC_PERSISTENCE_BACKEND: "
+            f"{backend}"
+        )
+
+    database_url = os.getenv(
+        "ATHENASEC_DATABASE_URL"
+    )
+
+    if not database_url:
+        raise ValueError(
+            "ATHENASEC_DATABASE_URL is required."
+        )
+
+    return postgres_store_class(
+        database_url
+    )
+
+
+def build_containment_expiry_store_from_env(
+    *,
+    postgres_store_class=(
+        PostgresContainmentExpiryStore
+    ),
+    sqlite_store_class=(
+        SQLiteContainmentExpiryStore
     ),
 ):
     backend = os.getenv(

@@ -938,6 +938,69 @@ class ActionRollbackRecord(BaseModel):
     recorded_at: datetime
 
 
+ContainmentExpiryStatus = Literal[
+    "PENDING",
+    "CLAIMED",
+    "COMPLETED",
+    "FAILED",
+    "CANCELLED",
+]
+
+
+class ContainmentExpiryRecord(BaseModel):
+    expiry_id: str = Field(
+        min_length=1,
+    )
+
+    incident_id: str = Field(
+        min_length=1,
+    )
+
+    proposed_action_id: str = Field(
+        min_length=1,
+    )
+
+    response_action_id: str = Field(
+        min_length=1,
+    )
+
+    rollback_action_type: str = Field(
+        min_length=1,
+    )
+
+    target: str = Field(
+        min_length=1,
+    )
+
+    rollback_parameters: dict[
+        str,
+        Any,
+    ] = Field(
+        default_factory=dict,
+    )
+
+    due_at: datetime
+
+    status: ContainmentExpiryStatus
+
+    attempt_count: int = Field(
+        default=0,
+        ge=0,
+    )
+
+    lease_owner: str | None = None
+
+    lease_expires_at: datetime | None = None
+
+    last_error: str | None = None
+
+    created_at: datetime
+
+    updated_at: datetime
+
+    completed_at: datetime | None = None
+
+
 IncidentCaseStatus = Literal[
     "open",
     "investigating",
