@@ -1,5 +1,6 @@
 from datetime import (
     datetime,
+    timedelta,
     timezone,
 )
 from unittest.mock import (
@@ -542,3 +543,78 @@ def test_postgres_store_supports_verification():
         parameters[3]
         == "SUCCESS"
     )
+
+def test_repeated_verification_preserves_original_timestamp():
+    store = InMemoryIncidentResponseStore()
+    action = make_action()
+    response_action = make_response_action()
+    action_result = make_action_result()
+    verifier = FakeVerifier()
+
+    first = verify_structured_action(
+        store=store,
+        proposed_action=action,
+        response_action=response_action,
+        action_result=action_result,
+        verifier=verifier,
+        now=FIXED_TIME,
+    )
+
+    verifier.status = "FAILED"
+
+    second = verify_structured_action(
+        store=store,
+        proposed_action=action,
+        response_action=response_action,
+        action_result=action_result,
+        verifier=verifier,
+        now=FIXED_TIME + timedelta(minutes=5),
+    )
+
+    assert second == first
+    assert second.status == "SUCCESS"
+    assert second.verified_at == FIXED_TIME
+    assert len(verifier.calls) == 1
+    assert store.get_action_verification(
+        first.verification_id
+    ) == first
+
+
+def test_existing_verification_identity_mismatch_fails_closed():
+    store = InMemoryIncidentResponseStore()
+    action = make_action()
+    response_action = make_response_action()
+    action_result = make_action_result()
+    verifier = FakeVerifier()
+
+    first = verify_structured_action(
+        store=store,
+        proposed_action=action,
+        response_action=response_action,
+        action_result=action_result,
+        verifier=verifier,
+        now=FIXED_TIME,
+    )
+
+    corrupted = first.model_copy(
+        update={
+            "proposed_action_id": "PACT-OTHER",
+        }
+    )
+
+    store.save_action_verification(corrupted)
+
+    with pytest.raises(
+        ValueError,
+        match="Existing verification identity",
+    ):
+        verify_structured_action(
+            store=store,
+            proposed_action=action,
+            response_action=response_action,
+            action_result=action_result,
+            verifier=verifier,
+            now=FIXED_TIME + timedelta(minutes=5),
+        )
+
+    assert len(verifier.calls) == 1

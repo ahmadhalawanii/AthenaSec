@@ -12,6 +12,12 @@ from app.schemas import (
 class ContainmentExpiryStore(
     Protocol
 ):
+    def create_expiry_if_absent(
+        self,
+        record: ContainmentExpiryRecord,
+    ) -> ContainmentExpiryRecord:
+        ...
+
     def save_expiry(
         self,
         record: ContainmentExpiryRecord,
@@ -41,6 +47,15 @@ class ContainmentExpiryStore(
 class InMemoryContainmentExpiryStore:
     def __init__(self):
         self._records = {}
+
+    def create_expiry_if_absent(
+        self,
+        record,
+    ):
+        return self._records.setdefault(
+            record.expiry_id,
+            record,
+        )
 
     def save_expiry(
         self,
@@ -150,6 +165,48 @@ class SQLiteContainmentExpiryStore:
                 connection.execute(
                     statement
                 )
+
+    def create_expiry_if_absent(
+        self,
+        record,
+    ):
+        with self._connect() as connection:
+            connection.execute(
+                """
+                INSERT INTO containment_expiries (
+                    expiry_id,
+                    incident_id,
+                    proposed_action_id,
+                    response_action_id,
+                    status,
+                    due_at,
+                    payload
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(expiry_id)
+                DO NOTHING
+                """,
+                (
+                    record.expiry_id,
+                    record.incident_id,
+                    record.proposed_action_id,
+                    record.response_action_id,
+                    record.status,
+                    record.due_at.isoformat(),
+                    record.model_dump_json(),
+                ),
+            )
+
+        persisted = self.get_expiry(
+            record.expiry_id
+        )
+
+        if persisted is None:
+            raise RuntimeError(
+                "Expiry creation did not persist."
+            )
+
+        return persisted
 
     def save_expiry(
         self,
@@ -308,6 +365,52 @@ class PostgresContainmentExpiryStore:
                 connection.execute(
                     statement
                 )
+
+    def create_expiry_if_absent(
+        self,
+        record,
+    ):
+        with self._connect(
+            self.database_url
+        ) as connection:
+            connection.execute(
+                """
+                INSERT INTO containment_expiries (
+                    expiry_id,
+                    incident_id,
+                    proposed_action_id,
+                    response_action_id,
+                    status,
+                    due_at,
+                    payload
+                )
+                VALUES (
+                    %s, %s, %s, %s, %s, %s, %s
+                )
+                ON CONFLICT(expiry_id)
+                DO NOTHING
+                """,
+                (
+                    record.expiry_id,
+                    record.incident_id,
+                    record.proposed_action_id,
+                    record.response_action_id,
+                    record.status,
+                    record.due_at,
+                    record.model_dump_json(),
+                ),
+            )
+
+        persisted = self.get_expiry(
+            record.expiry_id
+        )
+
+        if persisted is None:
+            raise RuntimeError(
+                "Expiry creation did not persist."
+            )
+
+        return persisted
 
     def save_expiry(
         self,

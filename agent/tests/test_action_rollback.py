@@ -16,6 +16,7 @@ from app.schemas import (
 )
 from app.services.action_rollback import (
     rollback_structured_action,
+    rollback_verified_structured_action,
 )
 from app.services.incident_response_store import (
     InMemoryIncidentResponseStore,
@@ -626,3 +627,71 @@ def test_repeated_failed_rollback_is_not_retried_automatically():
     assert executor.calls == [
         action,
     ]
+
+
+def test_verified_action_can_use_explicit_emergency_rollback():
+    store = (
+        InMemoryIncidentResponseStore()
+    )
+
+    executor = (
+        FakeRollbackExecutor()
+    )
+
+    action = make_action()
+
+    record = (
+        rollback_verified_structured_action(
+            store=store,
+            proposed_action=action,
+            response_action=(
+                make_response_action()
+            ),
+            verification=(
+                make_verification(
+                    status="SUCCESS"
+                )
+            ),
+            rollback_executor=executor,
+            now=FIXED_TIME,
+        )
+    )
+
+    assert record.status == "completed"
+
+    assert executor.calls == [
+        action,
+    ]
+
+
+def test_verified_rollback_path_rejects_unsuccessful_verification():
+    store = (
+        InMemoryIncidentResponseStore()
+    )
+
+    executor = (
+        FakeRollbackExecutor()
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="SUCCESS",
+    ):
+        rollback_verified_structured_action(
+            store=store,
+            proposed_action=(
+                make_action()
+            ),
+            response_action=(
+                make_response_action()
+            ),
+            verification=(
+                make_verification(
+                    status="FAILED"
+                )
+            ),
+            rollback_executor=executor,
+            now=FIXED_TIME,
+        )
+
+    assert executor.calls == []

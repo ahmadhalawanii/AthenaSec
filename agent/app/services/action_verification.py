@@ -138,6 +138,33 @@ def verify_structured_action(
             "execution can be verified."
         )
 
+    verification_id = _verification_id(
+        response_action_id=(
+            response_action.response_action_id
+        ),
+        action_result_id=(
+            action_result.action_result_id
+        ),
+    )
+
+    existing = store.get_action_verification(
+        verification_id
+    )
+
+    if existing is not None:
+        if (
+            existing.response_action_id
+            != response_action.response_action_id
+            or existing.proposed_action_id
+            != proposed_action.proposed_action_id
+        ):
+            raise ValueError(
+                "Existing verification identity "
+                "does not match the completed action."
+            )
+
+        return existing
+
     if now is None:
         now = _utc_now()
 
@@ -189,18 +216,7 @@ def verify_structured_action(
 
     record = (
         ActionVerificationRecord(
-            verification_id=(
-                _verification_id(
-                    response_action_id=(
-                        response_action
-                        .response_action_id
-                    ),
-                    action_result_id=(
-                        action_result
-                        .action_result_id
-                    ),
-                )
-            ),
+            verification_id=verification_id,
             response_action_id=(
                 response_action
                 .response_action_id

@@ -12,6 +12,7 @@ from uuid import (
 from app.schemas import (
     ActionRollbackRecord,
     ActionVerificationRecord,
+    ContainmentExpiryRecord,
     IncidentCaseRecord,
     IncidentPolicyDecisionRecord,
     ProposedActionRecord,
@@ -19,6 +20,7 @@ from app.schemas import (
 from app.services.action_rollback import (
     StructuredRollbackExecutor,
     rollback_structured_action,
+    rollback_verified_structured_action,
 )
 from app.services.action_verification import (
     StructuredActionVerifier,
@@ -38,6 +40,13 @@ from app.services.response_mode import (
 )
 from app.services.target_protection import (
     TargetProtectionRegistry,
+)
+from app.services.containment_expiry import (
+    ensure_containment_expiry,
+    requires_containment_expiry,
+)
+from app.services.containment_expiry_store import (
+    ContainmentExpiryStore,
 )
 
 
@@ -67,6 +76,10 @@ class StructuredRuntimeOutcome:
 
     rollback: (
         ActionRollbackRecord | None
+    ) = None
+
+    expiry: (
+        ContainmentExpiryRecord | None
     ) = None
 
     incident_case: (
@@ -167,6 +180,9 @@ def process_structured_response_action(
     autonomous_response_enabled: bool,
     target_protection_registry: (
         TargetProtectionRegistry | None
+    ) = None,
+    containment_expiry_store: (
+        ContainmentExpiryStore | None
     ) = None,
     response_mode: ResponseMode = "SUPERVISED",
     approval_id: str | None = None,
@@ -288,6 +304,61 @@ def process_structured_response_action(
         )
 
     try:
+        expiry_required = (
+            requires_containment_expiry(
+                proposed_action
+            )
+        )
+
+    except ValueError:
+        case = _create_case(
+            store=store,
+            proposed_action=proposed_action,
+            policy_decision=policy_decision,
+            reason_code=(
+                "containment-expiry-contract-invalid"
+            ),
+            reason=(
+                "Structured response was "
+                "not executed because its "
+                "temporary containment "
+                "expiry contract was invalid."
+            ),
+            now=now,
+        )
+
+        return StructuredRuntimeOutcome(
+            outcome="blocked",
+            incident_case=case,
+        )
+
+    if (
+        expiry_required
+        and containment_expiry_store
+        is None
+    ):
+        case = _create_case(
+            store=store,
+            proposed_action=proposed_action,
+            policy_decision=policy_decision,
+            reason_code=(
+                "containment-expiry-store-unavailable"
+            ),
+            reason=(
+                "Structured response was "
+                "not executed because durable "
+                "containment expiry storage "
+                "was unavailable."
+            ),
+            now=now,
+        )
+
+        return StructuredRuntimeOutcome(
+            outcome="blocked",
+            incident_case=case,
+        )
+
+    try:
         execution = (
             execute_structured_action(
                 store=store,
@@ -376,10 +447,106 @@ def process_structured_response_action(
     )
 
     if verification.status == "SUCCESS":
+        expiry = None
+
+        if expiry_required:
+            try:
+                if (
+                    containment_expiry_store
+                    is None
+                ):
+                    raise RuntimeError(
+                        "Containment expiry "
+                        "store unavailable."
+                    )
+
+                expiry = (
+                    ensure_containment_expiry(
+                        store=(
+                            containment_expiry_store
+                        ),
+                        proposed_action=(
+                            proposed_action
+                        ),
+                        response_action=(
+                            execution
+                            .response_action
+                        ),
+                        verification=(
+                            verification
+                        ),
+                    )
+                )
+
+            except Exception:
+                rollback = (
+                    rollback_verified_structured_action(
+                        store=store,
+                        proposed_action=(
+                            proposed_action
+                        ),
+                        response_action=(
+                            execution
+                            .response_action
+                        ),
+                        verification=(
+                            verification
+                        ),
+                        rollback_executor=(
+                            rollback_executor
+                        ),
+                        now=now,
+                    )
+                )
+
+                rollback_status = (
+                    rollback.status
+                )
+
+                case = _create_case(
+                    store=store,
+                    proposed_action=(
+                        proposed_action
+                    ),
+                    policy_decision=(
+                        policy_decision
+                    ),
+                    reason_code=(
+                        "containment-expiry-"
+                        "persistence-failed"
+                    ),
+                    reason=(
+                        "Verified temporary "
+                        "containment could not "
+                        "be durably scheduled "
+                        "for expiry. Immediate "
+                        "rollback status: "
+                        f"{rollback_status}."
+                    ),
+                    now=now,
+                )
+
+                if (
+                    rollback.status
+                    == "completed"
+                ):
+                    outcome = "rolled_back"
+                else:
+                    outcome = "failed"
+
+                return StructuredRuntimeOutcome(
+                    outcome=outcome,
+                    execution=execution,
+                    verification=verification,
+                    rollback=rollback,
+                    incident_case=case,
+                )
+
         return StructuredRuntimeOutcome(
             outcome="verified",
             execution=execution,
             verification=verification,
+            expiry=expiry,
         )
 
     rollback = None

@@ -18,6 +18,9 @@ from app.services.action_verification import (
 from app.services.incident_response_store import (
     InMemoryIncidentResponseStore,
 )
+from app.services.containment_expiry_store import (
+    InMemoryContainmentExpiryStore,
+)
 from app.services.structured_execution import (
     StructuredExecutorResult,
 )
@@ -34,6 +37,21 @@ BASE_TIME = datetime(
     0,
     tzinfo=timezone.utc,
 )
+
+
+def _process_test_runtime(
+    **kwargs,
+):
+    kwargs.setdefault(
+        "containment_expiry_store",
+        InMemoryContainmentExpiryStore(),
+    )
+
+    return (
+        process_structured_response_action(
+            **kwargs
+        )
+    )
 
 
 def make_action():
@@ -161,7 +179,7 @@ def test_auto_allowed_action_executes_and_verifies():
     )
 
     result = (
-        process_structured_response_action(
+        _process_test_runtime(
             store=store,
             proposed_action=make_action(),
             policy_decision=make_policy(),
@@ -208,7 +226,7 @@ def test_failed_verification_rolls_back_and_creates_case():
     )
 
     result = (
-        process_structured_response_action(
+        _process_test_runtime(
             store=store,
             proposed_action=make_action(),
             policy_decision=make_policy(),
@@ -252,7 +270,7 @@ def test_missing_verifier_blocks_before_cortex():
     executor = FakeExecutor()
 
     result = (
-        process_structured_response_action(
+        _process_test_runtime(
             store=store,
             proposed_action=make_action(),
             policy_decision=make_policy(),
@@ -285,7 +303,7 @@ def test_missing_rollback_path_blocks_reversible_action_before_cortex():
     executor = FakeExecutor()
 
     result = (
-        process_structured_response_action(
+        _process_test_runtime(
             store=store,
             proposed_action=make_action(),
             policy_decision=make_policy(),
@@ -352,7 +370,7 @@ def test_expired_approved_action_cannot_execute():
     executor = FakeExecutor()
 
     result = (
-        process_structured_response_action(
+        _process_test_runtime(
             store=store,
             proposed_action=action,
             policy_decision=policy,
@@ -396,7 +414,7 @@ def test_repeated_runtime_call_does_not_execute_cortex_twice():
 
     for _ in range(2):
         result = (
-            process_structured_response_action(
+            _process_test_runtime(
                 store=store,
                 proposed_action=(
                     make_action()
@@ -425,7 +443,7 @@ def test_shadow_mode_skips_cortex_without_runtime_components():
     )
 
     result = (
-        process_structured_response_action(
+        _process_test_runtime(
             store=store,
             proposed_action=make_action(),
             policy_decision=make_policy(),

@@ -58,6 +58,7 @@ from app.services.persistence_config import (
     build_persistence_stores_from_env,
     build_runtime_control_store_from_env,
     build_target_protection_store_from_env,
+    build_containment_expiry_store_from_env,
 )
 from app.services.benign_investigation import (
     build_benign_investigation,
@@ -108,6 +109,9 @@ from app.services.target_protection import (
 from app.services.target_protection_store import (
     InMemoryTargetProtectionStore,
 )
+from app.services.containment_expiry_store import (
+    InMemoryContainmentExpiryStore,
+)
 from app.services.action_risk_context import (
     make_action_risk_context_provider,
 )
@@ -156,6 +160,7 @@ def create_app(
     runtime_control_store: Any = None,
     target_protection_registry: Any = None,
     target_protection_store: Any = None,
+    containment_expiry_store: Any = None,
 ) -> FastAPI:
     app = FastAPI(
         title="AthenaSec Agent API",
@@ -280,6 +285,26 @@ def create_app(
     else:
         configured_incident_response_store = (
             InMemoryIncidentResponseStore()
+        )
+
+    if containment_expiry_store is not None:
+        configured_containment_expiry_store = (
+            containment_expiry_store
+        )
+
+    elif (
+        default_investigation_store
+        is not None
+        or default_audit_store
+        is not None
+    ):
+        configured_containment_expiry_store = (
+            build_containment_expiry_store_from_env()
+        )
+
+    else:
+        configured_containment_expiry_store = (
+            InMemoryContainmentExpiryStore()
         )
 
     configured_wazuh_ingest_key = (
@@ -527,6 +552,9 @@ def create_app(
                 ),
                 target_protection_registry=(
                     configured_target_protection_registry
+                ),
+                containment_expiry_store=(
+                    configured_containment_expiry_store
                 ),
                 response_mode=(
                     control.response_mode

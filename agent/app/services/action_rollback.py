@@ -62,7 +62,7 @@ def _rollback_id(
     )
 
 
-def rollback_structured_action(
+def _rollback_structured_action(
     *,
     store: IncidentResponseStore,
     proposed_action: (
@@ -77,6 +77,7 @@ def rollback_structured_action(
     rollback_executor: (
         StructuredRollbackExecutor
     ),
+    allow_success_verification: bool,
     now: datetime | None = None,
 ) -> ActionRollbackRecord:
     if (
@@ -115,10 +116,14 @@ def rollback_structured_action(
             "completed response action."
         )
 
-    if verification.status == "SUCCESS":
+    if (
+        verification.status
+        == "SUCCESS"
+        and not allow_success_verification
+    ):
         raise ValueError(
             "SUCCESS verification must "
-            "not trigger rollback."
+            "not trigger normal rollback."
         )
 
     if (
@@ -217,3 +222,69 @@ def rollback_structured_action(
     )
 
     return record
+
+
+def rollback_structured_action(
+    *,
+    store: IncidentResponseStore,
+    proposed_action: (
+        ProposedActionRecord
+    ),
+    response_action: (
+        ResponseActionRecord
+    ),
+    verification: (
+        ActionVerificationRecord
+    ),
+    rollback_executor: (
+        StructuredRollbackExecutor
+    ),
+    now: datetime | None = None,
+) -> ActionRollbackRecord:
+    return _rollback_structured_action(
+        store=store,
+        proposed_action=proposed_action,
+        response_action=response_action,
+        verification=verification,
+        rollback_executor=(
+            rollback_executor
+        ),
+        allow_success_verification=False,
+        now=now,
+    )
+
+
+def rollback_verified_structured_action(
+    *,
+    store: IncidentResponseStore,
+    proposed_action: (
+        ProposedActionRecord
+    ),
+    response_action: (
+        ResponseActionRecord
+    ),
+    verification: (
+        ActionVerificationRecord
+    ),
+    rollback_executor: (
+        StructuredRollbackExecutor
+    ),
+    now: datetime | None = None,
+) -> ActionRollbackRecord:
+    if verification.status != "SUCCESS":
+        raise ValueError(
+            "Verified-action rollback "
+            "requires SUCCESS verification."
+        )
+
+    return _rollback_structured_action(
+        store=store,
+        proposed_action=proposed_action,
+        response_action=response_action,
+        verification=verification,
+        rollback_executor=(
+            rollback_executor
+        ),
+        allow_success_verification=True,
+        now=now,
+    )

@@ -348,3 +348,52 @@ def test_postgres_store_saves_and_queries_due_records():
         "LIMIT %s"
         in query_sql
     )
+
+def test_create_if_absent_preserves_claimed_expiry(tmp_path):
+    store = SQLiteContainmentExpiryStore(
+        tmp_path / "expiry-race.db"
+    )
+
+    original = make_expiry()
+
+    claimed = original.model_copy(
+        update={
+            "status": "CLAIMED",
+            "lease_owner": "worker-001",
+            "lease_expires_at": (
+                FIXED_TIME + timedelta(minutes=35)
+            ),
+        }
+    )
+
+    store.save_expiry(claimed)
+
+    result = store.create_expiry_if_absent(original)
+
+    assert result == claimed
+    assert store.get_expiry(original.expiry_id) == claimed
+
+
+def test_postgres_create_if_absent_uses_conflict_do_nothing():
+    connection = MagicMock()
+    connection.__enter__.return_value = connection
+
+    store = PostgresContainmentExpiryStore(
+        "postgresql://athenasec:test@localhost/athenasec",
+        connect=MagicMock(return_value=connection),
+    )
+
+    connection.execute.reset_mock()
+    record = make_expiry()
+
+    store.get_expiry = lambda expiry_id: record
+
+    result = store.create_expiry_if_absent(record)
+
+    assert result == record
+
+    sql = connection.execute.call_args.args[0]
+
+    assert "ON CONFLICT(expiry_id)" in sql
+    assert "DO NOTHING" in sql
+    assert "DO UPDATE" not in sql
