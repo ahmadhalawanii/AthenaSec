@@ -1,4 +1,5 @@
 import sqlite3
+from threading import RLock
 from pathlib import Path
 from typing import Protocol
 
@@ -79,6 +80,11 @@ class IncidentResponseStore(Protocol):
     ) -> ApprovalRequestRecord | None:
         ...
 
+    def transition_pending_approval(
+        self, record: ApprovalRequestRecord,
+    ) -> bool:
+        ...
+
     def save_response_action(
         self,
         record: ResponseActionRecord,
@@ -147,6 +153,31 @@ class IncidentResponseStore(Protocol):
         ...
 
 
+def _validate_terminal_approval(record):
+    if record.status not in {"APPROVED", "REJECTED", "EXPIRED", "CANCELLED"}:
+        raise ValueError("Only terminal approval decisions may transition.")
+    if record.decided_at is None:
+        raise ValueError("Terminal approval requires decided_at.")
+
+
+def _matches_pending_approval(current, record):
+    if current is None or current.status != "PENDING":
+        return False
+    if (
+        current.action_fingerprint != record.action_fingerprint
+        or current.policy_decision_id != record.policy_decision_id
+        or current.proposed_action_id != record.proposed_action_id
+        or current.incident_id != record.incident_id
+    ):
+        return False
+    if record.status == "APPROVED" and (
+        current.expires_at is not None
+        and record.decided_at >= current.expires_at
+    ):
+        return False
+    return True
+
+
 class InMemoryIncidentResponseStore:
     def __init__(self):
         self._incident_risks = {}
@@ -154,6 +185,7 @@ class InMemoryIncidentResponseStore:
         self._action_risks = {}
         self._policy_decisions = {}
         self._approval_requests = {}
+        self._approval_lock = RLock()
         self._response_actions = {}
         self._action_results = {}
         self._action_verifications = {}
@@ -205,10 +237,29 @@ class InMemoryIncidentResponseStore:
         )
 
     def save_approval_request(self, record):
-        self._approval_requests[
-            record.approval_id
-        ] = record
-        return record
+        with self._approval_lock:
+            existing = self._approval_requests.get(record.approval_id)
+            if existing is not None:
+                # Replayed PENDING requests must never undo a terminal decision.
+                if existing.status != "PENDING" or record.status == "PENDING":
+                    return existing
+                if (
+                    existing.action_fingerprint != record.action_fingerprint
+                    or existing.policy_decision_id != record.policy_decision_id
+                    or existing.proposed_action_id != record.proposed_action_id
+                ):
+                    raise ValueError("Approval identity cannot change.")
+            self._approval_requests[record.approval_id] = record
+            return record
+
+    def transition_pending_approval(self, record):
+        _validate_terminal_approval(record)
+        with self._approval_lock:
+            current = self._approval_requests.get(record.approval_id)
+            if not _matches_pending_approval(current, record):
+                return False
+            self._approval_requests[record.approval_id] = record
+            return True
 
     def get_approval_request(self, record_id):
         return self._approval_requests.get(
@@ -527,6 +578,7 @@ class SQLiteIncidentResponseStore:
         columns,
         values,
         payload,
+        on_conflict_where=None,
     ):
         column_names = ", ".join(
             [
@@ -560,6 +612,9 @@ class SQLiteIncidentResponseStore:
             f"ON CONFLICT ({id_column}) "
             f"DO UPDATE SET {updates}"
         )
+
+        if on_conflict_where is not None:
+            sql += ' WHERE ' + on_conflict_where
 
         with self._connect() as connection:
             connection.execute(
@@ -734,8 +789,15 @@ class SQLiteIncidentResponseStore:
                 ),
             ],
             payload=record.model_dump_json(),
+            on_conflict_where=(
+                "approval_requests.status = 'PENDING' "
+                "AND EXCLUDED.status <> 'PENDING' "
+                "AND approval_requests.action_fingerprint = EXCLUDED.action_fingerprint "
+                "AND approval_requests.proposed_action_id = EXCLUDED.proposed_action_id "
+                "AND approval_requests.policy_decision_id = EXCLUDED.policy_decision_id"
+            ),
         )
-        return record
+        return self.get_approval_request(record.approval_id)
 
     def get_approval_request(self, record_id):
         return self._get(
@@ -744,6 +806,28 @@ class SQLiteIncidentResponseStore:
             id_value=record_id,
             model=ApprovalRequestRecord,
         )
+
+    def transition_pending_approval(self, record):
+        _validate_terminal_approval(record)
+        sql = (
+            "UPDATE approval_requests SET status = ?, payload = ? "
+            "WHERE approval_id = ? AND status = 'PENDING' "
+            "AND action_fingerprint = ? "
+            "AND proposed_action_id = ? "
+            "AND policy_decision_id = ? "
+            "AND incident_id = ?"
+        )
+        args = [
+            record.status, record.model_dump_json(), record.approval_id,
+            record.action_fingerprint, record.proposed_action_id,
+            record.policy_decision_id, record.incident_id,
+        ]
+        if record.status == "APPROVED":
+            sql += " AND (expires_at IS NULL OR expires_at > ?)"
+            args.append(record.decided_at.isoformat())
+        with self._connect() as connection:
+            result = connection.execute(sql, tuple(args))
+            return result.rowcount == 1
 
     def save_response_action(self, record):
         self._save(
@@ -1088,6 +1172,7 @@ class PostgresIncidentResponseStore:
         columns,
         values,
         payload,
+        on_conflict_where=None,
     ):
         column_names = ", ".join(
             [
@@ -1121,6 +1206,9 @@ class PostgresIncidentResponseStore:
             f"ON CONFLICT ({id_column}) "
             f"DO UPDATE SET {updates}"
         )
+
+        if on_conflict_where is not None:
+            sql += ' WHERE ' + on_conflict_where
 
         with self._connect(
             self.database_url
@@ -1295,8 +1383,15 @@ class PostgresIncidentResponseStore:
                 record.expires_at,
             ],
             payload=record.model_dump_json(),
+            on_conflict_where=(
+                "approval_requests.status = 'PENDING' "
+                "AND EXCLUDED.status <> 'PENDING' "
+                "AND approval_requests.action_fingerprint = EXCLUDED.action_fingerprint "
+                "AND approval_requests.proposed_action_id = EXCLUDED.proposed_action_id "
+                "AND approval_requests.policy_decision_id = EXCLUDED.policy_decision_id"
+            ),
         )
-        return record
+        return self.get_approval_request(record.approval_id)
 
     def get_approval_request(self, record_id):
         return self._get(
@@ -1305,6 +1400,28 @@ class PostgresIncidentResponseStore:
             id_value=record_id,
             model=ApprovalRequestRecord,
         )
+
+    def transition_pending_approval(self, record):
+        _validate_terminal_approval(record)
+        sql = (
+            "UPDATE approval_requests SET status = %s, payload = %s "
+            "WHERE approval_id = %s AND status = 'PENDING' "
+            "AND action_fingerprint = %s "
+            "AND proposed_action_id = %s "
+            "AND policy_decision_id = %s "
+            "AND incident_id = %s"
+        )
+        args = [
+            record.status, record.model_dump_json(), record.approval_id,
+            record.action_fingerprint, record.proposed_action_id,
+            record.policy_decision_id, record.incident_id,
+        ]
+        if record.status == "APPROVED":
+            sql += " AND (expires_at IS NULL OR expires_at > %s)"
+            args.append(record.decided_at)
+        with self._connect(self.database_url) as connection:
+            result = connection.execute(sql, tuple(args))
+            return result.rowcount == 1
 
     def save_response_action(self, record):
         self._save(

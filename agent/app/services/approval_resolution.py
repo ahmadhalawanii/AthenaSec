@@ -102,9 +102,10 @@ def resolve_approval_request(
         )
     )
 
-    store.save_approval_request(
-        resolved
-    )
+    if not store.transition_pending_approval(resolved):
+        raise ValueError(
+            "Approval request has already been decided or changed."
+        )
 
     incident_case = None
 

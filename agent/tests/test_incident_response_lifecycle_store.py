@@ -505,21 +505,31 @@ def test_postgres_store_saves_approval_binding():
 
     approval = make_approval()
 
-    store.save_approval_request(
-        approval
+    # M7.7 conditionally upserts, then reads the persisted approval back.
+    # The mocked SELECT must return serialized JSON rather than a MagicMock.
+    connection.execute.return_value.fetchone.return_value = (
+        approval.model_dump_json(),
     )
 
-    sql = connection.execute.call_args.args[0]
-    parameters = connection.execute.call_args.args[1]
+    stored = store.save_approval_request(approval)
+
+    assert stored == approval
+    assert connection.execute.call_count == 2
+
+    insert_call, select_call = connection.execute.call_args_list
+    sql, parameters = insert_call.args
+    select_sql, select_parameters = select_call.args
 
     assert "INSERT INTO approval_requests" in sql
-
+    assert "ON CONFLICT (approval_id)" in sql
+    assert "approval_requests.status = 'PENDING'" in sql
+    assert "EXCLUDED.status <> 'PENDING'" in sql
     assert parameters[0] == "APR-001"
     assert parameters[2] == "PA-001"
-    assert (
-        parameters[4]
-        == "sha256:test-action"
-    )
+    assert parameters[4] == "sha256:test-action"
+
+    assert "SELECT payload FROM approval_requests" in select_sql
+    assert select_parameters == ("APR-001",)
 
 
 def test_postgres_store_saves_execution_result():
