@@ -111,6 +111,11 @@ from app.services.target_protection_store import (
 )
 from app.services.containment_expiry_store import (
     InMemoryContainmentExpiryStore,
+    PostgresContainmentExpiryStore,
+)
+from app.services.target_operation_coordinator import (
+    InMemoryTargetOperationCoordinator,
+    PostgresTargetOperationCoordinator,
 )
 from app.services.action_risk_context import (
     make_action_risk_context_provider,
@@ -161,6 +166,7 @@ def create_app(
     target_protection_registry: Any = None,
     target_protection_store: Any = None,
     containment_expiry_store: Any = None,
+    target_operation_coordinator: Any = None,
 ) -> FastAPI:
     app = FastAPI(
         title="AthenaSec Agent API",
@@ -307,6 +313,19 @@ def create_app(
             InMemoryContainmentExpiryStore()
         )
 
+    if target_operation_coordinator is not None:
+        configured_target_coordinator = target_operation_coordinator
+    elif isinstance(
+        configured_containment_expiry_store,
+        PostgresContainmentExpiryStore,
+    ):
+        configured_target_coordinator = PostgresTargetOperationCoordinator(
+            configured_containment_expiry_store.database_url
+        )
+    else:
+        # In-process only. The separate automatic runner refuses SQLite.
+        configured_target_coordinator = InMemoryTargetOperationCoordinator()
+
     configured_wazuh_ingest_key = (
         wazuh_ingest_key
         if wazuh_ingest_key is not None
@@ -429,6 +448,13 @@ def create_app(
             else None
         )
     )
+
+    if isinstance(
+        configured_containment_expiry_store,
+        PostgresContainmentExpiryStore,
+    ):
+        # Legacy Cortex has no coordinated expiry/verification pipeline.
+        configured_response_executor = None
 
     structured_runtime_configured = any(
         component is not None
@@ -555,6 +581,9 @@ def create_app(
                 ),
                 containment_expiry_store=(
                     configured_containment_expiry_store
+                ),
+                target_coordinator=(
+                    configured_target_coordinator
                 ),
                 response_mode=(
                     control.response_mode

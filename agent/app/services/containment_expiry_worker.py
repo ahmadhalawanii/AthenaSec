@@ -1,4 +1,8 @@
 import ipaddress
+from contextlib import nullcontext
+from app.services.target_operation_coordinator import (
+    TargetOperationCoordinator,
+)
 
 from datetime import datetime, timedelta, timezone
 from typing import Callable
@@ -247,6 +251,7 @@ def process_due_containment_expiries(
     worker_id: str,
     autonomous_response_enabled: bool,
     can_execute_now: Callable[[], bool] | None = None,
+    target_coordinator: TargetOperationCoordinator | None = None,
     clock: Callable[[], datetime] = _utc_now,
     lease_seconds: int = 120,
     limit: int = 25,
@@ -264,182 +269,188 @@ def process_due_containment_expiries(
     finished_records = []
 
     for expiry in claimed:
-        stage = "source"
-        reason = None
-
-        try:
-            action, response, verification = (
-                _validate_original_containment(
-                    expiry=expiry,
-                    store=response_store,
-                )
-            )
-
-            if rollback_executor is None:
-                raise RuntimeError(
-                    "Cortex rollback executor unavailable."
-                )
-
-            if verifier is None:
-                raise RuntimeError(
-                    "Cortex read-only verifier unavailable."
-                )
-
-            current_claim = expiry_store.get_expiry(
-                expiry.expiry_id
-            )
-
-            lease_now = clock()
-
-            if (
-                current_claim is None
-                or current_claim.status != "CLAIMED"
-                or current_claim.lease_owner != worker_id
-                or current_claim.attempt_count
-                != expiry.attempt_count
-                or current_claim.incident_id
-                != expiry.incident_id
-                or current_claim.response_action_id
-                != expiry.response_action_id
-                or current_claim.target != expiry.target
-                or current_claim.lease_expires_at is None
-                or current_claim.lease_expires_at.tzinfo is None
-                or lease_now.tzinfo is None
-                or lease_now.utcoffset() is None
-                or current_claim.lease_expires_at <= lease_now
-            ):
-                raise RuntimeError(
-                    "Containment expiry lease is no "
-                    "longer valid before Cortex execution."
-                )
-
-            stage = "overlap"
-
-            if expiry_store.has_other_unresolved_containment(
-                expiry_id=expiry.expiry_id,
-                target=expiry.target,
-            ):
-                raise RuntimeError(
-                    "Another unresolved containment "
-                    "exists for the same IP."
-                )
-
+        coordination = (
+            target_coordinator.hold(expiry.target)
+            if target_coordinator is not None
+            else nullcontext()
+        )
+        with coordination:
             stage = "source"
+            reason = None
 
-            if (
-                can_execute_now is not None
-                and can_execute_now() is not True
-            ):
-                raise RuntimeError(
-                    "Autonomous execution is currently disabled."
+            try:
+                action, response, verification = (
+                    _validate_original_containment(
+                        expiry=expiry,
+                        store=response_store,
+                    )
                 )
 
-            stage = "rollback"
+                if rollback_executor is None:
+                    raise RuntimeError(
+                        "Cortex rollback executor unavailable."
+                    )
 
-            rollback = rollback_verified_structured_action(
-                store=response_store,
-                proposed_action=action,
-                response_action=response,
-                verification=verification,
-                rollback_executor=rollback_executor,
-                now=clock(),
-            )
+                if verifier is None:
+                    raise RuntimeError(
+                        "Cortex read-only verifier unavailable."
+                    )
 
-            if rollback.status != "completed":
-                raise RuntimeError(
-                    "Cortex unblock was unsuccessful."
+                current_claim = expiry_store.get_expiry(
+                    expiry.expiry_id
                 )
 
-            stage = "verification"
+                lease_now = clock()
 
-            observation = verifier.verify_unblocked(
-                expiry.target
-            )
+                if (
+                    current_claim is None
+                    or current_claim.status != "CLAIMED"
+                    or current_claim.lease_owner != worker_id
+                    or current_claim.attempt_count
+                    != expiry.attempt_count
+                    or current_claim.incident_id
+                    != expiry.incident_id
+                    or current_claim.response_action_id
+                    != expiry.response_action_id
+                    or current_claim.target != expiry.target
+                    or current_claim.lease_expires_at is None
+                    or current_claim.lease_expires_at.tzinfo is None
+                    or lease_now.tzinfo is None
+                    or lease_now.utcoffset() is None
+                    or current_claim.lease_expires_at <= lease_now
+                ):
+                    raise RuntimeError(
+                        "Containment expiry lease is no "
+                        "longer valid before Cortex execution."
+                    )
 
-            if (
-                observation.status != "SUCCESS"
-                or observation.details.get("target")
-                != expiry.target
-                or observation.details.get("blocked")
-                is not False
-            ):
-                raise RuntimeError(
-                    "Independent unblock verification failed."
+                stage = "overlap"
+
+                if expiry_store.has_other_unresolved_containment(
+                    expiry_id=expiry.expiry_id,
+                    target=expiry.target,
+                ):
+                    raise RuntimeError(
+                        "Another unresolved containment "
+                        "exists for the same IP."
+                    )
+
+                stage = "source"
+
+                if (
+                    can_execute_now is not None
+                    and can_execute_now() is not True
+                ):
+                    raise RuntimeError(
+                        "Autonomous execution is currently disabled."
+                    )
+
+                stage = "rollback"
+
+                rollback = rollback_verified_structured_action(
+                    store=response_store,
+                    proposed_action=action,
+                    response_action=response,
+                    verification=verification,
+                    rollback_executor=rollback_executor,
+                    now=clock(),
                 )
 
-            status = "COMPLETED"
+                if rollback.status != "completed":
+                    raise RuntimeError(
+                        "Cortex unblock was unsuccessful."
+                    )
 
-        except Exception:
-            status = "FAILED"
+                stage = "verification"
 
-            reasons = {
-                "overlap": (
-                    "Automatic unblock was withheld "
-                    "because another unresolved "
-                    "containment exists for the IP."
-                ),
-                "source": (
-                    "Original containment validation "
-                    "or required runtime capability failed."
-                ),
-                "rollback": (
-                    "Cortex automatic unblock "
-                    "did not complete."
-                ),
-                "verification": (
-                    "Read-only verification did not "
-                    "confirm block removal."
-                ),
-            }
+                observation = verifier.verify_unblocked(
+                    expiry.target
+                )
 
-            reason = reasons[stage]
+                if (
+                    observation.status != "SUCCESS"
+                    or observation.details.get("target")
+                    != expiry.target
+                    or observation.details.get("blocked")
+                    is not False
+                ):
+                    raise RuntimeError(
+                        "Independent unblock verification failed."
+                    )
 
-        finish_time = clock()
+                status = "COMPLETED"
 
-        terminal = expiry_store.finish_claimed_expiry(
-            expiry_id=expiry.expiry_id,
-            worker_id=worker_id,
-            attempt_count=expiry.attempt_count,
-            status=status,
-            error=reason,
-            now=finish_time,
-        )
+            except Exception:
+                status = "FAILED"
 
-        if terminal is None:
-            _create_failure_case(
-                expiry=expiry,
-                response_store=response_store,
-                reason=(
-                    "Containment expiry worker lost its "
-                    "valid lease before recording the "
-                    "terminal result. Reconciliation "
-                    "is required."
-                ),
+                reasons = {
+                    "overlap": (
+                        "Automatic unblock was withheld "
+                        "because another unresolved "
+                        "containment exists for the IP."
+                    ),
+                    "source": (
+                        "Original containment validation "
+                        "or required runtime capability failed."
+                    ),
+                    "rollback": (
+                        "Cortex automatic unblock "
+                        "did not complete."
+                    ),
+                    "verification": (
+                        "Read-only verification did not "
+                        "confirm block removal."
+                    ),
+                }
+
+                reason = reasons[stage]
+
+            finish_time = clock()
+
+            terminal = expiry_store.finish_claimed_expiry(
+                expiry_id=expiry.expiry_id,
+                worker_id=worker_id,
+                attempt_count=expiry.attempt_count,
+                status=status,
+                error=reason,
                 now=finish_time,
             )
 
-            # Do not claim that the unblock completed.
-            # Leave the claimed record for reconciliation.
-            continue
+            if terminal is None:
+                _create_failure_case(
+                    expiry=expiry,
+                    response_store=response_store,
+                    reason=(
+                        "Containment expiry worker lost its "
+                        "valid lease before recording the "
+                        "terminal result. Reconciliation "
+                        "is required."
+                    ),
+                    now=finish_time,
+                )
 
-        if terminal.status == "FAILED":
-            _create_failure_case(
-                expiry=terminal,
-                response_store=response_store,
-                reason=(
-                    "Automatic containment expiry failed: "
-                    + (terminal.last_error or "unknown")
-                ),
+                # Do not claim that the unblock completed.
+                # Leave the claimed record for reconciliation.
+                continue
+
+            if terminal.status == "FAILED":
+                _create_failure_case(
+                    expiry=terminal,
+                    response_store=response_store,
+                    reason=(
+                        "Automatic containment expiry failed: "
+                        + (terminal.last_error or "unknown")
+                    ),
+                    now=finish_time,
+                )
+
+            _audit_terminal_state(
+                audit_store=audit_store,
+                record=terminal,
                 now=finish_time,
             )
 
-        _audit_terminal_state(
-            audit_store=audit_store,
-            record=terminal,
-            now=finish_time,
-        )
-
-        finished_records.append(terminal)
+            finished_records.append(terminal)
 
     return finished_records
 
@@ -510,4 +521,3 @@ def reconcile_expired_containment_claims(
         )
 
     return stale
-

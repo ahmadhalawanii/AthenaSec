@@ -1,4 +1,8 @@
 from dataclasses import dataclass
+from functools import wraps
+from app.services.target_operation_coordinator import (
+    TargetOperationCoordinator,
+)
 from datetime import (
     datetime,
     timezone,
@@ -161,6 +165,19 @@ def _create_case(
     return case
 
 
+def _coordinate_block_response(function):
+    @wraps(function)
+    def guarded(*args, **kwargs):
+        coordinator = kwargs.get("target_coordinator")
+        action = kwargs.get("proposed_action")
+        if coordinator is None or action is None or action.action_type != "block_ip":
+            return function(*args, **kwargs)
+        with coordinator.hold(action.target):
+            return function(*args, **kwargs)
+    return guarded
+
+
+@_coordinate_block_response
 def process_structured_response_action(
     *,
     store: IncidentResponseStore,
@@ -187,6 +204,7 @@ def process_structured_response_action(
     response_mode: ResponseMode = "SUPERVISED",
     approval_id: str | None = None,
     now: datetime | None = None,
+    target_coordinator: TargetOperationCoordinator | None = None,
 ) -> StructuredRuntimeOutcome:
     if (
         policy_decision

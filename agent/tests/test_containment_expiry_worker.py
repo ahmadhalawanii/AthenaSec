@@ -665,3 +665,77 @@ def test_sqlite_stale_claim_detected_after_restart(tmp_path):
         expiry.incident_id
     )) == 1
 
+
+def test_expiry_worker_holds_ip_lock_during_cortex():
+    from contextlib import contextmanager
+    response, expiries, audits, expiry = setup_records()
+    state = {"held": False}
+
+    class Coordinator:
+        @contextmanager
+        def hold(self, target):
+            assert target == expiry.target
+            state["held"] = True
+            try:
+                yield
+            finally:
+                state["held"] = False
+
+    class GuardedRollback(FakeRollback):
+        def rollback(self, action):
+            assert state["held"] is True
+            return super().rollback(action)
+
+    rollback = GuardedRollback()
+    verifier = FakeVerifier()
+
+    results = process_due_containment_expiries(
+        expiry_store=expiries,
+        response_store=response,
+        audit_store=audits,
+        rollback_executor=rollback,
+        verifier=verifier,
+        worker_id="worker-001",
+        autonomous_response_enabled=True,
+        target_coordinator=Coordinator(),
+        clock=lambda: NOW,
+    )
+    assert results[0].status == "COMPLETED"
+    assert state["held"] is False
+
+
+def test_expiry_runner_cycle_respects_persisted_controls():
+    from types import SimpleNamespace
+    from app.services.containment_expiry_runner import run_expiry_cycle
+    from app.services.target_operation_coordinator import InMemoryTargetOperationCoordinator
+    response, expiries, audits, expiry = setup_records()
+    rollback = FakeRollback()
+    verifier = FakeVerifier()
+    control = SimpleNamespace(
+        get_state=lambda: SimpleNamespace(
+            response_mode="SHADOW",
+            operator_execution_enabled=True,
+        )
+    )
+    args = dict(
+        expiry_store=expiries,
+        response_store=response,
+        audit_store=audits,
+        runtime_control_store=control,
+        rollback_executor=rollback,
+        verifier=verifier,
+        target_coordinator=InMemoryTargetOperationCoordinator(),
+        global_enabled=True,
+        worker_id="test-runner",
+        clock=lambda: NOW,
+    )
+    paused = run_expiry_cycle(**args)
+    assert paused == {"stale": 0, "processed": 0}
+    assert rollback.calls == []
+    control.get_state = lambda: SimpleNamespace(
+        response_mode="SUPERVISED",
+        operator_execution_enabled=True,
+    )
+    active = run_expiry_cycle(**args)
+    assert active == {"stale": 0, "processed": 1}
+    assert len(rollback.calls) == 1
