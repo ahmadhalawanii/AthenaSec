@@ -142,7 +142,7 @@ def seed_approval(
     )
 
 
-def make_client():
+def make_client(*, operator_key="operator-key"):
     response_store = (
         InMemoryIncidentResponseStore()
     )
@@ -163,10 +163,15 @@ def make_client():
             response_store
         ),
         autonomous_response_enabled=False,
+        operator_control_key=operator_key,
     )
 
+    client = TestClient(app)
+    if operator_key:
+        client.headers["X-AthenaSec-Operator-Key"] = operator_key
+
     return (
-        TestClient(app),
+        client,
         response_store,
         audit_store,
     )
@@ -471,3 +476,70 @@ def test_approval_cannot_be_decided_twice():
     )
 
     assert second.status_code == 409
+
+
+def test_approval_read_requires_operator_credentials():
+    client, response_store, _ = make_client()
+    _, _, approval = seed_approval(response_store)
+    endpoint = f"/api/v1/approvals/{approval.approval_id}"
+    client.headers.pop("X-AthenaSec-Operator-Key", None)
+
+    assert client.get(endpoint).status_code == 401
+    assert client.get(
+        endpoint,
+        headers={"X-AthenaSec-Operator-Key": "incorrect"},
+    ).status_code == 401
+    assert client.get(
+        endpoint,
+        headers={"X-AthenaSec-Operator-Key": "operator-key"},
+    ).status_code == 200
+
+
+def test_unknown_approval_id_does_not_leak_without_credentials():
+    client, _, _ = make_client()
+    client.headers.pop("X-AthenaSec-Operator-Key", None)
+    assert client.get(
+        "/api/v1/approvals/APR-UNKNOWN"
+    ).status_code == 401
+
+
+def test_approval_decision_requires_credentials_before_mutation():
+    client, response_store, audit_store = make_client()
+    _, _, approval = seed_approval(response_store)
+    endpoint = f"/api/v1/approvals/{approval.approval_id}/decision"
+    client.headers.pop("X-AthenaSec-Operator-Key", None)
+    request = {
+        "decision": "APPROVED",
+        "decided_by": "claimed-analyst",
+        "reason": "Claimed approval without authority.",
+    }
+
+    for headers in (
+        {},
+        {"X-AthenaSec-Operator-Key": "incorrect"},
+    ):
+        result = client.post(endpoint, json=request, headers=headers)
+        assert result.status_code == 401
+        assert response_store.get_approval_request(
+            approval.approval_id
+        ).status == "PENDING"
+        assert audit_store.list_by_incident_id(approval.incident_id) == []
+
+
+def test_unconfigured_approval_gate_fails_closed():
+    client, response_store, _ = make_client(operator_key="")
+    _, _, approval = seed_approval(response_store)
+    endpoint = f"/api/v1/approvals/{approval.approval_id}"
+
+    assert client.get(endpoint).status_code == 503
+    assert client.post(
+        endpoint + "/decision",
+        json={
+            "decision": "APPROVED",
+            "decided_by": "claimed-analyst",
+            "reason": "Should not authorize.",
+        },
+    ).status_code == 503
+    assert response_store.get_approval_request(
+        approval.approval_id
+    ).status == "PENDING"

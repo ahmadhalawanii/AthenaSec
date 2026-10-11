@@ -2352,7 +2352,9 @@ def create_app(
     )
     def get_approval_request(
         approval_id: str,
+        x_athenasec_operator_key: str | None = Header(default=None),
     ) -> ApprovalRequestRecord:
+        require_operator_control_key(x_athenasec_operator_key)
         approval = (
             configured_incident_response_store
             .get_approval_request(
@@ -2383,7 +2385,9 @@ def create_app(
     def decide_approval(
         approval_id: str,
         request: ApprovalDecisionRequest,
+        x_athenasec_operator_key: str | None = Header(default=None),
     ) -> ApprovalRequestRecord:
+        require_operator_control_key(x_athenasec_operator_key)
         try:
             resolution = (
                 resolve_approval_request(

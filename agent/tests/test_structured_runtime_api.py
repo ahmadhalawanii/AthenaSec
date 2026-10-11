@@ -401,6 +401,7 @@ def test_approved_action_enters_same_structured_runtime():
             "/api/v1/approvals/"
             f"{approval_id}/decision"
         ),
+        headers={"X-AthenaSec-Operator-Key": "operator-key"},
         json={
             "decision": "APPROVED",
             "decided_by": "analyst-001",
