@@ -388,3 +388,60 @@ def test_source_endpoint_provider_accepts_identified_source_telemetry():
     assert result[0].evidence_type == "source_endpoint_context"
     assert result[0].source == "wazuh"
     assert "telemetry-source" in result[0].content
+
+# --- Final Indexer privilege-evidence regression coverage ---
+
+def test_privilege_query_requires_agent_user_and_privilege_marker():
+    alert = make_alert()
+    query = build_wazuh_query(alert, "privilege_activity")
+    assert query is not None
+    must = query["query"]["bool"]["must"]
+    assert {"term": {"agent.id": "007"}} in must
+    assert {"term": {"data.srcip": "192.168.1.45"}} not in must
+    assert any("timestamp" in item.get("range", {}) for item in must)
+    bool_conditions = [item["bool"] for item in must if "bool" in item]
+    assert any("should" in part and part.get("minimum_should_match") == 1 for part in bool_conditions)
+    assert len(bool_conditions) >= 2
+
+
+def test_privilege_query_missing_actor_or_agent_fails_closed():
+    alert = make_alert()
+    alert.metadata.pop("agent_id")
+    assert build_wazuh_query(alert, "privilege_activity") is None
+    alert = make_alert()
+    alert.metadata.pop("target_user")
+    assert build_wazuh_query(alert, "privilege_activity") is None
+
+
+def test_privilege_provider_rejects_generic_and_other_user_events():
+    class FakeClient:
+        def search_alerts(self, query):
+            return [
+                {"_id": "generic", "_source": {
+                    "agent": {"id": "007"}, "rule": {"groups": ["syslog"]},
+                    "data": {"srcuser": "root"}}},
+                {"_id": "wrong-agent", "_source": {
+                    "agent": {"id": "009"}, "rule": {"groups": ["sudo"]},
+                    "data": {"srcuser": "root"}}},
+                {"_id": "wrong-user", "_source": {
+                    "agent": {"id": "007"}, "rule": {"groups": ["sudo"]},
+                    "data": {"srcuser": "other", "dstuser": "other"}}},
+            ]
+    assert WazuhEvidenceProvider(FakeClient()).gather(
+        make_alert(), ["privilege_activity"]
+    ) == []
+
+
+def test_privilege_provider_accepts_same_agent_actor_sudo_record():
+    class FakeClient:
+        def search_alerts(self, query):
+            return [{"_id": "actual-sudo", "_source": {
+                "agent": {"id": "007"},
+                "rule": {"id": "5405", "groups": ["syslog", "sudo"]},
+                "data": {"srcuser": "root"}}}]
+    observations = WazuhEvidenceProvider(FakeClient()).gather(
+        make_alert(), ["privilege_activity"]
+    )
+    assert len(observations) == 1
+    assert observations[0].evidence_type == "privilege_activity"
+    assert "actual-sudo" in observations[0].content

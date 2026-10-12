@@ -1,4 +1,6 @@
 import os
+from pathlib import Path
+from urllib.parse import urlsplit
 
 from app.tools.mock_wazuh import (
     gather_requested_evidence,
@@ -69,22 +71,41 @@ def create_evidence_provider():
             + ", ".join(missing)
         )
 
-    verify_ssl = _as_bool(
-        os.getenv(
-            "WAZUH_VERIFY_SSL",
-            "true",
-        )
-    )
+    parsed_url = urlsplit(base_url)
+    if (
+        parsed_url.scheme != "https" or not parsed_url.hostname
+        or parsed_url.username or parsed_url.password
+        or parsed_url.query or parsed_url.fragment
+    ):
+        raise ValueError("Wazuh Indexer requires a clean HTTPS URL")
 
+    if username.strip().casefold() in {"admin", "root"}:
+        raise ValueError("Wazuh Indexer requires a non-administrator service user")
+
+    verify_setting = os.getenv("WAZUH_VERIFY_SSL", "true").strip().lower()
+    if verify_setting not in {"1", "true", "yes", "on"}:
+        raise ValueError("TLS certificate verification must remain enabled")
+
+    ca_bundle = os.getenv("WAZUH_INDEXER_CA_BUNDLE", "").strip()
+    if ca_bundle and not Path(ca_bundle).is_file():
+        raise ValueError("Wazuh Indexer CA bundle file does not exist")
+    legacy_flag = os.getenv("WAZUH_INDEXER_TLS_LEGACY_CA_COMPAT", "false")
+    legacy_flag = legacy_flag.strip().lower()
+    if legacy_flag not in {"0", "false", "no", "off", "1", "true", "yes", "on"}:
+        raise ValueError("Invalid legacy CA compatibility flag")
+    legacy_compat = legacy_flag in {"1", "true", "yes", "on"}
+    if legacy_compat and not ca_bundle:
+        raise ValueError("Legacy CA compatibility requires an explicit CA bundle")
+
+    # Strict verification is the default. The legacy mode is an explicit
+    # existing-lab compatibility exception, NOT production certificate repair.
     client = WazuhIndexerClient(
         base_url=base_url,
         username=username,
         password=password,
-        verify_ssl=verify_ssl,
+        verify_ssl=ca_bundle if ca_bundle else True,
+        legacy_ca_compat=legacy_compat,
     )
 
-    provider = WazuhEvidenceProvider(
-        client
-    )
-
+    provider = WazuhEvidenceProvider(client)
     return provider.gather

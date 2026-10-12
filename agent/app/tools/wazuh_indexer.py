@@ -1,4 +1,8 @@
 from datetime import datetime, timedelta, timezone
+import base64
+import json
+import ssl
+from urllib.request import Request, urlopen
 
 from typing import (
     Any,
@@ -28,8 +32,9 @@ class WazuhIndexerClient:
         base_url: str,
         username: str,
         password: str,
-        verify_ssl: bool = True,
+        verify_ssl: bool | str = True,
         timeout: float = 10.0,
+        legacy_ca_compat: bool = False,
     ):
         self.base_url = (
             base_url.rstrip("/")
@@ -39,11 +44,47 @@ class WazuhIndexerClient:
         self.password = password
         self.verify_ssl = verify_ssl
         self.timeout = timeout
+        self._legacy_tls_context: ssl.SSLContext | None = None
+        if legacy_ca_compat:
+            if not isinstance(verify_ssl, str) or not verify_ssl.strip():
+                raise ValueError('Legacy lab CA compatibility requires an explicit CA bundle')
+            # LAB COMPATIBILITY ONLY. CA-chain and hostname checks remain enabled.
+            # Remediate the nonconformant Wazuh CA before production.
+            context = ssl.create_default_context(cafile=verify_ssl)
+            context.verify_flags &= ~ssl.VERIFY_X509_STRICT
+            if not context.check_hostname or context.verify_mode != ssl.CERT_REQUIRED:
+                raise ValueError('TLS certificate and hostname validation are required')
+            self._legacy_tls_context = context
+
+    def _legacy_verified_request(self, path: str, query: dict[str, Any] | None = None) -> dict[str, Any]:
+        if self._legacy_tls_context is None:
+            raise RuntimeError('Legacy transport is not enabled')
+        credentials = base64.b64encode(
+            f'{self.username}:{self.password}'.encode('utf-8')
+        ).decode('ascii')
+        req = Request(
+            self.base_url + path,
+            data=json.dumps(query).encode('utf-8') if query is not None else None,
+            headers={
+                'Authorization': 'Basic ' + credentials,
+                'Content-Type': 'application/json',
+            },
+            method='POST' if query is not None else 'GET',
+        )
+        with urlopen(req, context=self._legacy_tls_context, timeout=self.timeout) as response:
+            payload = json.load(response)
+        if not isinstance(payload, dict):
+            raise ValueError('Unexpected Wazuh Indexer response')
+        return payload
 
     def search_alerts(
         self,
         query: dict[str, Any],
     ) -> list[dict[str, Any]]:
+        if self._legacy_tls_context is not None:
+            payload = self._legacy_verified_request('/wazuh-alerts*/_search', query)
+            hits = payload.get('hits', {}).get('hits', [])
+            return hits if isinstance(hits, list) else []
         response = requests.post(
             (
                 f"{self.base_url}/"
@@ -71,6 +112,8 @@ class WazuhIndexerClient:
     def health(
         self,
     ) -> dict[str, Any]:
+        if self._legacy_tls_context is not None:
+            return self._legacy_verified_request('/_cluster/health')
         response = requests.get(
             (
                 f"{self.base_url}/"
@@ -255,22 +298,35 @@ def build_wazuh_query(
         )
 
     if request == "privilege_activity":
-        must = [
-            *scope_filters,
-        ]
-
-        if agent_id:
-            must.append(
-                {
-                    "term": {
-                        "agent.id": agent_id,
-                    }
-                }
-            )
-
-        return _base_query(
-            must
-        )
+        # Privilege activity concerns the monitored agent, not the attacker's
+        # network source. A time- and agent-matched generic event is NOT proof.
+        actor = alert.metadata.get("source_user") or target_user
+        if not agent_id or not isinstance(actor, str) or not actor.strip():
+            return None
+        actor = actor.strip()
+        return _base_query([
+            time_filter,
+            {"term": {"agent.id": agent_id}},
+            {"bool": {"should": [
+                {"term": {"data.srcuser": actor}},
+                {"term": {"data.dstuser": actor}},
+                {"term": {"data.user": actor}},
+            ], "minimum_should_match": 1}},
+            {"bool": {"should": [
+                {"terms": {"rule.groups": [
+                    "sudo", "privilege_escalation", "account_changed",
+                    "group_changed", "user_management",
+                ]}},
+                {"terms": {"decoder.name": [
+                    "sudo", "gpasswd", "useradd", "usermod", "userdel",
+                    "groupadd", "groupmod", "groupdel",
+                ]}},
+                {"terms": {"decoder.parent": [
+                    "sudo", "gpasswd", "useradd", "usermod", "userdel",
+                    "groupadd", "groupmod", "groupdel",
+                ]}},
+            ], "minimum_should_match": 1}},
+        ])
 
     if request == "related_security_events":
         return _base_query(
@@ -483,6 +539,50 @@ def _verified_source_endpoint_hit(
     return True
 
 
+def _verified_privilege_activity_hit(
+    alert: SecurityAlertInput,
+    hit: dict[str, Any],
+) -> bool:
+    document = hit.get("_source")
+    if not isinstance(document, dict):
+        return False
+    agent = document.get("agent")
+    expected_agent = alert.metadata.get("agent_id")
+    if not isinstance(agent, dict) or not expected_agent:
+        return False
+    if str(agent.get("id") or "") != str(expected_agent):
+        return False
+    actor = alert.metadata.get("source_user") or alert.metadata.get("target_user")
+    if not isinstance(actor, str) or not actor.strip():
+        return False
+    data = document.get("data")
+    if not isinstance(data, dict):
+        return False
+    usernames = {str(data[key]).strip().casefold() for key in
+                 ("srcuser", "dstuser", "user") if data.get(key)}
+    if actor.strip().casefold() not in usernames:
+        return False
+    rule = document.get("rule")
+    decoder = document.get("decoder")
+    rule_groups = rule.get("groups", []) if isinstance(rule, dict) else []
+    if not isinstance(rule_groups, list):
+        rule_groups = []
+    relevant_groups = {
+        "sudo", "privilege_escalation", "account_changed",
+        "group_changed", "user_management",
+    }
+    relevant_decoders = {
+        "sudo", "gpasswd", "useradd", "usermod", "userdel",
+        "groupadd", "groupmod", "groupdel",
+    }
+    names = set()
+    if isinstance(decoder, dict):
+        names = {str(decoder[key]).strip().casefold() for key in
+                 ("name", "parent") if decoder.get(key)}
+    groups = {str(group).strip().casefold() for group in rule_groups}
+    return bool(groups & relevant_groups or names & relevant_decoders)
+
+
 class WazuhEvidenceProvider:
     def __init__(
         self,
@@ -522,6 +622,12 @@ class WazuhEvidenceProvider:
                 if (
                     request == "source_endpoint_context"
                     and not _verified_source_endpoint_hit(alert, hit)
+                ):
+                    continue
+
+                if (
+                    request == "privilege_activity"
+                    and not _verified_privilege_activity_hit(alert, hit)
                 ):
                     continue
 
