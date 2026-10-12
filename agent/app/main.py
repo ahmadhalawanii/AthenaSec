@@ -120,6 +120,9 @@ from app.services.target_operation_coordinator import (
 from app.services.action_risk_context import (
     make_action_risk_context_provider,
 )
+from app.services.operator_identity import (
+    build_operator_identity_store_from_env,
+)
 
 
 def _read_autonomous_response_enabled() -> bool:
@@ -167,6 +170,7 @@ def create_app(
     target_protection_store: Any = None,
     containment_expiry_store: Any = None,
     target_operation_coordinator: Any = None,
+    operator_identity_store: Any = None,
 ) -> FastAPI:
     app = FastAPI(
         title="AthenaSec Agent API",
@@ -349,6 +353,11 @@ def create_app(
                 "SUPERVISED",
             )
         )
+    )
+
+    configured_operator_identity_store = (
+        operator_identity_store if operator_identity_store is not None
+        else build_operator_identity_store_from_env()
     )
 
     configured_operator_control_key = (
@@ -1980,6 +1989,23 @@ def create_app(
                 ),
             )
 
+    def require_approval_identity(authorization, *, allow_decision=False):
+        if configured_operator_identity_store is None:
+            raise HTTPException(status_code=503, detail="Human identity store is unavailable.")
+        if not authorization or not authorization.startswith("Bearer "):
+            raise HTTPException(status_code=401, detail="Human authentication required.")
+        token = authorization[7:]
+        if not token or token.strip() != token:
+            raise HTTPException(status_code=401, detail="Invalid operator credential.")
+        identity = configured_operator_identity_store.resolve(token)
+        if identity is None:
+            raise HTTPException(status_code=401, detail="Invalid or expired operator credential.")
+        if allow_decision and not identity.can_decide_approvals:
+            raise HTTPException(status_code=403, detail="Approver permission required.")
+        if not identity.can_read_approvals:
+            raise HTTPException(status_code=403, detail="Approval-read permission required.")
+        return identity
+
     @app.get(
         "/api/v1/runtime/status"
     )
@@ -2352,9 +2378,9 @@ def create_app(
     )
     def get_approval_request(
         approval_id: str,
-        x_athenasec_operator_key: str | None = Header(default=None),
+        authorization: str | None = Header(default=None),
     ) -> ApprovalRequestRecord:
-        require_operator_control_key(x_athenasec_operator_key)
+        require_approval_identity(authorization)
         approval = (
             configured_incident_response_store
             .get_approval_request(
@@ -2385,9 +2411,9 @@ def create_app(
     def decide_approval(
         approval_id: str,
         request: ApprovalDecisionRequest,
-        x_athenasec_operator_key: str | None = Header(default=None),
+        authorization: str | None = Header(default=None),
     ) -> ApprovalRequestRecord:
-        require_operator_control_key(x_athenasec_operator_key)
+        principal = require_approval_identity(authorization, allow_decision=True)
         try:
             resolution = (
                 resolve_approval_request(
@@ -2401,7 +2427,7 @@ def create_app(
                         request.decision
                     ),
                     decided_by=(
-                        request.decided_by
+                        principal.operator_id
                     ),
                     reason=request.reason,
                 )

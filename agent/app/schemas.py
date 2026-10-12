@@ -802,10 +802,6 @@ class ApprovalDecisionRequest(BaseModel):
         "REJECTED",
     ]
 
-    decided_by: str = Field(
-        min_length=1,
-    )
-
     reason: str = Field(
         min_length=1,
     )

@@ -29,6 +29,7 @@ from app.services.incident_response_store import (
 from app.services.investigation_store import (
     InMemoryInvestigationStore,
 )
+from app.services.operator_identity import InMemoryOperatorIdentityStore
 from app.services.structured_execution import (
     StructuredExecutorResult,
 )
@@ -222,6 +223,9 @@ def make_runtime(
 
     rollback = FakeRollback()
 
+    identity = InMemoryOperatorIdentityStore()
+    token = identity.provision(operator_id="analyst-001", can_approve=True)
+
     app = create_app(
         investigation_graph=graph,
         investigation_store=(
@@ -240,6 +244,7 @@ def make_runtime(
         operator_control_key=(
             "operator-key"
         ),
+        operator_identity_store=identity,
         structured_action_executor=(
             executor
         ),
@@ -251,8 +256,11 @@ def make_runtime(
         ),
     )
 
+    client = TestClient(app)
+    client.headers["Authorization"] = "Bearer " + token
+
     return (
-        TestClient(app),
+        client,
         response_store,
         audit_store,
         executor,

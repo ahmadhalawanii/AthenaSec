@@ -1,4 +1,4 @@
-﻿from datetime import (
+from datetime import (
     datetime,
     timezone,
 )
@@ -24,6 +24,7 @@ from app.services.incident_response_store import (
 from app.services.investigation_store import (
     InMemoryInvestigationStore,
 )
+from app.services.operator_identity import InMemoryOperatorIdentityStore
 
 
 REQUESTED_AT = datetime(
@@ -142,7 +143,7 @@ def seed_approval(
     )
 
 
-def make_client(*, operator_key="operator-key"):
+def make_client(*, operator_key="operator-key", auth_enabled=True):
     response_store = (
         InMemoryIncidentResponseStore()
     )
@@ -150,6 +151,9 @@ def make_client(*, operator_key="operator-key"):
     audit_store = (
         InMemoryAuditStore()
     )
+
+    identity = InMemoryOperatorIdentityStore() if auth_enabled else None
+    token = identity.provision(operator_id="analyst-001", can_approve=True) if identity else None
 
     app = create_app(
         investigation_graph=(
@@ -164,11 +168,14 @@ def make_client(*, operator_key="operator-key"):
         ),
         autonomous_response_enabled=False,
         operator_control_key=operator_key,
+        operator_identity_store=identity,
     )
 
     client = TestClient(app)
     if operator_key:
         client.headers["X-AthenaSec-Operator-Key"] = operator_key
+    if token:
+        client.headers["Authorization"] = "Bearer " + token
 
     return (
         client,
@@ -482,22 +489,22 @@ def test_approval_read_requires_operator_credentials():
     client, response_store, _ = make_client()
     _, _, approval = seed_approval(response_store)
     endpoint = f"/api/v1/approvals/{approval.approval_id}"
-    client.headers.pop("X-AthenaSec-Operator-Key", None)
+    original_auth = client.headers.pop("Authorization", None)
 
     assert client.get(endpoint).status_code == 401
     assert client.get(
         endpoint,
-        headers={"X-AthenaSec-Operator-Key": "incorrect"},
+        headers={"Authorization": "Bearer incorrect"},
     ).status_code == 401
     assert client.get(
         endpoint,
-        headers={"X-AthenaSec-Operator-Key": "operator-key"},
+        headers={"Authorization": original_auth},
     ).status_code == 200
 
 
 def test_unknown_approval_id_does_not_leak_without_credentials():
     client, _, _ = make_client()
-    client.headers.pop("X-AthenaSec-Operator-Key", None)
+    client.headers.pop("Authorization", None)
     assert client.get(
         "/api/v1/approvals/APR-UNKNOWN"
     ).status_code == 401
@@ -507,7 +514,7 @@ def test_approval_decision_requires_credentials_before_mutation():
     client, response_store, audit_store = make_client()
     _, _, approval = seed_approval(response_store)
     endpoint = f"/api/v1/approvals/{approval.approval_id}/decision"
-    client.headers.pop("X-AthenaSec-Operator-Key", None)
+    client.headers.pop("Authorization", None)
     request = {
         "decision": "APPROVED",
         "decided_by": "claimed-analyst",
@@ -516,7 +523,7 @@ def test_approval_decision_requires_credentials_before_mutation():
 
     for headers in (
         {},
-        {"X-AthenaSec-Operator-Key": "incorrect"},
+        {"Authorization": "Bearer incorrect"},
     ):
         result = client.post(endpoint, json=request, headers=headers)
         assert result.status_code == 401
@@ -527,7 +534,7 @@ def test_approval_decision_requires_credentials_before_mutation():
 
 
 def test_unconfigured_approval_gate_fails_closed():
-    client, response_store, _ = make_client(operator_key="")
+    client, response_store, _ = make_client(auth_enabled=False)
     _, _, approval = seed_approval(response_store)
     endpoint = f"/api/v1/approvals/{approval.approval_id}"
 
