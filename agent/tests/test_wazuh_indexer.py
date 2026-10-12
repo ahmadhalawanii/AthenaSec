@@ -17,6 +17,7 @@ def make_alert():
             "source_ip": "192.168.1.45",
             "target_user": "root",
             "agent_id": "007",
+            "timestamp": "2026-10-05T18:31:39.237+0000",
         },
     )
 
@@ -47,22 +48,17 @@ def test_authentication_query_uses_alert_scope():
     } in must
 
 
-def test_endpoint_query_uses_source_ip():
-    query = build_wazuh_query(
-        make_alert(),
-        "source_endpoint_context",
-    )
-
+def test_endpoint_query_uses_source_agent_ip_not_victim_agent():
+    query = build_wazuh_query(make_alert(), "source_endpoint_context")
     assert query is not None
-
     must = query["query"]["bool"]["must"]
-
-    assert {
-        "term": {
-            "data.srcip": "192.168.1.45"
-        }
-    } in must
-
+    assert {"term": {"agent.ip": "192.168.1.45"}} in must
+    assert {"exists": {"field": "agent.name"}} in must
+    assert {"term": {"agent.id": "007"}} not in must
+    assert any(
+        {"term": {"agent.id": "000"}} in entry.get("bool", {}).get("must_not", [])
+        for entry in must
+    )
 
 def test_related_events_query_requires_high_level():
     query = build_wazuh_query(
@@ -282,3 +278,113 @@ def test_indexer_client_checks_cluster_health(
         "athenasec",
         "secret",
     )
+
+def test_authentication_evidence_has_30_minute_window():
+    alert = make_alert()
+    alert.metadata["timestamp"] = "2026-10-05T18:31:39.237+0000"
+
+    query = build_wazuh_query(
+        alert,
+        "authentication_history",
+    )
+
+    assert query is not None
+    must = query["query"]["bool"]["must"]
+
+    bounds = [
+        item["range"]["timestamp"]
+        for item in must
+        if "range" in item and "timestamp" in item["range"]
+    ]
+
+    assert bounds == [{
+        "gte": "2026-10-05T18:01:39.237000+00:00",
+        "lte": "2026-10-05T19:01:39.237000+00:00",
+    }]
+
+
+def test_missing_timestamp_fails_closed():
+    alert = make_alert()
+    alert.metadata.pop("timestamp", None)
+    assert build_wazuh_query(
+        alert,
+        "authentication_history",
+    ) is None
+
+
+def test_untrusted_timestamp_fails_closed():
+    alert = make_alert()
+    alert.metadata["timestamp"] = "not-a-timestamp"
+
+    assert build_wazuh_query(
+        alert,
+        "authentication_history",
+    ) is None
+
+
+def test_source_endpoint_requires_incident_source_ip():
+    alert = make_alert()
+    alert.metadata.pop("source_ip")
+    assert build_wazuh_query(alert, "source_endpoint_context") is None
+
+    # The Wazuh alert agent may be a victim or Manager and must NOT be
+    # interpreted as the attacker's source endpoint.
+    alert = make_alert()
+    alert.metadata.pop("agent_id")
+    assert build_wazuh_query(alert, "source_endpoint_context") is not None
+
+
+
+def test_source_endpoint_provider_rejects_manager_and_victim_events():
+    class FakeClient:
+        def search_alerts(self, query):
+            return [
+                {"_id": "manager-sudo", "_source": {
+                    "timestamp": "2026-10-05T18:31:39Z",
+                    "agent": {"id": "000", "name": "manager", "ip": "192.168.1.45"},
+                    "rule": {"id": "5405", "groups": ["sudo"]},
+                }},
+                {"_id": "victim-gpasswd", "_source": {
+                    "timestamp": "2026-10-05T18:31:39Z",
+                    "agent": {"id": "007", "name": "victim", "ip": "192.168.1.20"},
+                    "rule": {"id": "5406", "groups": ["sudo"]},
+                }},
+            ]
+
+    result = WazuhEvidenceProvider(FakeClient()).gather(
+        make_alert(), ["source_endpoint_context"]
+    )
+    assert result == []
+
+
+def test_source_endpoint_provider_rejects_authentication_only_events():
+    class FakeClient:
+        def search_alerts(self, query):
+            return [{"_id": "auth-only", "_source": {
+                "timestamp": "2026-10-05T18:31:39Z",
+                "agent": {"id": "008", "name": "source-host", "ip": "192.168.1.45"},
+                "rule": {"id": "5716", "groups": ["authentication_failed"]},
+            }}]
+
+    result = WazuhEvidenceProvider(FakeClient()).gather(
+        make_alert(), ["source_endpoint_context"]
+    )
+    assert result == []
+
+
+def test_source_endpoint_provider_accepts_identified_source_telemetry():
+    class FakeClient:
+        def search_alerts(self, query):
+            return [{"_id": "telemetry-source", "_source": {
+                "timestamp": "2026-10-05T18:31:39Z",
+                "agent": {"id": "008", "name": "source-host", "ip": "192.168.1.45"},
+                "rule": {"id": "550", "groups": ["syscheck"]},
+            }}]
+
+    result = WazuhEvidenceProvider(FakeClient()).gather(
+        make_alert(), ["source_endpoint_context"]
+    )
+    assert len(result) == 1
+    assert result[0].evidence_type == "source_endpoint_context"
+    assert result[0].source == "wazuh"
+    assert "telemetry-source" in result[0].content

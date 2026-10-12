@@ -1,3 +1,5 @@
+from datetime import datetime, timedelta, timezone
+
 from typing import (
     Any,
     Protocol,
@@ -106,6 +108,40 @@ def _get_alert_scope(
         ),
     }
 
+def _timestamp_filter(
+    alert: SecurityAlertInput,
+) -> dict[str, Any] | None:
+    raw = alert.metadata.get("timestamp")
+
+    if not isinstance(raw, str) or not raw.strip():
+        return None
+
+    value = raw.strip()
+
+    if value.endswith("Z"):
+        value = value[:-1] + "+00:00"
+
+    try:
+        observed_at = datetime.fromisoformat(value)
+    except ValueError:
+        return None
+
+    if observed_at.tzinfo is None:
+        return None
+
+    observed_at = observed_at.astimezone(timezone.utc)
+
+    window = timedelta(minutes=30)
+
+    return {
+        "range": {
+            "timestamp": {
+                "gte": (observed_at - window).isoformat(),
+                "lte": (observed_at + window).isoformat(),
+            }
+        }
+    }
+
 
 def _base_query(
     must: list[dict[str, Any]],
@@ -140,9 +176,14 @@ def build_wazuh_query(
     target_user = scope["target_user"]
     agent_id = scope["agent_id"]
 
+    time_filter = _timestamp_filter(alert)
+
+    if time_filter is None:
+        return None
+
     scope_filters: list[
         dict[str, Any]
-    ] = []
+    ] = [time_filter]
 
     if source_ip:
         scope_filters.append(
@@ -190,8 +231,27 @@ def build_wazuh_query(
         )
 
     if request == "source_endpoint_context":
+        # The triggering Wazuh alert's agent is typically the monitored
+        # TARGET, not the attacker's SOURCE endpoint. Only telemetry from
+        # an enrolled agent whose own IP matches the incident source can
+        # qualify as source endpoint context.
+        if not source_ip:
+            return None
+
         return _base_query(
-            scope_filters
+            [
+                time_filter,
+                {"term": {"agent.ip": source_ip}},
+                {"exists": {"field": "agent.name"}},
+                {"bool": {"must_not": [
+                    {"term": {"agent.id": "000"}},
+                    {"terms": {"rule.groups": [
+                        "authentication_failed",
+                        "authentication_failures",
+                        "authentication_success",
+                    ]}},
+                ]}},
+            ]
         )
 
     if request == "privilege_activity":
@@ -368,6 +428,61 @@ def format_wazuh_hit(
     )
 
 
+def _verified_source_endpoint_hit(
+    alert: SecurityAlertInput,
+    hit: dict[str, Any],
+) -> bool:
+    from ipaddress import ip_address
+
+    source_ip = alert.metadata.get("source_ip") or alert.metadata.get("srcip")
+    if not isinstance(source_ip, str):
+        return False
+
+    document = hit.get("_source")
+    if not isinstance(document, dict):
+        return False
+
+    agent = document.get("agent")
+    if not isinstance(agent, dict):
+        return False
+
+    agent_id = str(agent.get("id") or "").strip()
+    if not agent_id or not agent_id.lstrip("0"):
+        # 000 is the local Wazuh Manager, not an identified source endpoint.
+        return False
+
+    if not isinstance(agent.get("name"), str) or not agent["name"].strip():
+        return False
+
+    try:
+        source_address = ip_address(source_ip.strip())
+        agent_address = ip_address(str(agent.get("ip") or "").strip())
+    except ValueError:
+        return False
+
+    if source_address != agent_address:
+        return False
+
+    rule = document.get("rule")
+    if not isinstance(rule, dict):
+        return False
+
+    groups = rule.get("groups")
+    if not isinstance(groups, list):
+        return False
+
+    authentication_groups = {
+        "authentication_failed",
+        "authentication_failures",
+        "authentication_success",
+    }
+    if authentication_groups.intersection(str(group) for group in groups):
+        # An authentication event is not independent endpoint telemetry.
+        return False
+
+    return True
+
+
 class WazuhEvidenceProvider:
     def __init__(
         self,
@@ -404,6 +519,12 @@ class WazuhEvidenceProvider:
             )
 
             for hit in hits:
+                if (
+                    request == "source_endpoint_context"
+                    and not _verified_source_endpoint_hit(alert, hit)
+                ):
+                    continue
+
                 content = format_wazuh_hit(
                     hit
                 )
