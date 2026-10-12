@@ -1189,6 +1189,7 @@ AuditEventType = Literal[
     "policy_evaluated",
     "case_created",
     "autonomous_response_blocked",
+    "legacy_response_blocked",
     "cortex_execution_started",
     "cortex_execution_completed",
     "cortex_execution_failed",

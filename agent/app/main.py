@@ -39,10 +39,7 @@ from app.services.audit_store import (
     AuditStore,
     SQLiteAuditStore,
 )
-from app.services.autonomous_response import (
-    ResponseExecutor,
-    process_autonomous_response,
-)
+from app.services.autonomous_response import ResponseExecutor
 from app.services.case_service import (
     create_case_record,
 )
@@ -421,14 +418,9 @@ def create_app(
         initial_operator_execution_enabled=True,
     )
 
-    configured_response_executor = (
-        response_executor
-        if response_executor is not None
-        else (
-            cortex_config
-            .build_cortex_response_executor_from_env()
-        )
-    )
+    # The old ResponseExecutor parameter is retained for source compatibility.
+    # It must never authorize a Cortex action. Only the deterministic V2
+    # structured response runtime may reach the Cortex executor.
 
     structured_cortex_runtime = (
         cortex_config
@@ -480,13 +472,6 @@ def create_app(
             else None
         )
     )
-
-    if isinstance(
-        configured_containment_expiry_store,
-        PostgresContainmentExpiryStore,
-    ):
-        # Legacy Cortex has no coordinated expiry/verification pipeline.
-        configured_response_executor = None
 
     structured_runtime_configured = any(
         component is not None
@@ -1588,214 +1573,6 @@ def create_app(
                         ),
                     )
 
-        elif configured_response_executor is not None:
-            ready_for_execution = (
-                investigation.response_plan.status
-                == "ready_for_execution"
-            )
-
-            control = (
-                current_runtime_control()
-            )
-
-            operator_and_master_enabled = (
-                configured_autonomous_response_enabled
-                and (
-                    control
-                    .operator_execution_enabled
-                )
-            )
-
-            should_execute = (
-                ready_for_execution
-                and operator_and_master_enabled
-                and (
-                    control.response_mode
-                    != "SHADOW"
-                )
-            )
-
-            kill_switch_blocked = (
-                ready_for_execution
-                and (
-                    control.response_mode
-                    != "SHADOW"
-                )
-                and not (
-                    operator_and_master_enabled
-                )
-            )
-
-            if kill_switch_blocked:
-                save_audit_event(
-                    alert_id=investigation.alert_id,
-                    event_type=(
-                        "autonomous_response_blocked"
-                    ),
-                    message=(
-                        "Autonomous response was "
-                        "blocked by the global "
-                        "kill switch."
-                    ),
-                    details={
-                        "policy_id": (
-                            investigation
-                            .policy_decision
-                            .policy_id
-                        ),
-                        "actions": list(
-                            investigation
-                            .response_plan
-                            .actions
-                        ),
-                        "autonomous_response_enabled": (
-                            False
-                        ),
-                    },
-                )
-
-            if should_execute:
-                save_audit_event(
-                    alert_id=investigation.alert_id,
-                    event_type=(
-                        "cortex_execution_started"
-                    ),
-                    message=(
-                        "Cortex autonomous response "
-                        "execution started."
-                    ),
-                    details={
-                        "policy_id": (
-                            investigation
-                            .policy_decision
-                            .policy_id
-                        ),
-                        "actions": list(
-                            investigation
-                            .response_plan
-                            .actions
-                        ),
-                    },
-                )
-
-            response_outcome = (
-                process_autonomous_response(
-                    investigation=investigation,
-                    store=store,
-                    executor=(
-                        configured_response_executor
-                    ),
-                    autonomous_response_enabled=(
-                        operator_and_master_enabled
-                        and (
-                            control.response_mode
-                            != "SHADOW"
-                        )
-                    ),
-                )
-            )
-
-            updated_investigation = store.get(
-                investigation.alert_id
-            )
-
-            if updated_investigation is not None:
-                investigation = (
-                    updated_investigation
-                )
-
-            if (
-                response_outcome["outcome"]
-                == "executed"
-            ):
-                execution_result = (
-                    investigation.execution_result
-                )
-
-                save_audit_event(
-                    alert_id=investigation.alert_id,
-                    event_type=(
-                        "cortex_execution_completed"
-                    ),
-                    message=(
-                        "Cortex autonomous response "
-                        "execution completed."
-                    ),
-                    details={
-                        "policy_id": (
-                            investigation
-                            .policy_decision
-                            .policy_id
-                        ),
-                        "actions": list(
-                            investigation
-                            .response_plan
-                            .actions
-                        ),
-                        "status": (
-                            execution_result.status
-                            if execution_result
-                            is not None
-                            else "completed"
-                        ),
-                    },
-                )
-
-            elif (
-                should_execute
-                and (
-                    response_outcome["outcome"]
-                    == "case_created"
-                )
-            ):
-                save_audit_event(
-                    alert_id=investigation.alert_id,
-                    event_type=(
-                        "cortex_execution_failed"
-                    ),
-                    message=(
-                        "Cortex autonomous response "
-                        "execution failed."
-                    ),
-                    details={
-                        "policy_id": (
-                            investigation
-                            .policy_decision
-                            .policy_id
-                        ),
-                        "actions": list(
-                            investigation
-                            .response_plan
-                            .actions
-                        ),
-                        "fallback": (
-                            "case_created"
-                        ),
-                    },
-                )
-
-            case = store.get_case_by_alert_id(
-                investigation.alert_id
-            )
-
-            if case is not None:
-                save_audit_event(
-                    alert_id=investigation.alert_id,
-                    event_type="case_created",
-                    message=(
-                        "Case was created "
-                        "automatically."
-                    ),
-                    details={
-                        "case_id": case.case_id,
-                        "policy_id": (
-                            case.policy_id
-                        ),
-                        "risk_score": (
-                            case.risk_score
-                        ),
-                    },
-                )
         elif (
             investigation.response_plan.status
             in {
@@ -1809,6 +1586,21 @@ def create_app(
                 investigation.response_plan.status
                 == "ready_for_execution"
             ):
+                control = current_runtime_control()
+                save_audit_event(
+                    alert_id=investigation.alert_id,
+                    event_type="legacy_response_blocked",
+                    message=(
+                        "Legacy response was not executed: an exact V2 "
+                        "deterministic action policy decision is required."
+                    ),
+                    details={
+                        "legacy_policy_id": investigation.policy_decision.policy_id,
+                        "requested_actions": list(investigation.response_plan.actions),
+                        "response_mode": control.response_mode,
+                        "reason": "v2_action_policy_required",
+                    },
+                )
                 fallback_plan = (
                     investigation
                     .response_plan
@@ -1818,10 +1610,10 @@ def create_app(
                             "actions": [],
                             "status": "create_case",
                             "reason": (
-                                "Autonomous response "
-                                "could not execute "
-                                "because the Cortex "
-                                "executor is unavailable."
+                                "Legacy response denied: "
+                                "deterministic V2 policy, "
+                                "independent verification, and "
+                                "containment expiry are required."
                             ),
                         }
                     )
@@ -1861,7 +1653,7 @@ def create_app(
                         case.risk_score
                     ),
                     "fallback_reason": (
-                        "cortex_unavailable"
+                        "v2_policy_required"
                         if (
                             investigation
                             .response_plan

@@ -903,86 +903,33 @@ def test_sqlite_case_survives_app_restart(
         == "open"
     )
 
-def test_api_executes_allowed_response_when_enabled():
+def test_api_blocks_legacy_plan_even_when_enabled():
     store = InMemoryInvestigationStore()
     executor = FakeSuccessfulResponseExecutor()
-
     app = create_app(
-        investigation_graph=(
-            FakeCriticalInvestigationGraph()
-        ),
+        investigation_graph=FakeCriticalInvestigationGraph(),
         investigation_store=store,
         response_executor=executor,
         autonomous_response_enabled=True,
     )
+    assert submit_investigation(TestClient(app)).status_code == 200
+    assert executor.calls == []
+    assert store.get_case_by_alert_id("ALT-API-001") is not None
+    assert store.get("ALT-API-001").execution_result is None
 
-    client = TestClient(
-        app
-    )
 
-    response = submit_investigation(
-        client
-    )
-
-    assert response.status_code == 200
-
-    assert executor.calls == [
-        "ALT-API-001",
-    ]
-
-    stored = store.get(
-        "ALT-API-001"
-    )
-
-    assert stored is not None
-
-    assert (
-        stored.execution_result
-        is not None
-    )
-
-    assert (
-        stored.execution_result.status
-        == "completed"
-    )
-
-    assert (
-        stored.execution_result.executor
-        == "cortex"
-    )
-
-def test_autonomous_response_env_true_enables_execution(
-    monkeypatch,
-):
-    monkeypatch.setenv(
-        "AUTONOMOUS_RESPONSE_ENABLED",
-        "true",
-    )
-
+def test_autonomous_env_true_cannot_override_v2_policy(monkeypatch):
+    monkeypatch.setenv("AUTONOMOUS_RESPONSE_ENABLED", "true")
     store = InMemoryInvestigationStore()
     executor = FakeSuccessfulResponseExecutor()
-
     app = create_app(
-        investigation_graph=(
-            FakeCriticalInvestigationGraph()
-        ),
+        investigation_graph=FakeCriticalInvestigationGraph(),
         investigation_store=store,
         response_executor=executor,
     )
-
-    client = TestClient(
-        app
-    )
-
-    response = submit_investigation(
-        client
-    )
-
-    assert response.status_code == 200
-
-    assert executor.calls == [
-        "ALT-API-001",
-    ]
+    assert submit_investigation(TestClient(app)).status_code == 200
+    assert executor.calls == []
+    assert store.get_case_by_alert_id("ALT-API-001") is not None
 
 
 def test_autonomous_response_env_false_blocks_execution(
@@ -1114,60 +1061,24 @@ def test_api_builds_cortex_executor_from_environment(
     assert client is not None
 
 
-def test_api_uses_environment_built_cortex_executor(
-    monkeypatch,
-):
-    monkeypatch.setenv(
-        "AUTONOMOUS_RESPONSE_ENABLED",
-        "true",
-    )
-
+def test_api_does_not_use_environment_built_legacy_cortex_executor(monkeypatch):
+    monkeypatch.setenv("AUTONOMOUS_RESPONSE_ENABLED", "true")
     executor = FakeSuccessfulResponseExecutor()
-
     monkeypatch.setattr(
         cortex_config,
         "build_cortex_response_executor_from_env",
         lambda: executor,
     )
-
     store = InMemoryInvestigationStore()
-
     app = create_app(
-        investigation_graph=(
-            FakeCriticalInvestigationGraph()
-        ),
+        investigation_graph=FakeCriticalInvestigationGraph(),
         investigation_store=store,
     )
+    assert submit_investigation(TestClient(app)).status_code == 200
+    assert executor.calls == []
+    assert store.get_case_by_alert_id("ALT-API-001") is not None
+    assert store.get("ALT-API-001").execution_result is None
 
-    client = TestClient(
-        app
-    )
-
-    response = submit_investigation(
-        client
-    )
-
-    assert response.status_code == 200
-
-    assert executor.calls == [
-        "ALT-API-001",
-    ]
-
-    stored = store.get(
-        "ALT-API-001"
-    )
-
-    assert stored is not None
-
-    assert (
-        stored.execution_result
-        is not None
-    )
-
-    assert (
-        stored.execution_result.executor
-        == "cortex"
-    )
 
 def test_environment_built_cortex_respects_kill_switch(
     monkeypatch,
@@ -1215,63 +1126,24 @@ def test_environment_built_cortex_respects_kill_switch(
     assert case.status == "open"
 
 
-def test_api_creates_case_when_cortex_execution_fails(
-    monkeypatch,
-):
-    monkeypatch.setenv(
-        "AUTONOMOUS_RESPONSE_ENABLED",
-        "true",
-    )
-
+def test_api_does_not_call_legacy_failing_executor(monkeypatch):
+    monkeypatch.setenv("AUTONOMOUS_RESPONSE_ENABLED", "true")
     executor = FakeFailingResponseExecutor()
-
     monkeypatch.setattr(
         cortex_config,
         "build_cortex_response_executor_from_env",
         lambda: executor,
     )
-
     store = InMemoryInvestigationStore()
-
     app = create_app(
-        investigation_graph=(
-            FakeCriticalInvestigationGraph()
-        ),
+        investigation_graph=FakeCriticalInvestigationGraph(),
         investigation_store=store,
     )
+    assert submit_investigation(TestClient(app)).status_code == 200
+    assert executor.calls == []
+    assert store.get_case_by_alert_id("ALT-API-001") is not None
+    assert store.get("ALT-API-001").execution_result is None
 
-    client = TestClient(
-        app
-    )
-
-    response = submit_investigation(
-        client
-    )
-
-    assert response.status_code == 200
-
-    assert executor.calls == [
-        "ALT-API-001",
-    ]
-
-    case = store.get_case_by_alert_id(
-        "ALT-API-001"
-    )
-
-    assert case is not None
-
-    assert case.status == "open"
-
-    stored = store.get(
-        "ALT-API-001"
-    )
-
-    assert stored is not None
-
-    assert (
-        stored.execution_result
-        is None
-    )
 
 def test_api_records_core_audit_events():
     investigation_store = (
@@ -1324,188 +1196,65 @@ def test_api_records_core_audit_events():
         in event_types
     )
 
-def test_api_records_cortex_execution_audit_events():
-    investigation_store = (
-        InMemoryInvestigationStore()
-    )
-
-    audit_store = InMemoryAuditStore()
-
+def test_api_records_legacy_denial_instead_of_cortex_execution_events():
+    store = InMemoryInvestigationStore()
+    audit = InMemoryAuditStore()
     executor = FakeSuccessfulResponseExecutor()
-
     app = create_app(
-        investigation_graph=(
-            FakeCriticalInvestigationGraph()
-        ),
-        investigation_store=(
-            investigation_store
-        ),
-        audit_store=audit_store,
+        investigation_graph=FakeCriticalInvestigationGraph(),
+        investigation_store=store,
+        audit_store=audit,
         response_executor=executor,
         autonomous_response_enabled=True,
     )
+    assert submit_investigation(TestClient(app)).status_code == 200
+    event_types = [x.event_type for x in audit.list_by_alert_id("ALT-API-001")]
+    assert executor.calls == []
+    assert "legacy_response_blocked" in event_types
+    assert "case_created" in event_types
+    assert "cortex_execution_started" not in event_types
+    assert "cortex_execution_completed" not in event_types
+    assert "cortex_execution_failed" not in event_types
 
-    client = TestClient(
-        app
-    )
 
-    response = submit_investigation(
-        client
-    )
-
-    assert response.status_code == 200
-
-    records = audit_store.list_by_alert_id(
-        "ALT-API-001"
-    )
-
-    event_types = [
-        record.event_type
-        for record in records
-    ]
-
-    assert (
-        "cortex_execution_started"
-        in event_types
-    )
-
-    assert (
-        "cortex_execution_completed"
-        in event_types
-    )
-
-    assert (
-        "cortex_execution_failed"
-        not in event_types
-    )
-
-    assert (
-        "autonomous_response_blocked"
-        not in event_types
-    )
-
-def test_api_records_kill_switch_block_audit_event():
-    investigation_store = (
-        InMemoryInvestigationStore()
-    )
-
-    audit_store = InMemoryAuditStore()
-
+def test_api_legacy_denial_still_applies_when_kill_switch_off():
+    store = InMemoryInvestigationStore()
+    audit = InMemoryAuditStore()
     executor = FakeSuccessfulResponseExecutor()
-
     app = create_app(
-        investigation_graph=(
-            FakeCriticalInvestigationGraph()
-        ),
-        investigation_store=(
-            investigation_store
-        ),
-        audit_store=audit_store,
+        investigation_graph=FakeCriticalInvestigationGraph(),
+        investigation_store=store,
+        audit_store=audit,
         response_executor=executor,
         autonomous_response_enabled=False,
     )
-
-    client = TestClient(
-        app
-    )
-
-    response = submit_investigation(
-        client
-    )
-
-    assert response.status_code == 200
-
+    assert submit_investigation(TestClient(app)).status_code == 200
+    event_types = [x.event_type for x in audit.list_by_alert_id("ALT-API-001")]
     assert executor.calls == []
-
-    records = audit_store.list_by_alert_id(
-        "ALT-API-001"
-    )
-
-    event_types = [
-        record.event_type
-        for record in records
-    ]
-
-    assert (
-        "autonomous_response_blocked"
-        in event_types
-    )
-
-    assert (
-        "cortex_execution_started"
-        not in event_types
-    )
-
-    assert (
-        "cortex_execution_completed"
-        not in event_types
-    )
-
-    assert (
-        "case_created"
-        in event_types
-    )
+    assert "legacy_response_blocked" in event_types
+    assert "case_created" in event_types
+    assert "cortex_execution_started" not in event_types
 
 
-def test_api_records_cortex_failure_audit_event():
-    investigation_store = (
-        InMemoryInvestigationStore()
-    )
-
-    audit_store = InMemoryAuditStore()
-
+def test_api_never_calls_legacy_executor_even_if_it_would_fail():
+    store = InMemoryInvestigationStore()
+    audit = InMemoryAuditStore()
     executor = FakeFailingResponseExecutor()
-
     app = create_app(
-        investigation_graph=(
-            FakeCriticalInvestigationGraph()
-        ),
-        investigation_store=(
-            investigation_store
-        ),
-        audit_store=audit_store,
+        investigation_graph=FakeCriticalInvestigationGraph(),
+        investigation_store=store,
+        audit_store=audit,
         response_executor=executor,
         autonomous_response_enabled=True,
     )
+    assert submit_investigation(TestClient(app)).status_code == 200
+    event_types = [x.event_type for x in audit.list_by_alert_id("ALT-API-001")]
+    assert executor.calls == []
+    assert "legacy_response_blocked" in event_types
+    assert "case_created" in event_types
+    assert "cortex_execution_started" not in event_types
+    assert "cortex_execution_failed" not in event_types
 
-    client = TestClient(
-        app
-    )
-
-    response = submit_investigation(
-        client
-    )
-
-    assert response.status_code == 200
-
-    records = audit_store.list_by_alert_id(
-        "ALT-API-001"
-    )
-
-    event_types = [
-        record.event_type
-        for record in records
-    ]
-
-    assert (
-        "cortex_execution_started"
-        in event_types
-    )
-
-    assert (
-        "cortex_execution_failed"
-        in event_types
-    )
-
-    assert (
-        "cortex_execution_completed"
-        not in event_types
-    )
-
-    assert (
-        "case_created"
-        in event_types
-    )
 
 def test_api_returns_investigation_audit_history():
     investigation_store = (
