@@ -6,7 +6,10 @@ from fastapi import (
     FastAPI,
     Header,
     HTTPException,
+    Request,
+    Response,
 )
+from pydantic import BaseModel, Field
 from app.llm import (
     propose_security_response,
 )
@@ -123,6 +126,21 @@ from app.services.action_risk_context import (
 from app.services.operator_identity import (
     build_operator_identity_store_from_env,
 )
+from app.services.web_auth import (
+    SESSION_COOKIE_NAME,
+    InvalidCredentials,
+    build_browser_auth_store_from_env,
+)
+
+
+class BrowserLoginRequest(BaseModel):
+    email: str = Field(min_length=3, max_length=254)
+    password: str = Field(min_length=1, max_length=1024)
+
+
+class BrowserMfaRequest(BaseModel):
+    challenge: str = Field(min_length=1, max_length=200)
+    code: str = Field(min_length=6, max_length=6)
 
 
 def _read_autonomous_response_enabled() -> bool:
@@ -171,6 +189,7 @@ def create_app(
     containment_expiry_store: Any = None,
     target_operation_coordinator: Any = None,
     operator_identity_store: Any = None,
+    browser_auth_store: Any = None,
 ) -> FastAPI:
     app = FastAPI(
         title="AthenaSec Agent API",
@@ -358,6 +377,10 @@ def create_app(
     configured_operator_identity_store = (
         operator_identity_store if operator_identity_store is not None
         else build_operator_identity_store_from_env()
+    )
+    configured_browser_auth_store = (
+        browser_auth_store if browser_auth_store is not None
+        else build_browser_auth_store_from_env()
     )
 
     configured_operator_control_key = (
@@ -1989,7 +2012,34 @@ def create_app(
                 ),
             )
 
-    def require_approval_identity(authorization, *, allow_decision=False):
+    def require_web_session(request: Request, csrf: str | None = None):
+        if configured_browser_auth_store is None:
+            raise HTTPException(status_code=503, detail="Browser authentication unavailable.")
+        session = request.cookies.get(SESSION_COOKIE_NAME)
+        principal = configured_browser_auth_store.resolve_session(session)
+        if principal is None:
+            raise HTTPException(status_code=401, detail="Authenticated session required.")
+        if csrf is not None and not secrets.compare_digest(
+            csrf, principal.csrf_token
+        ):
+            raise HTTPException(status_code=403, detail="Invalid CSRF token.")
+        return principal
+
+    def require_approval_identity(authorization, *, allow_decision=False,
+                                  request: Request | None = None, csrf: str | None = None):
+        # Browser sessions use httpOnly cookies and mandatory CSRF on mutations.
+        if request is not None and SESSION_COOKIE_NAME in request.cookies:
+            principal = require_web_session(request)
+            if allow_decision and (
+                not csrf or not secrets.compare_digest(csrf, principal.csrf_token)
+            ):
+                raise HTTPException(status_code=403, detail="CSRF token required.")
+            if allow_decision and not principal.can_decide_approvals:
+                raise HTTPException(status_code=403, detail="Approver permission required.")
+            if not principal.can_read_approvals:
+                raise HTTPException(status_code=403, detail="Approval-read permission required.")
+            return principal
+        # Keep M8's individually provisioned bearer tokens for non-browser access.
         if configured_operator_identity_store is None:
             raise HTTPException(status_code=503, detail="Human identity store is unavailable.")
         if not authorization or not authorization.startswith("Bearer "):
@@ -2005,6 +2055,59 @@ def create_app(
         if not identity.can_read_approvals:
             raise HTTPException(status_code=403, detail="Approval-read permission required.")
         return identity
+
+    @app.post("/api/v1/auth/login")
+    def browser_login(payload: BrowserLoginRequest, response: Response):
+        if configured_browser_auth_store is None:
+            raise HTTPException(status_code=503, detail="Browser authentication unavailable.")
+        try:
+            challenge = configured_browser_auth_store.begin_login(
+                payload.email, payload.password
+            )
+        except InvalidCredentials as exc:
+            raise HTTPException(status_code=401, detail=str(exc)) from exc
+        response.headers["Cache-Control"] = "no-store"
+        return {"challenge": challenge}
+
+    @app.post("/api/v1/auth/mfa")
+    def browser_mfa(payload: BrowserMfaRequest, response: Response):
+        if configured_browser_auth_store is None:
+            raise HTTPException(status_code=503, detail="Browser authentication unavailable.")
+        try:
+            session, principal = configured_browser_auth_store.complete_mfa(
+                payload.challenge, payload.code
+            )
+        except InvalidCredentials as exc:
+            raise HTTPException(status_code=401, detail=str(exc)) from exc
+        response.set_cookie(
+            SESSION_COOKIE_NAME, session, httponly=True,
+            secure=os.getenv("ATHENASEC_COOKIE_SECURE", "true").strip().lower()
+                   not in {"false", "0", "no"},
+            samesite="strict", path="/", max_age=8 * 3600,
+        )
+        response.headers["Cache-Control"] = "no-store"
+        return {"user": principal.public_user(), "csrf_token": principal.csrf_token}
+
+    @app.get("/api/v1/auth/me")
+    def browser_me(request: Request, response: Response):
+        principal = require_web_session(request)
+        response.headers["Cache-Control"] = "no-store"
+        return {"user": principal.public_user(), "csrf_token": principal.csrf_token}
+
+    @app.post("/api/v1/auth/logout")
+    def browser_logout(request: Request, response: Response,
+                       x_athenasec_csrf: str | None = Header(default=None)):
+        principal = require_web_session(request)
+        if not x_athenasec_csrf or not secrets.compare_digest(
+            x_athenasec_csrf, principal.csrf_token
+        ):
+            raise HTTPException(status_code=403, detail="CSRF token required.")
+        configured_browser_auth_store.revoke_session(
+            request.cookies[SESSION_COOKIE_NAME]
+        )
+        response.delete_cookie(SESSION_COOKIE_NAME, path="/")
+        response.headers["Cache-Control"] = "no-store"
+        return {"status": "logged_out"}
 
     @app.get(
         "/api/v1/runtime/status"
@@ -2378,9 +2481,10 @@ def create_app(
     )
     def get_approval_request(
         approval_id: str,
+        request: Request,
         authorization: str | None = Header(default=None),
     ) -> ApprovalRequestRecord:
-        require_approval_identity(authorization)
+        require_approval_identity(authorization, request=request)
         approval = (
             configured_incident_response_store
             .get_approval_request(
@@ -2411,9 +2515,14 @@ def create_app(
     def decide_approval(
         approval_id: str,
         request: ApprovalDecisionRequest,
+        http_request: Request,
         authorization: str | None = Header(default=None),
+        x_athenasec_csrf: str | None = Header(default=None),
     ) -> ApprovalRequestRecord:
-        principal = require_approval_identity(authorization, allow_decision=True)
+        principal = require_approval_identity(
+            authorization, allow_decision=True,
+            request=http_request, csrf=x_athenasec_csrf,
+        )
         try:
             resolution = (
                 resolve_approval_request(
