@@ -11,6 +11,11 @@ from app.services.persistence_config import (
 def test_build_persistence_stores_uses_postgres_database_url(
     monkeypatch,
 ):
+    monkeypatch.setenv(
+        "ATHENASEC_PERSISTENCE_BACKEND",
+        "postgres",
+    )
+
     investigation_store_class = MagicMock()
     audit_store_class = MagicMock()
 
