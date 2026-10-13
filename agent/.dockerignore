@@ -1,0 +1,17 @@
+.venv
+__pycache__
+*.pyc
+.pytest_cache
+.git
+.gitignore
+
+.env
+
+tests
+demo_graph.py
+
+data
+*.db
+*.db-journal
+*.db-shm
+*.db-wal

@@ -1,0 +1,8 @@
+Cortex: Mariam (1)
+TheHive: Ahmed (1)
+LangGraph: Seif (2)
+MITRE ATT&CK -- not for now
+Ollama: Seif (1)
+OpenSearch: Soja (2)
+Wazuh: Soja (1)
+Docker(other tools): Podman (hopefully/ Seif(3))

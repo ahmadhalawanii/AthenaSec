@@ -1,0 +1,2472 @@
+import os
+import secrets
+from typing import Any
+
+from fastapi import (
+    FastAPI,
+    Header,
+    HTTPException,
+    Request,
+    Response,
+)
+from pydantic import BaseModel, Field
+from app.llm import (
+    propose_security_response,
+)
+from app.ml.runtime_config import (
+    build_live_ml_classifier,
+)
+import app.services.cortex_config as cortex_config
+
+from app.graph.graph import (
+    build_investigation_graph,
+)
+from app.schemas import (
+    ApprovalDecisionRequest,
+    ApprovalRequestRecord,
+    AttackPrediction,
+    AuditRecord,
+    CaseRecord,
+    InvestigationResponse,
+    RuntimeControlUpdateRequest,
+    SecurityAlertInput,
+)
+from app.services.audit_service import (
+    create_audit_record,
+    create_incident_audit_record,
+)
+from app.services.audit_store import (
+    AuditStore,
+    SQLiteAuditStore,
+)
+from app.services.autonomous_response import ResponseExecutor
+from app.services.case_service import (
+    create_case_record,
+)
+from app.services.investigation_store import (
+    InvestigationStore,
+    SQLiteInvestigationStore,
+)
+from app.tools.wazuh_alert_parser import (
+    parse_wazuh_alert,
+)
+from app.services.misp_config import (
+    build_live_misp_client,
+)
+from app.services.persistence_config import (
+    build_incident_response_store_from_env,
+    build_persistence_stores_from_env,
+    build_runtime_control_store_from_env,
+    build_target_protection_store_from_env,
+    build_containment_expiry_store_from_env,
+)
+from app.services.benign_investigation import (
+    build_benign_investigation,
+)
+from app.services.incident_correlator import (
+    correlate_or_create_incident,
+)
+from app.services.ml_classifier import (
+    MLClassifier,
+)
+from app.services.investigation_lifecycle import (
+    build_investigation_id,
+    persist_investigation_lifecycle,
+)
+from app.services.incident_response_store import (
+    IncidentResponseStore,
+    InMemoryIncidentResponseStore,
+)
+from app.services.response_risk_lifecycle import (
+    persist_response_risk_lifecycle,
+)
+from app.services.action_policy_lifecycle import (
+    persist_action_policy_lifecycle,
+)
+from app.services.structured_action_policy import (
+    apply_structured_action_policy,
+    process_structured_policy_outcomes,
+)
+from app.services.approval_resolution import (
+    resolve_approval_request,
+)
+from app.services.structured_response_runtime import (
+    process_structured_response_action,
+)
+from app.services.response_mode import (
+    normalize_response_mode,
+)
+from app.services.runtime_control import (
+    RuntimeControlManager,
+)
+from app.services.runtime_control_store import (
+    InMemoryRuntimeControlStore,
+)
+from app.services.target_protection import (
+    PersistentTargetProtectionRegistry,
+    initialize_target_protection_store_from_env,
+)
+from app.services.target_protection_store import (
+    InMemoryTargetProtectionStore,
+)
+from app.services.containment_expiry_store import (
+    InMemoryContainmentExpiryStore,
+    PostgresContainmentExpiryStore,
+)
+from app.services.target_operation_coordinator import (
+    InMemoryTargetOperationCoordinator,
+    PostgresTargetOperationCoordinator,
+)
+from app.services.action_risk_context import (
+    make_action_risk_context_provider,
+)
+from app.services.operator_identity import (
+    build_operator_identity_store_from_env,
+)
+from app.services.web_auth import (
+    SESSION_COOKIE_NAME,
+    InvalidCredentials,
+    build_browser_auth_store_from_env,
+)
+
+
+class BrowserLoginRequest(BaseModel):
+    email: str = Field(min_length=3, max_length=254)
+    password: str = Field(min_length=1, max_length=1024)
+
+
+class BrowserMfaRequest(BaseModel):
+    challenge: str = Field(min_length=1, max_length=200)
+    code: str = Field(min_length=6, max_length=6)
+
+
+def _read_autonomous_response_enabled() -> bool:
+    value = os.getenv(
+        "AUTONOMOUS_RESPONSE_ENABLED",
+        "false",
+    )
+
+    return value.strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+
+
+def create_app(
+    investigation_graph: Any = None,
+    investigation_store: (
+        InvestigationStore | None
+    ) = None,
+    wazuh_ingest_key: str | None = None,
+    response_executor: (
+        ResponseExecutor | None
+    ) = None,
+    autonomous_response_enabled: (
+        bool | None
+    ) = None,
+    audit_store: (
+        AuditStore | None
+    ) = None,
+    ml_classifier: (
+        MLClassifier | None
+    ) = None,
+    incident_response_store: (
+        IncidentResponseStore | None
+    ) = None,
+    structured_action_executor: Any = None,
+    structured_action_verifier: Any = None,
+    structured_rollback_executor: Any = None,
+    response_mode: str | None = None,
+    operator_control_key: str | None = None,
+    runtime_control_store: Any = None,
+    target_protection_registry: Any = None,
+    target_protection_store: Any = None,
+    containment_expiry_store: Any = None,
+    target_operation_coordinator: Any = None,
+    operator_identity_store: Any = None,
+    browser_auth_store: Any = None,
+) -> FastAPI:
+    app = FastAPI(
+        title="AthenaSec Agent API",
+        version="0.5.0",
+        description=(
+            "Agentic cybersecurity investigation "
+            "service for AthenaSec."
+        ),
+    )
+
+    configured_ml_classifier = (
+        ml_classifier
+    )
+
+    if target_protection_registry is not None:
+        configured_target_protection_registry = (
+            target_protection_registry
+        )
+
+    else:
+        if target_protection_store is not None:
+            configured_target_protection_store = (
+                target_protection_store
+            )
+
+        elif (
+            investigation_store is None
+            or audit_store is None
+        ):
+            configured_target_protection_store = (
+                build_target_protection_store_from_env()
+            )
+
+        else:
+            configured_target_protection_store = (
+                InMemoryTargetProtectionStore()
+            )
+
+        initialize_target_protection_store_from_env(
+            configured_target_protection_store
+        )
+
+        configured_target_protection_registry = (
+            PersistentTargetProtectionRegistry(
+                configured_target_protection_store
+            )
+        )
+
+    if investigation_graph is not None:
+        graph = investigation_graph
+
+    else:
+        if (
+            configured_ml_classifier
+            is None
+        ):
+            configured_ml_classifier = (
+                build_live_ml_classifier()
+            )
+
+        misp_client = (
+            build_live_misp_client()
+        )
+
+        graph = build_investigation_graph(
+            ml_classifier=(
+                configured_ml_classifier
+            ),
+            misp_client=misp_client,
+            response_proposer=(
+                propose_security_response
+            ),
+            action_risk_context_provider=(
+                make_action_risk_context_provider(
+                    configured_target_protection_registry
+                )
+            ),
+        )
+
+    default_investigation_store = None
+    default_audit_store = None
+
+    if (
+        investigation_store is None
+        or audit_store is None
+    ):
+        (
+            default_investigation_store,
+            default_audit_store,
+        ) = build_persistence_stores_from_env()
+
+    store = (
+        investigation_store
+        if investigation_store is not None
+        else default_investigation_store
+    )
+
+    configured_audit_store = (
+        audit_store
+        if audit_store is not None
+        else default_audit_store
+    )
+
+    if (
+        incident_response_store
+        is not None
+    ):
+        configured_incident_response_store = (
+            incident_response_store
+        )
+
+    elif (
+        default_investigation_store
+        is not None
+        or default_audit_store
+        is not None
+    ):
+        configured_incident_response_store = (
+            build_incident_response_store_from_env()
+        )
+
+    else:
+        configured_incident_response_store = (
+            InMemoryIncidentResponseStore()
+        )
+
+    if containment_expiry_store is not None:
+        configured_containment_expiry_store = (
+            containment_expiry_store
+        )
+
+    elif (
+        default_investigation_store
+        is not None
+        or default_audit_store
+        is not None
+    ):
+        configured_containment_expiry_store = (
+            build_containment_expiry_store_from_env()
+        )
+
+    else:
+        configured_containment_expiry_store = (
+            InMemoryContainmentExpiryStore()
+        )
+
+    if target_operation_coordinator is not None:
+        configured_target_coordinator = target_operation_coordinator
+    elif isinstance(
+        configured_containment_expiry_store,
+        PostgresContainmentExpiryStore,
+    ):
+        configured_target_coordinator = PostgresTargetOperationCoordinator(
+            configured_containment_expiry_store.database_url
+        )
+    else:
+        # In-process only. The separate automatic runner refuses SQLite.
+        configured_target_coordinator = InMemoryTargetOperationCoordinator()
+
+    configured_wazuh_ingest_key = (
+        wazuh_ingest_key
+        if wazuh_ingest_key is not None
+        else os.getenv(
+            "ATHENASEC_WAZUH_INGEST_KEY"
+        )
+    )
+
+    configured_autonomous_response_enabled = (
+        autonomous_response_enabled
+        if autonomous_response_enabled is not None
+        else _read_autonomous_response_enabled()
+    )
+
+    configured_response_mode = (
+        normalize_response_mode(
+            response_mode
+            if response_mode is not None
+            else os.getenv(
+                "ATHENASEC_RESPONSE_MODE",
+                "SUPERVISED",
+            )
+        )
+    )
+
+    configured_operator_identity_store = (
+        operator_identity_store if operator_identity_store is not None
+        else build_operator_identity_store_from_env()
+    )
+    configured_browser_auth_store = (
+        browser_auth_store if browser_auth_store is not None
+        else build_browser_auth_store_from_env()
+    )
+
+    configured_operator_control_key = (
+        operator_control_key
+        if operator_control_key is not None
+        else os.getenv(
+            "ATHENASEC_OPERATOR_CONTROL_KEY"
+        )
+    )
+
+    if runtime_control_store is not None:
+        configured_runtime_control_store = (
+            runtime_control_store
+        )
+
+    elif (
+        default_investigation_store
+        is not None
+        or default_audit_store
+        is not None
+    ):
+        configured_runtime_control_store = (
+            build_runtime_control_store_from_env()
+        )
+
+    else:
+        configured_runtime_control_store = (
+            InMemoryRuntimeControlStore()
+        )
+
+    runtime_controls = RuntimeControlManager(
+        store=(
+            configured_runtime_control_store
+        ),
+        initial_response_mode=(
+            configured_response_mode
+        ),
+        initial_operator_execution_enabled=True,
+    )
+
+    # The old ResponseExecutor parameter is retained for source compatibility.
+    # It must never authorize a Cortex action. Only the deterministic V2
+    # structured response runtime may reach the Cortex executor.
+
+    structured_cortex_runtime = (
+        cortex_config
+        .build_structured_cortex_runtime_from_env()
+        if (
+            structured_action_executor
+            is None
+            or structured_action_verifier
+            is None
+            or structured_rollback_executor
+            is None
+        )
+        else None
+    )
+
+    configured_structured_action_executor = (
+        structured_action_executor
+        if structured_action_executor
+        is not None
+        else (
+            structured_cortex_runtime.executor
+            if structured_cortex_runtime
+            is not None
+            else None
+        )
+    )
+
+    configured_structured_rollback_executor = (
+        structured_rollback_executor
+        if structured_rollback_executor
+        is not None
+        else (
+            structured_cortex_runtime
+            .rollback_executor
+            if structured_cortex_runtime
+            is not None
+            else None
+        )
+    )
+
+    configured_structured_action_verifier = (
+        structured_action_verifier
+        if structured_action_verifier
+        is not None
+        else (
+            structured_cortex_runtime.verifier
+            if structured_cortex_runtime
+            is not None
+            else None
+        )
+    )
+
+    structured_runtime_configured = any(
+        component is not None
+        for component in (
+            configured_structured_action_executor,
+            configured_structured_action_verifier,
+            configured_structured_rollback_executor,
+        )
+    )
+
+    def current_runtime_control():
+        return (
+            runtime_controls.snapshot()
+        )
+
+    def effective_execution_enabled():
+        control = (
+            current_runtime_control()
+        )
+
+        return (
+            configured_autonomous_response_enabled
+            and (
+                control
+                .operator_execution_enabled
+            )
+            and (
+                control.response_mode
+                != "SHADOW"
+            )
+        )
+
+    def structured_runtime_reachable():
+        control = (
+            current_runtime_control()
+        )
+
+        return (
+            structured_runtime_configured
+            or control.response_mode
+            == "SHADOW"
+        )
+
+    def save_audit_event(
+        alert_id: str,
+        event_type: str,
+        message: str,
+        details: dict[str, object],
+    ) -> None:
+        record = create_audit_record(
+            alert_id=alert_id,
+            event_type=event_type,
+            message=message,
+            details=details,
+        )
+
+        configured_audit_store.save(
+            record
+        )
+
+    def save_incident_audit_event(
+        *,
+        incident_id: str,
+        event_type: str,
+        entity_type: str,
+        entity_id: str,
+        message: str,
+        details: dict[str, object],
+    ) -> None:
+        record = (
+            create_incident_audit_record(
+                incident_id=incident_id,
+                event_type=event_type,
+                entity_type=entity_type,
+                entity_id=entity_id,
+                message=message,
+                details=details,
+            )
+        )
+
+        configured_audit_store.save_incident_event(
+            record
+        )
+
+    def run_structured_action_runtime(
+        *,
+        proposed_action,
+        policy_decision,
+        approval_id=None,
+    ):
+        control = (
+            current_runtime_control()
+        )
+
+        outcome = (
+            process_structured_response_action(
+                store=(
+                    configured_incident_response_store
+                ),
+                proposed_action=(
+                    proposed_action
+                ),
+                policy_decision=(
+                    policy_decision
+                ),
+                executor=(
+                    configured_structured_action_executor
+                ),
+                verifier=(
+                    configured_structured_action_verifier
+                ),
+                rollback_executor=(
+                    configured_structured_rollback_executor
+                ),
+                autonomous_response_enabled=(
+                    configured_autonomous_response_enabled
+                    and (
+                        control
+                        .operator_execution_enabled
+                    )
+                ),
+                target_protection_registry=(
+                    configured_target_protection_registry
+                ),
+                containment_expiry_store=(
+                    configured_containment_expiry_store
+                ),
+                target_coordinator=(
+                    configured_target_coordinator
+                ),
+                response_mode=(
+                    control.response_mode
+                ),
+                approval_id=approval_id,
+            )
+        )
+
+        if outcome.outcome == "shadowed":
+            save_incident_audit_event(
+                incident_id=(
+                    proposed_action.incident_id
+                ),
+                event_type=(
+                    "structured_response_shadowed"
+                ),
+                entity_type=(
+                    "proposed_action"
+                ),
+                entity_id=(
+                    proposed_action
+                    .proposed_action_id
+                ),
+                message=(
+                    "Structured response was "
+                    "evaluated in SHADOW mode "
+                    "without Cortex execution."
+                ),
+                details={
+                    "response_mode": (
+                        control.response_mode
+                    ),
+                    "policy_decision_id": (
+                        policy_decision
+                        .decision_id
+                    ),
+                    "policy_outcome": (
+                        policy_decision.outcome
+                    ),
+                },
+            )
+
+        execution = outcome.execution
+
+        if (
+            execution is not None
+            and execution.response_action
+            is not None
+        ):
+            response_action = (
+                execution.response_action
+            )
+
+            save_incident_audit_event(
+                incident_id=(
+                    proposed_action.incident_id
+                ),
+                event_type=(
+                    "structured_cortex_execution_"
+                    + response_action.status
+                ),
+                entity_type="response_action",
+                entity_id=(
+                    response_action
+                    .response_action_id
+                ),
+                message=(
+                    "Structured Cortex "
+                    "execution lifecycle "
+                    "was recorded."
+                ),
+                details={
+                    "proposed_action_id": (
+                        proposed_action
+                        .proposed_action_id
+                    ),
+                    "status": (
+                        response_action.status
+                    ),
+                    "approval_id": (
+                        response_action
+                        .approval_id
+                    ),
+                },
+            )
+
+        if (
+            execution is not None
+            and execution.action_result
+            is not None
+        ):
+            action_result = (
+                execution.action_result
+            )
+
+            save_incident_audit_event(
+                incident_id=(
+                    proposed_action.incident_id
+                ),
+                event_type=(
+                    "structured_cortex_result_recorded"
+                ),
+                entity_type="action_result",
+                entity_id=(
+                    action_result
+                    .action_result_id
+                ),
+                message=(
+                    "Structured Cortex "
+                    "execution result "
+                    "was persisted."
+                ),
+                details={
+                    "status": (
+                        action_result.status
+                    ),
+                },
+            )
+
+        if outcome.verification is not None:
+            verification = (
+                outcome.verification
+            )
+
+            save_incident_audit_event(
+                incident_id=(
+                    proposed_action.incident_id
+                ),
+                event_type=(
+                    "action_verification_completed"
+                ),
+                entity_type="verification",
+                entity_id=(
+                    verification.verification_id
+                ),
+                message=(
+                    "Post-action verification "
+                    "was completed."
+                ),
+                details={
+                    "status": (
+                        verification.status
+                    ),
+                    "proposed_action_id": (
+                        proposed_action
+                        .proposed_action_id
+                    ),
+                },
+            )
+
+        if outcome.rollback is not None:
+            rollback = outcome.rollback
+
+            save_incident_audit_event(
+                incident_id=(
+                    proposed_action.incident_id
+                ),
+                event_type=(
+                    "action_rollback_"
+                    + rollback.status
+                ),
+                entity_type="rollback",
+                entity_id=(
+                    rollback.rollback_id
+                ),
+                message=(
+                    "Structured response "
+                    "rollback was recorded."
+                ),
+                details={
+                    "status": rollback.status,
+                    "rollback_action_type": (
+                        rollback
+                        .rollback_action_type
+                    ),
+                    "target": (
+                        rollback.target
+                    ),
+                },
+            )
+
+        if outcome.incident_case is not None:
+            case = outcome.incident_case
+
+            save_incident_audit_event(
+                incident_id=(
+                    case.incident_id
+                ),
+                event_type="case_created",
+                entity_type="case",
+                entity_id=case.case_id,
+                message=(
+                    "AthenaSec created "
+                    "an incident case from "
+                    "the structured response "
+                    "runtime."
+                ),
+                details={
+                    "policy_decision_id": (
+                        case
+                        .policy_decision_id
+                    ),
+                    "reason": case.reason,
+                },
+            )
+
+        return outcome
+
+    def run_investigation(
+        alert: SecurityAlertInput,
+        *,
+        incident_id: str | None = None,
+        ml_prediction: (
+            AttackPrediction | None
+        ) = None,
+        ml_error: str | None = None,
+    ) -> InvestigationResponse:
+        initial_state = {
+            "alert": alert,
+            "status": "received",
+        }
+
+        investigation_id = None
+
+        if incident_id is not None:
+            investigation_id = (
+                build_investigation_id(
+                    incident_id=(
+                        incident_id
+                    ),
+                    alert_id=(
+                        alert.alert_id
+                    ),
+                )
+            )
+
+            initial_state[
+                "incident_id"
+            ] = incident_id
+
+            initial_state[
+                "investigation_id"
+            ] = investigation_id
+
+        if ml_prediction is not None:
+            initial_state[
+                "ml_prediction"
+            ] = ml_prediction
+
+        if ml_error is not None:
+            initial_state[
+                "ml_error"
+            ] = ml_error
+
+        result = graph.invoke(
+            initial_state
+        )
+
+        investigation = InvestigationResponse(
+            alert_id=result["alert"].alert_id,
+            incident_id=incident_id,
+            investigation_id=(
+                result.get(
+                    "investigation_id",
+                    investigation_id,
+                )
+            ),
+            source=result["alert"].source,
+            alert_metadata=dict(
+                result["alert"].metadata
+            ),
+            status=result["status"],
+            normalized_event=(
+                result["normalized_event"]
+            ),
+            ml_prediction=result.get(
+                "ml_prediction",
+                ml_prediction,
+            ),
+            ml_error=result.get(
+                "ml_error",
+                ml_error,
+            ),
+            misp_enrichment=result.get(
+                "misp_enrichment"
+            ),
+            misp_error=result.get(
+                "misp_error"
+            ),
+            analysis=result["analysis"],
+            evidence_records=(
+                result["evidence_records"]
+            ),
+            evidence_sufficiency=(
+                result.get(
+                    "evidence_sufficiency"
+                )
+            ),
+            analysis_verification=(
+                result.get(
+                    "analysis_verification"
+                )
+            ),
+            response_proposal=(
+                result.get(
+                    "response_proposal"
+                )
+            ),
+            proposed_actions=(
+                result.get(
+                    "proposed_actions",
+                    [],
+                )
+            ),
+            action_risk_assessments=(
+                result.get(
+                    "action_risk_assessments",
+                    [],
+                )
+            ),
+            action_policy_decisions=(
+                result.get(
+                    "action_policy_decisions",
+                    [],
+                )
+            ),
+            approval_requests=(
+                result.get(
+                    "approval_requests",
+                    [],
+                )
+            ),
+            investigation_budget_exhausted=(
+                result.get(
+                    "investigation_budget_exhausted",
+                    False,
+                )
+            ),
+            investigation_trace=(
+                result.get(
+                    "investigation_trace",
+                    [],
+                )
+            ),
+            risk_assessment=(
+                result["risk_assessment"]
+            ),
+            policy_decision=(
+                result["policy_decision"]
+            ),
+            response_plan=(
+                result["response_plan"]
+            ),
+            investigation_iteration=(
+                result.get(
+                    "investigation_iteration",
+                    0,
+                )
+            ),
+        )
+
+        investigation = (
+            apply_structured_action_policy(
+                investigation
+            )
+        )
+
+        lifecycle_record = (
+            persist_investigation_lifecycle(
+                store=store,
+                investigation=investigation,
+            )
+        )
+
+        if lifecycle_record is not None:
+            investigation = (
+                investigation.model_copy(
+                    update={
+                        "investigation_id": (
+                            lifecycle_record
+                            .investigation_id
+                        ),
+                    }
+                )
+            )
+
+        response_risk_lifecycle = (
+            persist_response_risk_lifecycle(
+                store=(
+                    configured_incident_response_store
+                ),
+                investigation=investigation,
+            )
+        )
+
+        persist_action_policy_lifecycle(
+            store=(
+                configured_incident_response_store
+            ),
+            investigation=investigation,
+        )
+
+        store.save(
+            investigation
+        )
+
+        if (
+            response_risk_lifecycle
+            is not None
+        ):
+            incident_risk = (
+                response_risk_lifecycle
+                .incident_risk
+            )
+
+            save_incident_audit_event(
+                incident_id=(
+                    incident_risk.incident_id
+                ),
+                event_type=(
+                    "incident_risk_assessed"
+                ),
+                entity_type=(
+                    "incident_risk"
+                ),
+                entity_id=(
+                    incident_risk
+                    .risk_assessment_id
+                ),
+                message=(
+                    "Deterministic incident "
+                    "risk was persisted."
+                ),
+                details={
+                    "score": (
+                        incident_risk.score
+                    ),
+                    "band": (
+                        incident_risk.band
+                    ),
+                },
+            )
+
+            for proposed_action in (
+                response_risk_lifecycle
+                .proposed_actions
+            ):
+                save_incident_audit_event(
+                    incident_id=(
+                        proposed_action
+                        .incident_id
+                    ),
+                    event_type=(
+                        "response_action_proposed"
+                    ),
+                    entity_type=(
+                        "proposed_action"
+                    ),
+                    entity_id=(
+                        proposed_action
+                        .proposed_action_id
+                    ),
+                    message=(
+                        "Structured response "
+                        "action was proposed."
+                    ),
+                    details={
+                        "action_type": (
+                            proposed_action
+                            .action_type
+                        ),
+                        "target_type": (
+                            proposed_action
+                            .target_type
+                        ),
+                        "target": (
+                            proposed_action
+                            .target
+                        ),
+                        "reversible": (
+                            proposed_action
+                            .reversible
+                        ),
+                    },
+                )
+
+            for action_risk in (
+                response_risk_lifecycle
+                .action_risks
+            ):
+                save_incident_audit_event(
+                    incident_id=(
+                        investigation
+                        .incident_id
+                    ),
+                    event_type=(
+                        "action_risk_assessed"
+                    ),
+                    entity_type=(
+                        "action_risk"
+                    ),
+                    entity_id=(
+                        action_risk
+                        .action_risk_id
+                    ),
+                    message=(
+                        "Deterministic action "
+                        "risk was assessed."
+                    ),
+                    details={
+                        "proposed_action_id": (
+                            action_risk
+                            .proposed_action_id
+                        ),
+                        "score": (
+                            action_risk.score
+                        ),
+                        "band": (
+                            action_risk.band
+                        ),
+                        "blast_radius": (
+                            action_risk
+                            .blast_radius
+                        ),
+                        "requires_approval": (
+                            action_risk
+                            .requires_approval
+                        ),
+                    },
+                )
+
+        if (
+            lifecycle_record is not None
+            and (
+                investigation
+                .analysis_verification
+                is not None
+            )
+        ):
+            save_incident_audit_event(
+                incident_id=(
+                    lifecycle_record
+                    .incident_id
+                ),
+                event_type=(
+                    "investigation_completed"
+                ),
+                entity_type=(
+                    "investigation"
+                ),
+                entity_id=(
+                    lifecycle_record
+                    .investigation_id
+                ),
+                message=(
+                    "Agentic investigation "
+                    "lifecycle was completed "
+                    "and persisted."
+                ),
+                details={
+                    "primary_alert_id": (
+                        lifecycle_record
+                        .primary_alert_id
+                    ),
+                    "iteration_count": (
+                        lifecycle_record
+                        .iteration_count
+                    ),
+                    "budget_exhausted": (
+                        lifecycle_record
+                        .budget_exhausted
+                    ),
+                    "evidence_sufficient": (
+                        lifecycle_record
+                        .evidence_sufficient
+                    ),
+                    "analysis_verified": (
+                        lifecycle_record
+                        .analysis_verified
+                    ),
+                    "step_count": len(
+                        investigation
+                        .investigation_trace
+                    ),
+                    "evidence_count": len(
+                        investigation
+                        .evidence_records
+                    ),
+                },
+            )
+
+        save_audit_event(
+            alert_id=investigation.alert_id,
+            event_type="investigation_created",
+            message=(
+                "Investigation was created."
+            ),
+            details={
+                "source": investigation.source,
+                "classification": (
+                    investigation
+                    .analysis
+                    .classification
+                ),
+                "risk_score": (
+                    investigation
+                    .risk_assessment
+                    .score
+                ),
+            },
+        )
+
+        if (
+            investigation.ml_prediction
+            is not None
+            and investigation.ml_error
+            is None
+        ):
+            save_audit_event(
+                alert_id=investigation.alert_id,
+                event_type=(
+                    "ml_classification_completed"
+                ),
+                message=(
+                    "ML classification completed."
+                ),
+                details={
+                    "classification": (
+                        investigation
+                        .ml_prediction
+                        .classification
+                    ),
+                    "confidence": (
+                        investigation
+                        .ml_prediction
+                        .confidence
+                    ),
+                    "model_version": (
+                        investigation
+                        .ml_prediction
+                        .model_version
+                    ),
+                },
+            )
+
+        elif investigation.ml_error is not None:
+            save_audit_event(
+                alert_id=investigation.alert_id,
+                event_type=(
+                    "ml_classification_failed"
+                ),
+                message=(
+                    "ML classification failed."
+                ),
+                details={
+                    "error": investigation.ml_error,
+                    "classification": (
+                        investigation
+                        .ml_prediction
+                        .classification
+                        if (
+                            investigation
+                            .ml_prediction
+                            is not None
+                        )
+                        else "unknown"
+                    ),
+                    "confidence": (
+                        investigation
+                        .ml_prediction
+                        .confidence
+                        if (
+                            investigation
+                            .ml_prediction
+                            is not None
+                        )
+                        else 0.0
+                    ),
+                    "model_version": (
+                        investigation
+                        .ml_prediction
+                        .model_version
+                        if (
+                            investigation
+                            .ml_prediction
+                            is not None
+                        )
+                        else "unavailable"
+                    ),
+                },
+            )
+
+
+        if investigation.misp_error is not None:
+            queried_indicators = []
+
+            if (
+                investigation.misp_enrichment
+                is not None
+            ):
+                queried_indicators = (
+                    investigation
+                    .misp_enrichment
+                    .queried_indicators
+                )
+
+            save_audit_event(
+                alert_id=investigation.alert_id,
+                event_type=(
+                    "misp_enrichment_failed"
+                ),
+                message=(
+                    "MISP enrichment failed."
+                ),
+                details={
+                    "error": (
+                        investigation.misp_error
+                    ),
+                    "queried_indicators": (
+                        queried_indicators
+                    ),
+                },
+            )
+
+        elif (
+            investigation.misp_enrichment
+            is not None
+        ):
+            save_audit_event(
+                alert_id=investigation.alert_id,
+                event_type=(
+                    "misp_enrichment_completed"
+                ),
+                message=(
+                    "MISP enrichment completed."
+                ),
+                details={
+                    "queried_indicators": (
+                        investigation
+                        .misp_enrichment
+                        .queried_indicators
+                    ),
+                    "match_count": len(
+                        investigation
+                        .misp_enrichment
+                        .matches
+                    ),
+                },
+            )
+
+
+        save_audit_event(
+            alert_id=investigation.alert_id,
+            event_type="policy_evaluated",
+            message=(
+                "Autonomous response policy "
+                "was evaluated."
+            ),
+            details={
+                "policy_id": (
+                    investigation
+                    .policy_decision
+                    .policy_id
+                ),
+                "matched": (
+                    investigation
+                    .policy_decision
+                    .matched
+                ),
+                "response_allowed": (
+                    investigation
+                    .policy_decision
+                    .response_allowed
+                ),
+            },
+        )
+
+        if (
+            investigation.response_proposal
+            is not None
+        ):
+            structured_outcome = (
+                process_structured_policy_outcomes(
+                    investigation=investigation,
+                    store=(
+                        configured_incident_response_store
+                    ),
+                )
+            )
+
+            if (
+                investigation.incident_id
+                is not None
+            ):
+                for decision in (
+                    investigation
+                    .action_policy_decisions
+                ):
+                    save_incident_audit_event(
+                        incident_id=(
+                            investigation
+                            .incident_id
+                        ),
+                        event_type=(
+                            "action_policy_evaluated"
+                        ),
+                        entity_type=(
+                            "policy_decision"
+                        ),
+                        entity_id=(
+                            decision.decision_id
+                        ),
+                        message=(
+                            "Deterministic action "
+                            "policy was evaluated."
+                        ),
+                        details={
+                            "proposed_action_id": (
+                                decision
+                                .proposed_action_id
+                            ),
+                            "policy_id": (
+                                decision.policy_id
+                            ),
+                            "outcome": (
+                                decision.outcome
+                            ),
+                        },
+                    )
+
+                for approval in (
+                    investigation
+                    .approval_requests
+                ):
+                    save_incident_audit_event(
+                        incident_id=(
+                            investigation
+                            .incident_id
+                        ),
+                        event_type=(
+                            "approval_requested"
+                        ),
+                        entity_type=(
+                            "approval_request"
+                        ),
+                        entity_id=(
+                            approval.approval_id
+                        ),
+                        message=(
+                            "Human approval was "
+                            "requested for an exact "
+                            "structured response "
+                            "action."
+                        ),
+                        details={
+                            "proposed_action_id": (
+                                approval
+                                .proposed_action_id
+                            ),
+                            "action_fingerprint": (
+                                approval
+                                .action_fingerprint
+                            ),
+                            "status": (
+                                approval.status
+                            ),
+                            "expires_at": (
+                                approval
+                                .expires_at
+                                .isoformat()
+                                if (
+                                    approval
+                                    .expires_at
+                                    is not None
+                                )
+                                else None
+                            ),
+                        },
+                    )
+
+                if (
+                    structured_outcome[
+                        "outcome"
+                    ]
+                    == "case_created"
+                ):
+                    case = (
+                        structured_outcome[
+                            "case"
+                        ]
+                    )
+
+                    save_incident_audit_event(
+                        incident_id=(
+                            investigation
+                            .incident_id
+                        ),
+                        event_type=(
+                            "case_created"
+                        ),
+                        entity_type="case",
+                        entity_id=(
+                            case.case_id
+                        ),
+                        message=(
+                            "AthenaSec created an "
+                            "incident case because "
+                            "structured action policy "
+                            "denied the proposed "
+                            "action."
+                        ),
+                        details={
+                            "policy_decision_id": (
+                                case
+                                .policy_decision_id
+                            ),
+                            "reason": (
+                                case.reason
+                            ),
+                        },
+                    )
+
+            if (
+                structured_outcome[
+                    "outcome"
+                ]
+                == "auto_allowed"
+                and structured_runtime_reachable()
+            ):
+                actions_by_id = {
+                    action.proposed_action_id: (
+                        action
+                    )
+                    for action
+                    in investigation
+                    .proposed_actions
+                }
+
+                for decision in (
+                    investigation
+                    .action_policy_decisions
+                ):
+                    if (
+                        decision.outcome
+                        != "AUTO_ALLOWED"
+                    ):
+                        continue
+
+                    proposed_action = (
+                        actions_by_id.get(
+                            decision
+                            .proposed_action_id
+                        )
+                    )
+
+                    if proposed_action is None:
+                        raise ValueError(
+                            "Structured policy "
+                            "decision references "
+                            "a missing proposed "
+                            "action."
+                        )
+
+                    run_structured_action_runtime(
+                        proposed_action=(
+                            proposed_action
+                        ),
+                        policy_decision=(
+                            decision
+                        ),
+                    )
+
+        elif (
+            investigation.response_plan.status
+            in {
+                "create_case",
+                "ready_for_execution",
+            }
+        ):
+            case_investigation = investigation
+
+            if (
+                investigation.response_plan.status
+                == "ready_for_execution"
+            ):
+                control = current_runtime_control()
+                save_audit_event(
+                    alert_id=investigation.alert_id,
+                    event_type="legacy_response_blocked",
+                    message=(
+                        "Legacy response was not executed: an exact V2 "
+                        "deterministic action policy decision is required."
+                    ),
+                    details={
+                        "legacy_policy_id": investigation.policy_decision.policy_id,
+                        "requested_actions": list(investigation.response_plan.actions),
+                        "response_mode": control.response_mode,
+                        "reason": "v2_action_policy_required",
+                    },
+                )
+                fallback_plan = (
+                    investigation
+                    .response_plan
+                    .model_copy(
+                        update={
+                            "response_allowed": False,
+                            "actions": [],
+                            "status": "create_case",
+                            "reason": (
+                                "Legacy response denied: "
+                                "deterministic V2 policy, "
+                                "independent verification, and "
+                                "containment expiry are required."
+                            ),
+                        }
+                    )
+                )
+
+                case_investigation = (
+                    investigation.model_copy(
+                        update={
+                            "response_plan": (
+                                fallback_plan
+                            )
+                        }
+                    )
+                )
+
+            case = create_case_record(
+                case_investigation
+            )
+
+            store.save_case(
+                case
+            )
+
+            save_audit_event(
+                alert_id=investigation.alert_id,
+                event_type="case_created",
+                message=(
+                    "Case was created "
+                    "automatically."
+                ),
+                details={
+                    "case_id": case.case_id,
+                    "policy_id": (
+                        case.policy_id
+                    ),
+                    "risk_score": (
+                        case.risk_score
+                    ),
+                    "fallback_reason": (
+                        "v2_policy_required"
+                        if (
+                            investigation
+                            .response_plan
+                            .status
+                            == "ready_for_execution"
+                        )
+                        else "policy_case"
+                    ),
+                },
+            )
+        return investigation
+
+    def run_benign_wazuh_investigation(
+        *,
+        alert: SecurityAlertInput,
+        prediction: AttackPrediction,
+    ) -> InvestigationResponse:
+        investigation = (
+            build_benign_investigation(
+                alert=alert,
+                prediction=prediction,
+            )
+        )
+
+        store.save(
+            investigation
+        )
+
+        save_audit_event(
+            alert_id=alert.alert_id,
+            event_type=(
+                "investigation_created"
+            ),
+            message=(
+                "Benign investigation "
+                "record was created."
+            ),
+            details={
+                "source": alert.source,
+                "classification": "benign",
+                "risk_score": 0,
+            },
+        )
+
+        save_audit_event(
+            alert_id=alert.alert_id,
+            event_type=(
+                "ml_classification_completed"
+            ),
+            message=(
+                "ML classification completed."
+            ),
+            details={
+                "classification": (
+                    prediction.classification
+                ),
+                "confidence": (
+                    prediction.confidence
+                ),
+                "model_version": (
+                    prediction.model_version
+                ),
+            },
+        )
+
+        save_audit_event(
+            alert_id=alert.alert_id,
+            event_type="policy_evaluated",
+            message=(
+                "Benign no-action policy "
+                "was evaluated."
+            ),
+            details={
+                "policy_id": (
+                    "POL-BENIGN-NO-ACTION"
+                ),
+                "matched": True,
+                "response_allowed": False,
+            },
+        )
+
+        return investigation
+
+    def build_runtime_status():
+        control = (
+            current_runtime_control()
+        )
+
+        effective = (
+            configured_autonomous_response_enabled
+            and (
+                control
+                .operator_execution_enabled
+            )
+            and (
+                control.response_mode
+                != "SHADOW"
+            )
+        )
+
+        return {
+            "response_mode": (
+                control.response_mode
+            ),
+            "autonomous_response_enabled": (
+                configured_autonomous_response_enabled
+            ),
+            "operator_execution_enabled": (
+                control
+                .operator_execution_enabled
+            ),
+            "effective_execution_enabled": (
+                effective
+            ),
+            "structured_runtime_configured": (
+                structured_runtime_configured
+            ),
+            "cortex_execution_possible": (
+                structured_runtime_configured
+                and effective
+            ),
+            "control_version": (
+                control.version
+            ),
+        }
+
+    def require_operator_control_key(
+        provided_key,
+    ):
+        if not configured_operator_control_key:
+            raise HTTPException(
+                status_code=503,
+                detail=(
+                    "AthenaSec operator "
+                    "controls are not configured."
+                ),
+            )
+
+        if not secrets.compare_digest(
+            provided_key or "",
+            configured_operator_control_key,
+        ):
+            raise HTTPException(
+                status_code=401,
+                detail=(
+                    "Invalid AthenaSec "
+                    "operator control key."
+                ),
+            )
+
+    def require_web_session(request: Request, csrf: str | None = None):
+        if configured_browser_auth_store is None:
+            raise HTTPException(status_code=503, detail="Browser authentication unavailable.")
+        session = request.cookies.get(SESSION_COOKIE_NAME)
+        principal = configured_browser_auth_store.resolve_session(session)
+        if principal is None:
+            raise HTTPException(status_code=401, detail="Authenticated session required.")
+        if csrf is not None and not secrets.compare_digest(
+            csrf, principal.csrf_token
+        ):
+            raise HTTPException(status_code=403, detail="Invalid CSRF token.")
+        return principal
+
+    def require_approval_identity(authorization, *, allow_decision=False,
+                                  request: Request | None = None, csrf: str | None = None):
+        # Browser sessions use httpOnly cookies and mandatory CSRF on mutations.
+        if request is not None and SESSION_COOKIE_NAME in request.cookies:
+            principal = require_web_session(request)
+            if allow_decision and (
+                not csrf or not secrets.compare_digest(csrf, principal.csrf_token)
+            ):
+                raise HTTPException(status_code=403, detail="CSRF token required.")
+            if allow_decision and not principal.can_decide_approvals:
+                raise HTTPException(status_code=403, detail="Approver permission required.")
+            if not principal.can_read_approvals:
+                raise HTTPException(status_code=403, detail="Approval-read permission required.")
+            return principal
+        # Keep M8's individually provisioned bearer tokens for non-browser access.
+        if configured_operator_identity_store is None:
+            raise HTTPException(status_code=503, detail="Human identity store is unavailable.")
+        if not authorization or not authorization.startswith("Bearer "):
+            raise HTTPException(status_code=401, detail="Human authentication required.")
+        token = authorization[7:]
+        if not token or token.strip() != token:
+            raise HTTPException(status_code=401, detail="Invalid operator credential.")
+        identity = configured_operator_identity_store.resolve(token)
+        if identity is None:
+            raise HTTPException(status_code=401, detail="Invalid or expired operator credential.")
+        if allow_decision and not identity.can_decide_approvals:
+            raise HTTPException(status_code=403, detail="Approver permission required.")
+        if not identity.can_read_approvals:
+            raise HTTPException(status_code=403, detail="Approval-read permission required.")
+        return identity
+
+    @app.post("/api/v1/auth/login")
+    def browser_login(payload: BrowserLoginRequest, response: Response):
+        if configured_browser_auth_store is None:
+            raise HTTPException(status_code=503, detail="Browser authentication unavailable.")
+        try:
+            challenge = configured_browser_auth_store.begin_login(
+                payload.email, payload.password
+            )
+        except InvalidCredentials as exc:
+            raise HTTPException(status_code=401, detail=str(exc)) from exc
+        response.headers["Cache-Control"] = "no-store"
+        return {"challenge": challenge}
+
+    @app.post("/api/v1/auth/mfa")
+    def browser_mfa(payload: BrowserMfaRequest, response: Response):
+        if configured_browser_auth_store is None:
+            raise HTTPException(status_code=503, detail="Browser authentication unavailable.")
+        try:
+            session, principal = configured_browser_auth_store.complete_mfa(
+                payload.challenge, payload.code
+            )
+        except InvalidCredentials as exc:
+            raise HTTPException(status_code=401, detail=str(exc)) from exc
+        response.set_cookie(
+            SESSION_COOKIE_NAME, session, httponly=True,
+            secure=os.getenv("ATHENASEC_COOKIE_SECURE", "true").strip().lower()
+                   not in {"false", "0", "no"},
+            samesite="strict", path="/", max_age=8 * 3600,
+        )
+        response.headers["Cache-Control"] = "no-store"
+        return {"user": principal.public_user(), "csrf_token": principal.csrf_token}
+
+    @app.get("/api/v1/auth/me")
+    def browser_me(request: Request, response: Response):
+        principal = require_web_session(request)
+        response.headers["Cache-Control"] = "no-store"
+        return {"user": principal.public_user(), "csrf_token": principal.csrf_token}
+
+    @app.post("/api/v1/auth/logout")
+    def browser_logout(request: Request, response: Response,
+                       x_athenasec_csrf: str | None = Header(default=None)):
+        principal = require_web_session(request)
+        if not x_athenasec_csrf or not secrets.compare_digest(
+            x_athenasec_csrf, principal.csrf_token
+        ):
+            raise HTTPException(status_code=403, detail="CSRF token required.")
+        configured_browser_auth_store.revoke_session(
+            request.cookies[SESSION_COOKIE_NAME]
+        )
+        response.delete_cookie(SESSION_COOKIE_NAME, path="/")
+        response.headers["Cache-Control"] = "no-store"
+        return {"status": "logged_out"}
+
+    @app.get(
+        "/api/v1/runtime/status"
+    )
+    def runtime_status():
+        return build_runtime_status()
+
+    @app.put(
+        "/api/v1/runtime/control"
+    )
+    def update_runtime_control(
+        request: RuntimeControlUpdateRequest,
+        x_athenasec_operator_key: (
+            str | None
+        ) = Header(
+            default=None
+        ),
+    ):
+        require_operator_control_key(
+            x_athenasec_operator_key
+        )
+
+        try:
+            runtime_controls.update(
+                response_mode=(
+                    request.response_mode
+                ),
+                operator_execution_enabled=(
+                    request
+                    .operator_execution_enabled
+                ),
+                changed_by=(
+                    request.changed_by
+                ),
+                reason=request.reason,
+            )
+
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=409,
+                detail=str(exc),
+            ) from exc
+
+        return build_runtime_status()
+
+    @app.get(
+        "/api/v1/runtime/control/history"
+    )
+    def runtime_control_history(
+        x_athenasec_operator_key: (
+            str | None
+        ) = Header(
+            default=None
+        ),
+    ):
+        require_operator_control_key(
+            x_athenasec_operator_key
+        )
+
+        return (
+            configured_runtime_control_store
+            .list_changes()
+        )
+
+    @app.get(
+        "/health"
+    )
+    def health():
+        return {
+            "status": "ok",
+            "service": "athenasec-agent",
+        }
+
+    @app.post(
+        "/api/v1/analyze",
+        response_model=InvestigationResponse,
+    )
+    def analyze_alert(
+        alert: SecurityAlertInput,
+    ) -> InvestigationResponse:
+        return run_investigation(
+            alert
+        )
+
+    @app.post(
+        "/api/v1/integrations/wazuh/alerts",
+        response_model=InvestigationResponse,
+    )
+    def ingest_wazuh_alert(
+        payload: dict[str, Any],
+        x_athenasec_integration_key: (
+            str | None
+        ) = Header(
+            default=None
+        ),
+    ) -> InvestigationResponse:
+        if not configured_wazuh_ingest_key:
+            raise HTTPException(
+                status_code=503,
+                detail=(
+                    "Wazuh ingestion is not configured."
+                ),
+            )
+
+        provided_key = (
+            x_athenasec_integration_key
+            or ""
+        )
+
+        if not secrets.compare_digest(
+            provided_key,
+            configured_wazuh_ingest_key,
+        ):
+            raise HTTPException(
+                status_code=401,
+                detail=(
+                    "Invalid Wazuh integration key."
+                ),
+            )
+
+        try:
+            alert = parse_wazuh_alert(
+                payload
+            )
+
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=400,
+                detail=str(exc),
+            ) from exc
+
+        if configured_ml_classifier is None:
+            return run_investigation(
+                alert
+            )
+
+        try:
+            prediction = (
+                configured_ml_classifier
+                .classify(
+                    alert
+                )
+            )
+
+            ml_error = None
+
+        except Exception as exc:
+            prediction = AttackPrediction(
+                classification="unknown",
+                confidence=0.0,
+                model_version="unavailable",
+            )
+
+            ml_error = str(exc)
+
+        if (
+            prediction.classification
+            == "benign"
+            and ml_error is None
+        ):
+            return (
+                run_benign_wazuh_investigation(
+                    alert=alert,
+                    prediction=prediction,
+                )
+            )
+
+        correlation = (
+            correlate_or_create_incident(
+                alert=alert,
+                prediction=prediction,
+                store=store,
+            )
+        )
+
+        if correlation.duplicate_alert:
+            save_incident_audit_event(
+                incident_id=(
+                    correlation
+                    .incident
+                    .incident_id
+                ),
+                event_type=(
+                    "duplicate_alert_received"
+                ),
+                entity_type="alert",
+                entity_id=alert.alert_id,
+                message=(
+                    "Duplicate Wazuh alert "
+                    "was received."
+                ),
+                details={
+                    "classification": (
+                        prediction
+                        .classification
+                    ),
+                    "correlation_score": (
+                        correlation
+                        .correlation_score
+                    ),
+                    "correlation_reasons": (
+                        correlation
+                        .correlation_reasons
+                    ),
+                },
+            )
+
+            existing_investigation = (
+                store.get(
+                    alert.alert_id
+                )
+            )
+
+            if (
+                existing_investigation
+                is not None
+            ):
+                return (
+                    existing_investigation
+                )
+
+        else:
+            if (
+                correlation
+                .created_new_incident
+            ):
+                event_type = (
+                    "incident_created"
+                )
+
+                entity_type = (
+                    "incident"
+                )
+
+                entity_id = (
+                    correlation
+                    .incident
+                    .incident_id
+                )
+
+                message = (
+                    "A new incident was "
+                    "created for the Wazuh alert."
+                )
+
+            else:
+                event_type = (
+                    "alert_correlated"
+                )
+
+                entity_type = "alert"
+
+                entity_id = (
+                    alert.alert_id
+                )
+
+                message = (
+                    "Wazuh alert was correlated "
+                    "to an existing incident."
+                )
+
+            save_incident_audit_event(
+                incident_id=(
+                    correlation
+                    .incident
+                    .incident_id
+                ),
+                event_type=event_type,
+                entity_type=entity_type,
+                entity_id=entity_id,
+                message=message,
+                details={
+                    "classification": (
+                        prediction
+                        .classification
+                    ),
+                    "correlation_score": (
+                        correlation
+                        .correlation_score
+                    ),
+                    "correlation_reasons": (
+                        correlation
+                        .correlation_reasons
+                    ),
+                },
+            )
+
+        return run_investigation(
+            alert,
+            incident_id=(
+                correlation
+                .incident
+                .incident_id
+            ),
+            ml_prediction=prediction,
+            ml_error=ml_error,
+        )
+
+    @app.get(
+        (
+            "/api/v1/investigations/"
+            "{alert_id}"
+        ),
+        response_model=InvestigationResponse,
+    )
+    def get_investigation(
+        alert_id: str,
+    ) -> InvestigationResponse:
+        investigation = store.get(
+            alert_id
+        )
+
+        if investigation is None:
+            raise HTTPException(
+                status_code=404,
+                detail=(
+                    f"Investigation {alert_id} "
+                    "was not found."
+                ),
+            )
+
+        return investigation
+
+    @app.get(
+        (
+            "/api/v1/investigations/"
+            "{alert_id}/case"
+        ),
+        response_model=CaseRecord,
+    )
+    def get_case_for_investigation(
+        alert_id: str,
+    ) -> CaseRecord:
+        case = store.get_case_by_alert_id(
+            alert_id
+        )
+
+        if case is None:
+            raise HTTPException(
+                status_code=404,
+                detail=(
+                    f"Case for investigation "
+                    f"{alert_id} was not found."
+                ),
+            )
+
+        return case
+
+    @app.get(
+        (
+            "/api/v1/investigations/"
+            "{alert_id}/audit"
+        ),
+        response_model=list[AuditRecord],
+    )
+    def get_investigation_audit_history(
+        alert_id: str,
+    ) -> list[AuditRecord]:
+        return (
+            configured_audit_store
+            .list_by_alert_id(
+                alert_id
+            )
+        )
+
+    @app.get(
+        "/api/v1/approvals/{approval_id}",
+        response_model=(
+            ApprovalRequestRecord
+        ),
+    )
+    def get_approval_request(
+        approval_id: str,
+        request: Request,
+        authorization: str | None = Header(default=None),
+    ) -> ApprovalRequestRecord:
+        require_approval_identity(authorization, request=request)
+        approval = (
+            configured_incident_response_store
+            .get_approval_request(
+                approval_id
+            )
+        )
+
+        if approval is None:
+            raise HTTPException(
+                status_code=404,
+                detail=(
+                    "Approval request "
+                    "was not found."
+                ),
+            )
+
+        return approval
+
+    @app.post(
+        (
+            "/api/v1/approvals/"
+            "{approval_id}/decision"
+        ),
+        response_model=(
+            ApprovalRequestRecord
+        ),
+    )
+    def decide_approval(
+        approval_id: str,
+        request: ApprovalDecisionRequest,
+        http_request: Request,
+        authorization: str | None = Header(default=None),
+        x_athenasec_csrf: str | None = Header(default=None),
+    ) -> ApprovalRequestRecord:
+        principal = require_approval_identity(
+            authorization, allow_decision=True,
+            request=http_request, csrf=x_athenasec_csrf,
+        )
+        try:
+            resolution = (
+                resolve_approval_request(
+                    store=(
+                        configured_incident_response_store
+                    ),
+                    approval_id=(
+                        approval_id
+                    ),
+                    decision=(
+                        request.decision
+                    ),
+                    decided_by=(
+                        principal.operator_id
+                    ),
+                    reason=request.reason,
+                )
+            )
+
+        except LookupError as exc:
+            raise HTTPException(
+                status_code=404,
+                detail=str(exc),
+            ) from exc
+
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=409,
+                detail=str(exc),
+            ) from exc
+
+        approval = (
+            resolution.approval
+        )
+
+        save_incident_audit_event(
+            incident_id=(
+                approval.incident_id
+            ),
+            event_type=(
+                "approval_decided"
+            ),
+            entity_type=(
+                "approval_request"
+            ),
+            entity_id=(
+                approval.approval_id
+            ),
+            message=(
+                "Human approval decision "
+                "was recorded."
+            ),
+            details={
+                "proposed_action_id": (
+                    approval
+                    .proposed_action_id
+                ),
+                "status": (
+                    approval.status
+                ),
+                "decided_by": (
+                    approval.decided_by
+                ),
+                "decision_reason": (
+                    approval
+                    .decision_reason
+                ),
+            },
+        )
+
+        if (
+            resolution.incident_case
+            is not None
+        ):
+            case = (
+                resolution.incident_case
+            )
+
+            save_incident_audit_event(
+                incident_id=(
+                    case.incident_id
+                ),
+                event_type=(
+                    "case_created"
+                ),
+                entity_type="case",
+                entity_id=(
+                    case.case_id
+                ),
+                message=(
+                    "AthenaSec created "
+                    "an incident case "
+                    "after the approval "
+                    "workflow did not "
+                    "authorize execution."
+                ),
+                details={
+                    "policy_decision_id": (
+                        case
+                        .policy_decision_id
+                    ),
+                    "reason": (
+                        case.reason
+                    ),
+                },
+            )
+
+        if (
+            approval.status == "APPROVED"
+            and structured_runtime_reachable()
+        ):
+            proposed_action = (
+                configured_incident_response_store
+                .get_proposed_action(
+                    approval
+                    .proposed_action_id
+                )
+            )
+
+            policy_decision = (
+                configured_incident_response_store
+                .get_policy_decision(
+                    approval
+                    .policy_decision_id
+                )
+            )
+
+            if (
+                proposed_action is None
+                or policy_decision is None
+            ):
+                raise HTTPException(
+                    status_code=409,
+                    detail=(
+                        "Approved action "
+                        "references missing "
+                        "runtime records."
+                    ),
+                )
+
+            run_structured_action_runtime(
+                proposed_action=(
+                    proposed_action
+                ),
+                policy_decision=(
+                    policy_decision
+                ),
+                approval_id=(
+                    approval.approval_id
+                ),
+            )
+
+        return approval
+
+    return app
