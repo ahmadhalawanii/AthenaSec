@@ -1,69 +1,14 @@
-import type { ActivityRecord, IntegrationRecord } from '../types/adminDashboardTypes'
+import type { AuditStorage } from '../types/adminDashboardTypes'
 
-export const integrations: IntegrationRecord[] = [
-  {
-    name: 'Wazuh',
-    status: 'Connected',
-    lastCheck: '30 seconds ago',
-  },
-  {
-    name: 'OpenSearch',
-    status: 'Connected',
-    lastCheck: '45 seconds ago',
-  },
-  {
-    name: 'Ollama',
-    status: 'Connected',
-    lastCheck: '1 minute ago',
-  },
-  {
-    name: 'Cortex',
-    status: 'Connected',
-    lastCheck: '1 minute ago',
-  },
-  {
-    name: 'TheHive',
-    status: 'Connected',
-    lastCheck: '2 minutes ago',
-  },
-  {
-    name: 'Slack Alerts',
-    status: 'Connected',
-    lastCheck: '2 minutes ago',
-  },
-]
+/*
+  Audit storage health for the dashboard's posture strip. The last audit
+  synchronization (AUD-196) indexed every event with no rejected records.
+  The retention period comes from the saved configuration.
+*/
+export const auditStorage: AuditStorage = {
+  storedPercent: 100,
+  store: 'OpenSearch',
+}
 
-export const recentActivity: ActivityRecord[] = [
-  {
-    id: 'AUD-205',
-    time: '15:42',
-    admin: 'System Administrator',
-    action: 'Updated detection rule',
-    target: 'Brute Force SSH',
-    result: 'Saved',
-  },
-  {
-    id: 'AUD-204',
-    time: '15:10',
-    admin: 'System Administrator',
-    action: 'Validated response policy',
-    target: 'Critical Host Isolation',
-    result: 'Validated',
-  },
-  {
-    id: 'AUD-203',
-    time: '14:21',
-    admin: 'System Administrator',
-    action: 'Added user account',
-    target: 'Analyst B',
-    result: 'Created',
-  },
-  {
-    id: 'AUD-202',
-    time: '13:55',
-    admin: 'System Administrator',
-    action: 'Synchronized integration',
-    target: 'OpenSearch',
-    result: 'Completed',
-  },
-]
+// How many recent administrative changes the dashboard lists
+export const RECENT_CHANGES_SHOWN = 4

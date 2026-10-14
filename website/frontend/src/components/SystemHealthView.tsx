@@ -1,20 +1,35 @@
-import {
-  useMemo,
-  useState,
-  type CSSProperties,
-} from 'react'
+import { useMemo, useState, type CSSProperties } from 'react'
 import { createPortal } from 'react-dom'
+
 import type {
-  EventSeverity,
   HealthLevel,
   HealthMetric,
   ServiceRecord,
   ServiceStatus,
 } from '../types/systemHealthTypes'
 
-import { initialMetrics, initialServices, healthEvents } from '../data/systemHealthData'
+import {
+  SERVICE_GROUPS,
+  groupCount,
+  isHealthy,
+  probe,
+  serviceStatus,
+} from '../data/serviceInventory'
+import { memoryPercent } from '../data/servicePanel'
+import {
+  initialMetrics,
+  healthEvents,
+  LATENCY_TARGET_MS,
+  processingTotals,
+} from '../data/systemHealthData'
+import { getSystemStatus } from '../data/statusSummary'
+import { useAdminState } from '../hooks/useAdminState'
+import { useDialog } from '../hooks/useDialog'
+import { statusTone } from '../utils/statusTone'
 
-
+import Gauge from './Gauge'
+import SeverityBadge from './SeverityBadge'
+import TableScroll from './TableScroll'
 
 function metricLevel(value: number, metricId: string): HealthLevel {
   if (
@@ -96,66 +111,41 @@ function metricDescription(
   return 'High usage'
 }
 
-function donutClass(level: HealthLevel) {
-  if (level === 'Good') {
-    return 'good'
-  }
+const SERVICE_STATUSES: ServiceStatus[] = ['Running', 'Starting', 'Degraded', 'Failed', 'Stopped', 'Unverified']
 
-  if (level === 'Watch') {
-    return 'warn'
-  }
-
-  return 'bad'
+// The drawer's assessment, one sentence per word
+const ASSESSMENTS: Record<ServiceStatus, string> = {
+  Running: 'The service is responding normally and remains available to AthenaSec.',
+  Degraded:
+    'The service is available, but its response latency is above the expected operational threshold.',
+  Starting: 'The service is still starting. It may not respond yet, so check again shortly.',
+  Failed: 'The service has failed (a failed unit or an error answer) and requires administrator investigation.',
+  Stopped: 'The service is not currently running and requires administrator investigation.',
+  Unverified: 'The service could not be verified, so its state is unknown.',
 }
 
-function healthTagClass(level: HealthLevel) {
-  if (level === 'Good') {
-    return 'good'
-  }
+// Gauges worked out from the VM usage and the service inventory, not from this view's own state
+const DERIVED_METRICS = ['cpu', 'memory', 'services']
 
-  if (level === 'Watch') {
-    return 'warn'
-  }
-
-  return 'bad'
-}
-
-function serviceStatusClass(status: ServiceStatus) {
-  if (status === 'Online') {
-    return 'ok'
-  }
-
-  if (status === 'Degraded') {
-    return 'warn'
-  }
-
-  return 'danger'
-}
-
-function eventSeverityClass(severity: EventSeverity) {
-  if (severity === 'Info') {
-    return 'blue'
-  }
-
-  if (severity === 'Warning') {
-    return 'warn'
-  }
-
-  return 'danger'
-}
-
-function SystemHealthPage() {
+/*
+  The System health tab of the Service Panel: resource gauges, the one
+  service inventory (both groups) with its checks, processing totals and
+  recent events. The Panel's header carries the title and the summary
+  sentence; the checks here are simulated in React.
+*/
+function SystemHealthView() {
   const [metrics, setMetrics] =
     useState<HealthMetric[]>(initialMetrics)
 
-  const [services, setServices] =
-    useState<ServiceRecord[]>(initialServices)
+  // Shared admin state: checks reach the sidebar badge, top bar, search and audit log
+  const { services, servicePanel, updateServices } = useAdminState()
 
   const [statusFilter, setStatusFilter] = useState('all')
   const [searchQuery, setSearchQuery] = useState('')
 
   const [selectedService, setSelectedService] =
     useState<ServiceRecord | null>(null)
+  const dialogRef = useDialog(() => setSelectedService(null))
 
   const [refreshing, setRefreshing] = useState(false)
   const [checkingServiceIds, setCheckingServiceIds] = useState<
@@ -163,7 +153,7 @@ function SystemHealthPage() {
   >([])
 
   const [lastRefresh, setLastRefresh] = useState(
-    'Initial static snapshot',
+    'When this page opened',
   )
 
   const [pageMessage, setPageMessage] = useState(
@@ -179,29 +169,25 @@ function SystemHealthPage() {
         service.id.toLowerCase().includes(normalizedQuery) ||
         service.name.toLowerCase().includes(normalizedQuery) ||
         service.category.toLowerCase().includes(normalizedQuery) ||
-        service.status.toLowerCase().includes(normalizedQuery) ||
+        serviceStatus(service).toLowerCase().includes(normalizedQuery) ||
         service.endpoint.toLowerCase().includes(normalizedQuery) ||
         service.version.toLowerCase().includes(normalizedQuery)
 
       const matchesStatus =
         statusFilter === 'all' ||
-        service.status === statusFilter
+        serviceStatus(service) === statusFilter
 
       return matchesSearch && matchesStatus
     })
   }, [services, searchQuery, statusFilter])
 
-  const onlineCount = services.filter(
-    (service) => service.status === 'Online',
-  ).length
+  // "8 running, 1 degraded, 1 starting": the words with a count, Running always
+  const statusCounts = SERVICE_STATUSES.map((status) => ({
+    status,
+    count: services.filter((service) => serviceStatus(service) === status).length,
+  })).filter(({ status, count }) => status === 'Running' || count > 0)
 
-  const degradedCount = services.filter(
-    (service) => service.status === 'Degraded',
-  ).length
-
-  const offlineCount = services.filter(
-    (service) => service.status === 'Offline',
-  ).length
+  const systemStatus = getSystemStatus(services)
 
   const processedAlerts =
     metrics.find((metric) => metric.id === 'alerts')?.value ?? 0
@@ -209,13 +195,33 @@ function SystemHealthPage() {
   const caseAutomation =
     metrics.find((metric) => metric.id === 'cases')?.value ?? 0
 
+  /*
+    CPU and memory are the VM's usage (the same figures as the Overview's
+    meters) and Running services is counted from the inventory; the other
+    gauges are demo values of this tab.
+  */
+  const shownMetrics = metrics.map((metric) => {
+    const value =
+      metric.id === 'cpu'
+        ? servicePanel.usage.cpuPercent
+        : metric.id === 'memory'
+          ? Number(memoryPercent(servicePanel.usage.memoryUsedBytes, servicePanel.usage.memoryTotalBytes).toFixed(1))
+          : metric.id === 'services'
+            ? Math.round((100 * services.filter(isHealthy).length) / services.length)
+            : metric.value
+
+    return DERIVED_METRICS.includes(metric.id)
+      ? { ...metric, value, level: metricLevel(value, metric.id), description: metricDescription(value, metric.id) }
+      : metric
+  })
+
   function refreshHealth() {
     if (refreshing) {
       return
     }
 
     setRefreshing(true)
-    setPageMessage('Refreshing frontend health metrics...')
+    setPageMessage('Refreshing health metrics…')
 
     window.setTimeout(() => {
       setMetrics((currentMetrics) =>
@@ -239,27 +245,20 @@ function SystemHealthPage() {
         }),
       )
 
-      setServices((currentServices) =>
-        currentServices.map((service) => {
-          if (service.status === 'Offline') {
-            return {
-              ...service,
-              lastCheck: 'Just now',
+      const refreshedServices = updateServices(
+        (currentServices) =>
+          currentServices.map((service) => {
+            // A stopped service has no response time to move
+            if (service.status === 'Stopped') {
+              return service.group === 'pipeline'
+                ? { ...service, lastCheck: 'Just now' }
+                : service
             }
-          }
 
-          const latencyChange =
-            Math.floor(Math.random() * 31) - 15
-
-          return {
-            ...service,
-            latency: Math.max(
-              10,
-              service.latency + latencyChange,
-            ),
-            lastCheck: 'Just now',
-          }
-        }),
+            // Only the pipeline is probed; the VM group stays the Service Panel snapshot
+            return probe(service, Math.floor(Math.random() * 31) - 15)
+          }),
+        'refresh',
       )
 
       setSelectedService((currentService) => {
@@ -267,23 +266,18 @@ function SystemHealthPage() {
           return currentService
         }
 
-        const updatedService = services.find(
-          (service) => service.id === currentService.id,
+        return (
+          refreshedServices.find(
+            (service) => service.id === currentService.id,
+          ) ?? currentService
         )
-
-        return updatedService
-          ? {
-              ...updatedService,
-              lastCheck: 'Just now',
-            }
-          : currentService
       })
 
       setLastRefresh('Just now')
       setRefreshing(false)
 
       setPageMessage(
-        'Frontend system-health metrics refreshed successfully.',
+        'Health metrics refreshed.',
       )
     }, 850)
   }
@@ -293,7 +287,8 @@ function SystemHealthPage() {
       (currentService) => currentService.id === serviceId,
     )
 
-    if (!service || checkingServiceIds.includes(serviceId)) {
+    // Only the pipeline can be probed; the VM group is checked on the Service Panel
+    if (!service || service.group !== 'pipeline' || checkingServiceIds.includes(serviceId)) {
       return
     }
 
@@ -302,37 +297,27 @@ function SystemHealthPage() {
       serviceId,
     ])
 
-    setPageMessage(`Checking ${service.name}...`)
+    setPageMessage(`Checking ${service.name}…`)
 
     window.setTimeout(() => {
-      const nextLatency = Math.max(
-        10,
-        service.latency +
-          (Math.floor(Math.random() * 41) - 20),
-      )
-
-      const nextStatus: ServiceStatus =
-        nextLatency > 600
-          ? 'Offline'
-          : nextLatency > 300
-            ? 'Degraded'
-            : 'Online'
+      const change = Math.floor(Math.random() * 41) - 20
+      const probed = probe(service, change)
+      const nextStatus = probed.status
 
       const updates: Partial<ServiceRecord> = {
         status: nextStatus,
-        latency: nextLatency,
+        latency: probed.latency,
         lastCheck: 'Just now',
       }
 
-      setServices((currentServices) =>
-        currentServices.map((currentService) =>
-          currentService.id === serviceId
-            ? {
-                ...currentService,
-                ...updates,
-              }
-            : currentService,
-        ),
+      updateServices(
+        (currentServices) =>
+          currentServices.map((currentService) =>
+            currentService.id === serviceId
+              ? probe(currentService, change)
+              : currentService,
+          ),
+        'check',
       )
 
       setSelectedService((currentService) => {
@@ -366,37 +351,22 @@ function SystemHealthPage() {
       return
     }
 
-    const serviceIds = services.map((service) => service.id)
+    // Only the pipeline is probed; the VM group is a snapshot from the Service Panel
+    const serviceIds = services
+      .filter((service) => service.group === 'pipeline')
+      .map((service) => service.id)
 
     setCheckingServiceIds(serviceIds)
-    setPageMessage('Checking all frontend services...')
+    setPageMessage('Checking all services…')
 
     window.setTimeout(() => {
-      const updatedServices = services.map((service) => {
-        const latencyChange =
-          Math.floor(Math.random() * 41) - 20
-
-        const nextLatency = Math.max(
-          10,
-          service.latency + latencyChange,
-        )
-
-        const nextStatus: ServiceStatus =
-          nextLatency > 600
-            ? 'Offline'
-            : nextLatency > 300
-              ? 'Degraded'
-              : 'Online'
-
-        return {
-          ...service,
-          status: nextStatus,
-          latency: nextLatency,
-          lastCheck: 'Just now',
-        }
-      })
-
-      setServices(updatedServices)
+      const updatedServices = updateServices(
+        (currentServices) =>
+          currentServices.map((service) =>
+            probe(service, Math.floor(Math.random() * 41) - 20),
+          ),
+        'check-all',
+      )
 
       setSelectedService((currentService) => {
         if (!currentService) {
@@ -414,7 +384,7 @@ function SystemHealthPage() {
       setLastRefresh('Just now')
 
       setPageMessage(
-        `${updatedServices.length} frontend service checks completed.`,
+        `${serviceIds.length} service checks completed.`,
       )
     }, 950)
   }
@@ -425,158 +395,68 @@ function SystemHealthPage() {
   }
 
   return (
-    <section
-      className="page active"
-      data-page="system-health"
-      data-page-name="System Health"
-      data-admin-only
-      data-search-page
-    >
-      <div className="headline">
-        <div>
-          <h1>System Health</h1>
+    <div className="health-view" data-view="health">
+      <div className="health-actions">
+        <span className={`pill ${systemStatus.level}`} data-field="healthStatus">
+          {systemStatus.level === 'ok'
+            ? systemStatus.detail
+            : systemStatus.title}
+        </span>
 
-          <p className="sub">
-            Operational health across infrastructure, services,
-            alert processing, and case automation.
-          </p>
-        </div>
-
-        <div
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: '10px',
-            flexWrap: 'wrap',
-          }}
+        <button
+          className="btn"
+          type="button"
+          onClick={refreshHealth}
+          disabled={refreshing}
         >
-          <span
-            className={`pill ${
-              offlineCount > 0
-                ? 'danger'
-                : degradedCount > 0
-                  ? 'warn'
-                  : 'ok'
-            }`}
-          >
-            {offlineCount > 0
-              ? 'Service Outage'
-              : degradedCount > 0
-                ? 'Attention Required'
-                : 'All Systems Operational'}
-          </span>
-
-          <button
-            className="btn primary"
-            type="button"
-            onClick={refreshHealth}
-            disabled={refreshing}
-          >
-            {refreshing ? 'Refreshing...' : 'Refresh'}
-          </button>
-        </div>
+          {refreshing ? 'Refreshing…' : 'Refresh'}
+        </button>
       </div>
 
-      <div
-        className="notice"
-        role="status"
-        style={{ marginBottom: '18px' }}
-      >
+      <div className="notice" role="status">
         <strong>{pageMessage}</strong>
 
-        <p
-          className="sub"
-          style={{ marginTop: '6px' }}
-        >
-          Last refresh: {lastRefresh}
-        </p>
+        <p className="sub">Last refresh: {lastRefresh}</p>
       </div>
 
-      <div className="grid four">
-        {metrics.map((metric) => (
-          <div
-            className="stat health-stat"
-            key={metric.id}
-          >
-            <div
-              className={`donut ${donutClass(metric.level)}`}
-              style={
-                {
-                  '--donut-pct': metric.value,
-                } as CSSProperties
-              }
-            >
-              <div className="donut-label">
-                {metric.value}%
+      <section aria-labelledby="usageTitle">
+        <h2 className="visually-hidden" id="usageTitle">
+          Resource usage
+        </h2>
+
+        <ul className="gauge-grid">
+          {shownMetrics.map((metric) => (
+            <li className="card gauge-card" key={metric.id} data-metric={metric.id}>
+              <Gauge value={metric.value} label={metric.name} state={metric.level} />
+
+              <div className="gauge-text">
+                <strong>{metric.name}</strong>
+                <span>{metric.description}</span>
+                <span className={`gauge-state ${statusTone(metric.level)}`}>
+                  {metric.level === 'Critical' ? 'Needs attention' : metric.level}
+                </span>
               </div>
-            </div>
+            </li>
+          ))}
+        </ul>
+      </section>
 
-            <div className="health-info">
-              <strong
-                style={{
-                  fontSize: '15px',
-                  color: '#fff',
-                }}
-              >
-                {metric.name}
-              </strong>
-
-              <span>{metric.description}</span>
-
-              <span
-                className={`health-tag ${healthTagClass(
-                  metric.level,
-                )}`}
-              >
-                {metric.level === 'Critical'
-                  ? 'Needs attention'
-                  : metric.level}
-              </span>
-            </div>
-          </div>
-        ))}
-      </div>
-
-      <div
-        className="grid stats"
-        style={{ marginTop: '18px' }}
-      >
-        <div className="stat">
-          <strong>{services.length}</strong>
-          <span>Total Services</span>
-          <small>Configured health checks</small>
-        </div>
-
-        <div className="stat">
-          <strong>{onlineCount}</strong>
-          <span>Online</span>
-          <small>Operating normally</small>
-        </div>
-
-        <div className="stat">
-          <strong>{degradedCount}</strong>
-          <span>Degraded</span>
-          <small>Require monitoring</small>
-        </div>
-
-        <div className="stat">
-          <strong>{offlineCount}</strong>
-          <span>Offline</span>
-          <small>Require immediate review</small>
-        </div>
-      </div>
-
-      <div
-        className="card"
-        style={{ marginTop: '18px' }}
-      >
+      <div className="card health-services">
         <div className="headline">
           <div>
             <h2>Service Health</h2>
 
-            <p className="sub">
-              Search, filter, inspect, and simulate service
-              health checks.
+            <p className="sub" id="serviceCounts">
+              {statusCounts.map(({ status, count }) => `${count} ${status.toLowerCase()}`).join(', ')}.
+              Search, filter, inspect, and simulate service health checks.
+            </p>
+
+            <p className="sub" id="groupCounts">
+              {SERVICE_GROUPS.map((group) => {
+                const { healthy, total } = groupCount(services, group.key)
+
+                return `${group.name}: ${healthy} of ${total} healthy`
+              }).join(' · ')}
             </p>
           </div>
 
@@ -587,7 +467,7 @@ function SystemHealthPage() {
             disabled={checkingServiceIds.length > 0}
           >
             {checkingServiceIds.length > 1
-              ? 'Checking Services...'
+              ? 'Checking Services…'
               : 'Check All Services'}
           </button>
         </div>
@@ -596,7 +476,10 @@ function SystemHealthPage() {
           <input
             className="field-input"
             type="search"
-            placeholder="Search services"
+            name="serviceSearch"
+            autoComplete="off"
+            aria-label="Search services"
+            placeholder="Search services…"
             value={searchQuery}
             onChange={(event) =>
               setSearchQuery(event.target.value)
@@ -605,15 +488,20 @@ function SystemHealthPage() {
 
           <select
             className="select-input"
+            name="statusFilter"
+            autoComplete="off"
+            aria-label="Filter by status"
             value={statusFilter}
             onChange={(event) =>
               setStatusFilter(event.target.value)
             }
           >
             <option value="all">All Statuses</option>
-            <option value="Online">Online</option>
-            <option value="Degraded">Degraded</option>
-            <option value="Offline">Offline</option>
+            {SERVICE_STATUSES.map((status) => (
+              <option key={status} value={status}>
+                {status}
+              </option>
+            ))}
           </select>
 
           <button
@@ -629,17 +517,18 @@ function SystemHealthPage() {
           </span>
         </div>
 
-        <div className="table-scroll">
+        <TableScroll label="Service health">
           <table>
             <thead>
               <tr>
                 <th>Service</th>
+                <th>Group</th>
                 <th>Category</th>
                 <th>Status</th>
                 <th>Uptime</th>
                 <th>Latency</th>
                 <th>Last Check</th>
-                <th>Actions</th>
+                <th className="actions-col">Actions</th>
               </tr>
             </thead>
 
@@ -652,8 +541,7 @@ function SystemHealthPage() {
                   <tr
                     key={service.id}
                     className="data-row"
-                    data-search-record
-                    data-page-target="system-health"
+                    data-record-id={service.id}
                   >
                     <td>
                       <strong>{service.name}</strong>
@@ -669,24 +557,49 @@ function SystemHealthPage() {
                       </div>
                     </td>
 
+                    <td data-field="group">
+                      {SERVICE_GROUPS.find((group) => group.key === service.group)?.name}
+                    </td>
+
                     <td>{service.category}</td>
 
                     <td>
                       <span
-                        className={`pill ${serviceStatusClass(
-                          service.status,
-                        )}`}
+                        className={`pill ${statusTone(serviceStatus(service))}`}
                       >
-                        {service.status}
+                        {serviceStatus(service)}
                       </span>
                     </td>
 
                     <td>{service.uptime}</td>
-                    <td>{service.latency} ms</td>
+                    <td>
+                      {service.latency === null ? (
+                        <span className="sub" title="Checked for availability only">—</span>
+                      ) : (
+                        <span className="latency">
+                          <span
+                            className={`latency-bar${service.latency > LATENCY_TARGET_MS ? ' over' : ''}`}
+                            aria-hidden="true"
+                          >
+                            <span
+                              style={
+                                {
+                                  '--latency-pct': Math.min(
+                                    100,
+                                    Math.round((service.latency / LATENCY_TARGET_MS) * 100),
+                                  ),
+                                } as CSSProperties
+                              }
+                            />
+                          </span>
+                          <span className="latency-text">{service.latency} ms</span>
+                        </span>
+                      )}
+                    </td>
 
                     <td>
                       {isChecking
-                        ? 'Checking...'
+                        ? 'Checking…'
                         : service.lastCheck}
                     </td>
 
@@ -694,6 +607,7 @@ function SystemHealthPage() {
                       <button
                         className="btn small"
                         type="button"
+                        aria-label={`View ${service.name}`}
                         onClick={() =>
                           setSelectedService(service)
                         }
@@ -701,16 +615,19 @@ function SystemHealthPage() {
                         View
                       </button>
 
-                      <button
-                        className="btn small primary"
-                        type="button"
-                        disabled={isChecking}
-                        onClick={() =>
-                          checkService(service.id)
-                        }
-                      >
-                        {isChecking ? 'Checking...' : 'Check'}
-                      </button>
+                      {service.group === 'pipeline' && (
+                        <button
+                          className="btn small"
+                          type="button"
+                          disabled={isChecking}
+                          aria-label={`${isChecking ? 'Checking' : 'Check'} ${service.name}`}
+                          onClick={() =>
+                            checkService(service.id)
+                          }
+                        >
+                          {isChecking ? 'Checking…' : 'Check'}
+                        </button>
+                      )}
                     </td>
                   </tr>
                 )
@@ -718,7 +635,7 @@ function SystemHealthPage() {
 
               {visibleServices.length === 0 && (
                 <tr>
-                  <td colSpan={7}>
+                  <td colSpan={8}>
                     <div className="empty">
                       <strong>No services found</strong>
 
@@ -741,7 +658,7 @@ function SystemHealthPage() {
               )}
             </tbody>
           </table>
-        </div>
+        </TableScroll>
       </div>
 
       <div
@@ -779,57 +696,38 @@ function SystemHealthPage() {
 
           <div className="kv">
             <span>Events Indexed Today</span>
-            <strong>18,462</strong>
+            <strong>{processingTotals.eventsIndexedToday}</strong>
           </div>
 
           <div className="kv">
             <span>Average Processing Time</span>
-            <strong>1.8 seconds</strong>
+            <strong>{processingTotals.averageProcessingTime}</strong>
           </div>
 
           <div className="kv">
             <span>Connected Linux Hosts</span>
-            <strong>41 / 50</strong>
+            <strong>{processingTotals.connectedHosts}</strong>
           </div>
         </div>
 
         <div className="card">
           <h2>Recent Health Events</h2>
 
-          <div className="stack">
+          <ol className="health-events">
             {healthEvents.map((event) => (
-              <div
-                className="kv"
-                key={event.id}
-              >
-                <span>
+              <li className="health-event" key={event.id}>
+                <span className="health-event-when">
                   {event.time}
-                  <br />
-                  <span
-                    className={`pill ${eventSeverityClass(
-                      event.severity,
-                    )}`}
-                    style={{ marginTop: '6px' }}
-                  >
-                    {event.severity}
-                  </span>
+                  <SeverityBadge severity={event.severity} />
                 </span>
 
-                <strong>
+                <strong className="health-event-what">
                   {event.source}
-                  <span
-                    className="sub"
-                    style={{
-                      display: 'block',
-                      marginTop: '5px',
-                    }}
-                  >
-                    {event.message}
-                  </span>
+                  <span className="sub">{event.message}</span>
                 </strong>
-              </div>
+              </li>
             ))}
-          </div>
+          </ol>
         </div>
       </div>
 
@@ -841,6 +739,7 @@ function SystemHealthPage() {
             onClick={() => setSelectedService(null)}
           >
             <aside
+              ref={dialogRef}
               className="alert-drawer"
               role="dialog"
               aria-modal="true"
@@ -874,17 +773,22 @@ function SystemHealthPage() {
                     </div>
 
                     <span
-                      className={`pill ${serviceStatusClass(
-                        selectedService.status,
-                      )}`}
+                      className={`pill ${statusTone(serviceStatus(selectedService))}`}
                     >
-                      {selectedService.status}
+                      {serviceStatus(selectedService)}
                     </span>
                   </div>
 
                   <div className="kv">
                     <span>Service ID</span>
                     <strong>{selectedService.id}</strong>
+                  </div>
+
+                  <div className="kv">
+                    <span>Group</span>
+                    <strong>
+                      {SERVICE_GROUPS.find((group) => group.key === selectedService.group)?.name}
+                    </strong>
                   </div>
 
                   <div className="kv">
@@ -918,7 +822,9 @@ function SystemHealthPage() {
                   <div className="kv">
                     <span>Latency</span>
                     <strong>
-                      {selectedService.latency} ms
+                      {selectedService.latency === null
+                        ? 'Not measured (availability only)'
+                        : `${selectedService.latency} ms`}
                     </strong>
                   </div>
 
@@ -928,7 +834,7 @@ function SystemHealthPage() {
                       {checkingServiceIds.includes(
                         selectedService.id,
                       )
-                        ? 'Checking...'
+                        ? 'Checking…'
                         : selectedService.lastCheck}
                     </strong>
                   </div>
@@ -946,11 +852,7 @@ function SystemHealthPage() {
                   <h3>Operational Assessment</h3>
 
                   <p className="sub">
-                    {selectedService.status === 'Online'
-                      ? 'The service is responding normally and remains available to AthenaSec.'
-                      : selectedService.status === 'Degraded'
-                        ? 'The service is available, but its response latency is above the expected operational threshold.'
-                        : 'The service is not currently responding and requires administrator investigation.'}
+                    {ASSESSMENTS[serviceStatus(selectedService)]}
                   </p>
                 </div>
 
@@ -960,29 +862,31 @@ function SystemHealthPage() {
                   is contacted.
                 </div>
 
-                <button
-                  className="btn primary"
-                  type="button"
-                  disabled={checkingServiceIds.includes(
-                    selectedService.id,
-                  )}
-                  onClick={() =>
-                    checkService(selectedService.id)
-                  }
-                >
-                  {checkingServiceIds.includes(
-                    selectedService.id,
-                  )
-                    ? 'Checking Service...'
-                    : 'Run Service Check'}
-                </button>
+                {selectedService.group === 'pipeline' && (
+                  <button
+                    className="btn primary"
+                    type="button"
+                    disabled={checkingServiceIds.includes(
+                      selectedService.id,
+                    )}
+                    onClick={() =>
+                      checkService(selectedService.id)
+                    }
+                  >
+                    {checkingServiceIds.includes(
+                      selectedService.id,
+                    )
+                      ? 'Checking Service…'
+                      : 'Run Service Check'}
+                  </button>
+                )}
               </div>
             </aside>
           </div>,
           document.body,
         )}
-    </section>
+    </div>
   )
 }
 
-export default SystemHealthPage
+export default SystemHealthView

@@ -8,3 +8,7 @@ export const LOGOUT_CONFIRMATION: ConfirmModalContent = {
   cancelLabel: 'Cancel',
   tone: 'danger',
 }
+
+// Added under the message while the Permissions draft has unsaved changes
+export const LOGOUT_UNSAVED_NOTE =
+  'You have unsaved changes to the response policy. They will be lost.'

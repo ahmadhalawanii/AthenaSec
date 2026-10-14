@@ -1,75 +1,82 @@
 import { useMemo, useState } from 'react'
-import { createPortal } from 'react-dom'
-import type {
-  ActionType,
-  ApprovalType,
-  ExecutionRecord,
-  ExecutionResult,
-} from '../types/incidentResponseTypes'
+import { Link } from 'react-router-dom'
 
-import { executionRecords } from '../data/incidentResponseData'
+import ApprovalDetails from '../components/ApprovalDetails'
+import RequestAgain from '../components/RequestAgain'
+import ResponsiveDetail from '../components/ResponsiveDetail'
+import TableScroll from '../components/TableScroll'
+import Timeline from '../components/Timeline'
+import { APPROVER_LABELS } from '../data/agentPolicyData'
+import {
+  approvalForRun,
+  executionStages,
+  executionTimeline,
+  responseSummary,
+} from '../data/statusSummary'
+import { useSearchSelection } from '../hooks/useSearchSelection'
+import { useSocState } from '../hooks/useSocState'
+import type { ExecutionRecord } from '../types/incidentResponseTypes'
+import type { SearchNavigationState } from '../types/searchTypes'
+import { statusTone } from '../utils/statusTone'
 
-function resultClass(result: ExecutionResult) {
-  return result === 'Completed' ? 'ok' : 'danger'
-}
+const STAGE_NAMES = ['Detected', 'Scored', 'Policy matched', 'Approved', 'Executed']
 
-function approvalClass(approvalType: ApprovalType) {
-  return approvalType === 'Automatic' ? 'blue' : 'warn'
-}
+const LEGEND = [
+  { state: 'done', label: 'Done' },
+  { state: 'analyst', label: 'Analyst: approved by an analyst' },
+  { state: 'lead', label: 'SOC lead: approved by a SOC lead' },
+  { state: 'failed', label: 'Failed' },
+]
 
-function actionClass(action: ActionType) {
-  return action === 'Isolate Host' ? 'danger' : 'blue'
+// "Isolate endpoint-12", "Block IP 203.0.113.45"
+function runTitle(run: ExecutionRecord) {
+  return run.action === 'Isolate Host' ? `Isolate ${run.target}` : `${run.action} ${run.target}`
 }
 
 function IncidentResponsePage() {
+  // Shared state: what ran, and the approvals behind it
+  const { executions, approvals, executionFacts, tokens, alerts } = useSocState()
   const [searchQuery, setSearchQuery] = useState('')
   const [actionFilter, setActionFilter] = useState('all')
   const [resultFilter, setResultFilter] = useState('all')
-  const [selectedExecution, setSelectedExecution] =
-    useState<ExecutionRecord | null>(null)
+  const [selectedId, setSelectedId] = useState<string | null>(null)
+  // Phones: the panel opens as a drawer only when a run is chosen
+  const [detailOpen, setDetailOpen] = useState(false)
 
-  const visibleExecutions = useMemo(() => {
+  const summary = responseSummary(executions, approvals)
+
+  const visibleRuns = useMemo(() => {
     const normalizedQuery = searchQuery.trim().toLowerCase()
 
-    return executionRecords.filter((execution) => {
+    return executions.filter((run) => {
+      const decidedBy = approvalForRun(run, approvals)?.decidedBy
       const matchesSearch =
         normalizedQuery === '' ||
-        execution.id.toLowerCase().includes(normalizedQuery) ||
-        execution.triggeringAlert
-          .toLowerCase()
-          .includes(normalizedQuery) ||
-        execution.policy.toLowerCase().includes(normalizedQuery) ||
-        execution.action.toLowerCase().includes(normalizedQuery) ||
-        execution.target.toLowerCase().includes(normalizedQuery) ||
-        execution.initiator.toLowerCase().includes(normalizedQuery) ||
-        execution.approvalType
-          .toLowerCase()
-          .includes(normalizedQuery) ||
-        execution.result.toLowerCase().includes(normalizedQuery)
+        [
+          run.id,
+          run.triggeringAlert,
+          run.policy,
+          run.action,
+          run.target,
+          decidedBy?.name ?? '',
+          run.result,
+        ].some((value) => value.toLowerCase().includes(normalizedQuery))
 
-      const matchesAction =
-        actionFilter === 'all' ||
-        execution.action === actionFilter
-
-      const matchesResult =
-        resultFilter === 'all' ||
-        execution.result === resultFilter
+      const matchesAction = actionFilter === 'all' || run.action === actionFilter
+      const matchesResult = resultFilter === 'all' || run.result === resultFilter
 
       return matchesSearch && matchesAction && matchesResult
     })
-  }, [searchQuery, actionFilter, resultFilter])
+  }, [executions, approvals, searchQuery, actionFilter, resultFilter])
 
-  const completedCount = executionRecords.filter(
-    (execution) => execution.result === 'Completed',
-  ).length
+  // The chosen run, or else the first failed one, or else the first
+  const selected =
+    visibleRuns.find((run) => run.id === selectedId) ??
+    visibleRuns.find((run) => run.result === 'Failed') ??
+    visibleRuns[0] ??
+    null
 
-  const failedCount = executionRecords.filter(
-    (execution) => execution.result === 'Failed',
-  ).length
-
-  const automaticCount = executionRecords.filter(
-    (execution) => execution.approvalType === 'Automatic',
-  ).length
+  const selectedApproval = selected ? approvalForRun(selected, approvals) : undefined
 
   function resetFilters() {
     setSearchQuery('')
@@ -77,405 +84,315 @@ function IncidentResponsePage() {
     setResultFilter('all')
   }
 
+  function choose(runId: string) {
+    setSelectedId(runId)
+    setDetailOpen(true)
+  }
+
+  // Search and links from other pages: clear the filters, then select it
+  useSearchSelection(
+    executions.map((run) => run.id),
+    setSelectedId,
+    resetFilters,
+  )
+
+  const alertLink: SearchNavigationState | undefined = selected
+    ? { highlight: selected.triggeringAlert }
+    : undefined
+
   return (
     <section
       className="page active"
-      data-page="response-activity"
+      data-page="incident"
       data-page-name="Incident Response"
       data-search-page
     >
       <div className="headline">
         <div>
           <h1>Incident Response</h1>
-
           <p className="sub">
-            Permanent history of AI-executed and analyst-approved
-            containment actions.
+            Every action AthenaSec took, why it took it, and whether it worked.
+            Records are read-only.
           </p>
         </div>
+      </div>
 
-        <span className="pill ok">
-          {completedCount} completed
+      <section className="response-summary" aria-label="Response summary">
+        <div data-figure="succeeded">
+          <strong>
+            {summary.succeeded} of {summary.total}
+          </strong>
+          <span>responses succeeded</span>
+        </div>
+        <div data-figure="fastest">
+          <strong>{summary.fastest ? `${summary.fastest.minutes} min` : 'None'}</strong>
+          <span>
+            fastest containment
+            {summary.fastest && (
+              <>
+                , <span className="mono">{summary.fastest.runId}</span>
+              </>
+            )}
+          </span>
+        </div>
+        <div data-figure="approval">
+          <strong>{summary.approvedByAnalyst + summary.approvedByLead}</strong>
+          <span>
+            approved by a person ({summary.approvedByLead} SOC lead, {summary.approvedByAnalyst} analyst),{' '}
+            {summary.awaiting} awaiting approval
+          </span>
+        </div>
+        <div data-figure="failed" className={summary.failed > 0 ? 'attention' : undefined}>
+          <strong>{summary.failed}</strong>
+          <span>{summary.failed > 0 ? 'failed and needs a person' : 'failed runs'}</span>
+        </div>
+      </section>
+
+      <div className="toolbar">
+        <input
+          className="field-input"
+          type="search"
+          name="runSearch"
+          autoComplete="off"
+          aria-label="Search executions, alerts, policies, or targets"
+          placeholder="Search runs, alerts, targets…"
+          value={searchQuery}
+          onChange={(event) => setSearchQuery(event.target.value)}
+        />
+
+        <select
+          className="select-input"
+          name="actionFilter"
+          autoComplete="off"
+          aria-label="Filter by action"
+          value={actionFilter}
+          onChange={(event) => setActionFilter(event.target.value)}
+        >
+          <option value="all">All Actions</option>
+          <option value="Block IP">Block IP</option>
+          <option value="Isolate Host">Isolate Host</option>
+        </select>
+
+        <select
+          className="select-input"
+          name="resultFilter"
+          autoComplete="off"
+          aria-label="Filter by result"
+          value={resultFilter}
+          onChange={(event) => setResultFilter(event.target.value)}
+        >
+          <option value="all">All Results</option>
+          <option value="Completed">Completed</option>
+          <option value="Failed">Failed</option>
+        </select>
+
+        <button className="btn" type="button" onClick={resetFilters}>
+          Reset Filters
+        </button>
+
+        <span className="pill blue" role="status">
+          {visibleRuns.length} visible
         </span>
       </div>
 
-      <div className="grid stats">
-        <div className="stat">
-          <strong>{executionRecords.length}</strong>
-          <span>Total Executions</span>
-          <small>Recorded response actions</small>
+      <section className="card pipeline" aria-labelledby="pipelineTitle">
+        <div className="pipeline-head">
+          <h2 id="pipelineTitle">Response pipeline</h2>
+          <p className="pipeline-hint">Each row is one run. Select one to see the reasoning.</p>
+          <ul className="stage-legend" aria-label="Stage key">
+            {LEGEND.map((item) => (
+              <li key={item.state}>
+                <span className={`stage-dot ${item.state}`} aria-hidden="true" />
+                {item.label}
+              </li>
+            ))}
+          </ul>
         </div>
 
-        <div className="stat">
-          <strong>{completedCount}</strong>
-          <span>Completed</span>
-          <small>Successful actions</small>
-        </div>
+        {visibleRuns.length === 0 ? (
+          <div className="empty">
+            <p>No response runs match the current search and filters.</p>
+            <button className="btn primary" type="button" onClick={resetFilters}>
+              Clear Filters
+            </button>
+          </div>
+        ) : (
+          <TableScroll label="Response pipeline">
+            <div className="pipeline-grid">
+              <div className="pipeline-columns" aria-hidden="true">
+                <span>Run</span>
+                {STAGE_NAMES.map((name) => (
+                  <span key={name}>{name}</span>
+                ))}
+                <span className="pipeline-result-col">Result</span>
+              </div>
 
-        <div className="stat">
-          <strong>{automaticCount}</strong>
-          <span>Automatic</span>
-          <small>AI-approved by policy</small>
-        </div>
+              <ul className="pipeline-list">
+                {visibleRuns.map((run) => (
+                  <li key={run.id}>
+                    <button
+                      type="button"
+                      className={`run-row${run.result === 'Failed' ? ' failed' : ''}`}
+                      aria-pressed={run.id === selected?.id}
+                      onClick={() => choose(run.id)}
+                      data-record-id={run.id}
+                    >
+                      {/* The {' '} spaces keep the button's accessible name readable;
+                          the grid doesn't render them */}
+                      <span className="run-name">
+                        <span className="run-title">{runTitle(run)}</span>{' '}
+                        <span className="run-meta mono">
+                          {run.id} for {run.triggeringAlert}
+                        </span>
+                      </span>{' '}
 
-        <div className="stat">
-          <strong>{failedCount}</strong>
-          <span>Failed</span>
-          <small>Require analyst review</small>
-        </div>
-      </div>
+                      {executionStages(run, approvalForRun(run, approvals)).map((stage, index) => (
+                        <span
+                          key={stage.name}
+                          className={`run-stage ${stage.state}`}
+                          data-stage={stage.name}
+                          data-state={stage.state}
+                        >
+                          <span className="visually-hidden">{stage.name}: </span>
+                          <span className="stage-track" aria-hidden="true">
+                            <span className={`stage-dot ${stage.state}`} />
+                            {index < STAGE_NAMES.length - 1 && <span className="stage-line" />}
+                          </span>
+                          <span className="stage-label">{stage.label}</span>{' '}
+                        </span>
+                      ))}
 
-      <div className="card" style={{ marginTop: '18px' }}>
-        <div className="headline">
-          <div>
-            <h2>Response History</h2>
+                      <span className={`run-result path-status ${statusTone(run.result)}`}>
+                        <span className="visually-hidden">Result: </span>
+                        {run.result}
+                      </span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          </TableScroll>
+        )}
+      </section>
 
-            <p className="sub">
-              Completed response records are read-only and retained for
-              investigation and audit review.
-            </p>
+      {selected && (
+        <ResponsiveDetail
+          open={detailOpen}
+          onClose={() => setDetailOpen(false)}
+          labelledBy="runPanelTitle"
+          closeLabel="Close response details"
+          className="run-panel"
+        >
+          <div className="workspace-head" data-workspace-id={selected.id}>
+            <div className="dash-path-meta">
+              <span className="mono">{selected.id}</span>
+              <span className={`path-status ${statusTone(selected.result)}`}>
+                {selected.result}
+              </span>
+            </div>
+            <h2 className="workspace-title" id="runPanelTitle">
+              {runTitle(selected)}
+            </h2>
+            <div className="workspace-actions">
+              <Link className="btn ghost" to="/app/alerts" state={alertLink}>
+                View {selected.triggeringAlert}
+              </Link>
+            </div>
           </div>
 
-          <span className="pill blue">
-            {visibleExecutions.length} visible
-          </span>
-        </div>
+          <dl className="facts run-facts">
+            <div>
+              <dt>Triggering alert</dt>
+              <dd className="mono" data-field="triggeringAlert">{selected.triggeringAlert}</dd>
+            </div>
+            <div>
+              <dt>Action</dt>
+              <dd data-field="action">{selected.action}</dd>
+            </div>
+            <div>
+              <dt>Target</dt>
+              <dd className="mono" data-field="target">{selected.target}</dd>
+            </div>
+            <div>
+              <dt>Policy</dt>
+              <dd data-field="policy">{selected.policy}</dd>
+            </div>
+            <div>
+              <dt>Approved by</dt>
+              <dd data-field="approvedBy">
+                {selectedApproval?.decidedBy
+                  ? `${selectedApproval.decidedBy.name} (${APPROVER_LABELS[selectedApproval.decidedBy.role]})`
+                  : 'Not on record'}
+              </dd>
+            </div>
+            <div>
+              <dt>Result</dt>
+              <dd data-field="result">
+                <span className={`pill ${statusTone(selected.result)}`}>{selected.result}</span>
+              </dd>
+            </div>
+            <div>
+              <dt>Start time</dt>
+              <dd className="mono" data-field="startTime">{selected.startTime}</dd>
+            </div>
+            <div>
+              <dt>End time</dt>
+              <dd className="mono" data-field="endTime">{selected.endTime}</dd>
+            </div>
+            <div>
+              <dt>Duration</dt>
+              <dd data-field="duration">{selected.duration}</dd>
+            </div>
+            <div>
+              <dt>Rollback status</dt>
+              <dd data-field="rollbackStatus">{selected.rollbackStatus}</dd>
+            </div>
+            <div>
+              <dt>Failure reason</dt>
+              <dd data-field="failureReason">{selected.failureReason}</dd>
+            </div>
+          </dl>
 
-        <div className="toolbar">
-          <input
-            className="field-input"
-            type="search"
-            placeholder="Search executions, alerts, policies, or targets"
-            value={searchQuery}
-            onChange={(event) =>
-              setSearchQuery(event.target.value)
-            }
+          <RequestAgain
+            run={selected}
+            alertOpen={alerts.find((alert) => alert.id === selected.triggeringAlert)?.status === 'Open'}
           />
 
-          <select
-            className="select-input"
-            value={actionFilter}
-            onChange={(event) =>
-              setActionFilter(event.target.value)
-            }
-          >
-            <option value="all">All Actions</option>
-            <option value="Block IP">Block IP</option>
-            <option value="Isolate Host">Isolate Host</option>
-          </select>
+          {selectedApproval && (
+            <section aria-label="Approval record">
+              <h3 className="workspace-subhead">Approval record</h3>
+              <ApprovalDetails
+                approval={selectedApproval}
+                token={tokens.find((token) => token.id === selectedApproval.tokenId)}
+                facts={executionFacts.find((facts) => facts.approvalId === selectedApproval.id)}
+                failed={selected.result === 'Failed'}
+              />
+            </section>
+          )}
 
-          <select
-            className="select-input"
-            value={resultFilter}
-            onChange={(event) =>
-              setResultFilter(event.target.value)
-            }
-          >
-            <option value="all">All Results</option>
-            <option value="Completed">Completed</option>
-            <option value="Failed">Failed</option>
-          </select>
+          <div className="run-columns">
+            <section aria-label="Reasoning">
+              <h3 className="workspace-subhead">What happened</h3>
+              <p className="workspace-text" data-field="happened">{selected.happened}</p>
+              <h3 className="workspace-subhead">Why it was malicious</h3>
+              <p className="workspace-text" data-field="classified">{selected.classified}</p>
+              <h3 className="workspace-subhead">Why AthenaSec acted</h3>
+              <p className="workspace-text" data-field="responseReason">{selected.responseReason}</p>
+            </section>
 
-          <button
-            className="btn"
-            type="button"
-            onClick={resetFilters}
-          >
-            Reset Filters
-          </button>
-        </div>
-
-        <div className="table-scroll">
-          <table>
-            <thead>
-              <tr>
-                <th>Execution ID</th>
-                <th>Alert</th>
-                <th>Action</th>
-                <th>Target</th>
-                <th>Policy</th>
-                <th>Initiator</th>
-                <th>Approval</th>
-                <th>Result</th>
-                <th>Time</th>
-                <th>Action</th>
-              </tr>
-            </thead>
-
-            <tbody>
-              {visibleExecutions.map((execution) => (
-                <tr
-                  key={execution.id}
-                  className="data-row"
-                  data-search-record
-                  data-page-target="response-activity"
-                  data-execution-id={execution.id}
-                >
-                  <td>{execution.id}</td>
-                  <td>{execution.triggeringAlert}</td>
-
-                  <td>
-                    <span
-                      className={`pill ${actionClass(
-                        execution.action,
-                      )}`}
-                    >
-                      {execution.action}
-                    </span>
-                  </td>
-
-                  <td>{execution.target}</td>
-                  <td>{execution.policy}</td>
-                  <td>{execution.initiator}</td>
-
-                  <td>
-                    <span
-                      className={`pill ${approvalClass(
-                        execution.approvalType,
-                      )}`}
-                    >
-                      {execution.approvalType}
-                    </span>
-                  </td>
-
-                  <td>
-                    <span
-                      className={`pill ${resultClass(
-                        execution.result,
-                      )}`}
-                    >
-                      {execution.result}
-                    </span>
-                  </td>
-
-                  <td>{execution.endTime}</td>
-
-                  <td>
-                    <button
-                      className="btn small primary"
-                      type="button"
-                      onClick={() =>
-                        setSelectedExecution(execution)
-                      }
-                    >
-                      View
-                    </button>
-                  </td>
-                </tr>
-              ))}
-
-              {visibleExecutions.length === 0 && (
-                <tr>
-                  <td colSpan={10}>
-                    <div className="empty">
-                      <strong>No response executions found</strong>
-
-                      <p className="sub">
-                        No records match the current search and filters.
-                      </p>
-
-                      <button
-                        className="btn primary"
-                        type="button"
-                        onClick={resetFilters}
-                        style={{ marginTop: '14px' }}
-                      >
-                        Clear Filters
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-      {selectedExecution &&
-        createPortal(
-          <div
-            className="drawer-backdrop"
-            role="presentation"
-            onClick={() => setSelectedExecution(null)}
-          >
-            <aside
-              className="alert-drawer"
-              role="dialog"
-              aria-modal="true"
-              aria-label="AI execution details"
-              onClick={(event) => event.stopPropagation()}
-            >
-              <div className="drawer-head">
-                <div>
-                  <span className="sub">
-                    AI Execution Details
-                  </span>
-
-                  <h2>{selectedExecution.id}</h2>
-                </div>
-
-                <button
-                  className="icon-btn"
-                  type="button"
-                  aria-label="Close execution details"
-                  onClick={() => setSelectedExecution(null)}
-                >
-                  ×
-                </button>
-              </div>
-
-              <div className="drawer-body">
-                <div className="card">
-                  <div className="headline">
-                    <div>
-                      <h3>Execution Overview</h3>
-                    </div>
-
-                    <span
-                      className={`pill ${resultClass(
-                        selectedExecution.result,
-                      )}`}
-                    >
-                      {selectedExecution.result}
-                    </span>
-                  </div>
-
-                  <div className="kv">
-                    <span>Execution ID</span>
-                    <strong>{selectedExecution.id}</strong>
-                  </div>
-
-                  <div className="kv">
-                    <span>Triggering Alert</span>
-                    <strong>
-                      {selectedExecution.triggeringAlert}
-                    </strong>
-                  </div>
-
-                  <div className="kv">
-                    <span>Action</span>
-                    <strong>{selectedExecution.action}</strong>
-                  </div>
-
-                  <div className="kv">
-                    <span>Target</span>
-                    <strong>{selectedExecution.target}</strong>
-                  </div>
-
-                  <div className="kv">
-                    <span>Initiator</span>
-                    <strong>{selectedExecution.initiator}</strong>
-                  </div>
-
-                  <div className="kv">
-                    <span>Approval Type</span>
-                    <strong>
-                      {selectedExecution.approvalType}
-                    </strong>
-                  </div>
-
-                  <div className="kv">
-                    <span>Start Time</span>
-                    <strong>{selectedExecution.startTime}</strong>
-                  </div>
-
-                  <div className="kv">
-                    <span>End Time</span>
-                    <strong>{selectedExecution.endTime}</strong>
-                  </div>
-
-                  <div className="kv">
-                    <span>Duration</span>
-                    <strong>{selectedExecution.duration}</strong>
-                  </div>
-
-                  <div className="kv">
-                    <span>Rollback Status</span>
-                    <strong>
-                      {selectedExecution.rollbackStatus}
-                    </strong>
-                  </div>
-                </div>
-
-                <div className="card">
-                  <h3>What Happened</h3>
-
-                  <p className="sub">
-                    {selectedExecution.happened}
-                  </p>
-                </div>
-
-                <div className="card">
-                  <h3>Why It Was Malicious</h3>
-
-                  <p className="sub">
-                    {selectedExecution.classified}
-                  </p>
-                </div>
-
-                <div className="card">
-                  <h3>Why This Response Was Executed</h3>
-
-                  <p className="sub">
-                    {selectedExecution.responseReason}
-                  </p>
-                </div>
-
-                <div className="card">
-                  <h3>Policy / Rule Triggered</h3>
-
-                  <span className="pill blue">
-                    {selectedExecution.policy}
-                  </span>
-                </div>
-
-                <div className="card">
-                  <h3>Supporting Evidence</h3>
-
-                  <div className="split-list">
-                    {selectedExecution.evidence.map((item) => (
-                      <span className="pill blue" key={item}>
-                        {item}
-                      </span>
-                    ))}
-                  </div>
-                </div>
-
-                {selectedExecution.result === 'Failed' && (
-                  <div className="card">
-                    <h3>Failure Reason</h3>
-
-                    <p className="sub">
-                      {selectedExecution.failureReason}
-                    </p>
-                  </div>
-                )}
-
-                <div className="card">
-                  <h3>Execution Timeline</h3>
-
-                  <div className="timeline">
-                    {selectedExecution.timeline.map((item) => (
-                      <div
-                        className="timeline-item"
-                        key={`${item.time}-${item.event}`}
-                      >
-                        <strong>{item.time}</strong>
-                        <span>{item.event}</span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-
-                <div className="notice">
-                  This response record is read-only. Completed security
-                  actions should not be modified after execution.
-                </div>
-              </div>
-            </aside>
-          </div>,
-          document.body,
-        )}
+            <section aria-label="Evidence and timeline">
+              <h3 className="workspace-subhead">Supporting evidence</h3>
+              <ul className="evidence-list run-evidence" data-field="evidence">
+                {selected.evidence.map((item) => (
+                  <li key={item}>{item}</li>
+                ))}
+              </ul>
+              <h3 className="workspace-subhead">Timeline</h3>
+              <Timeline steps={executionTimeline(selected)} label={`${selected.id} timeline`} />
+            </section>
+          </div>
+        </ResponsiveDetail>
+      )}
     </section>
   )
 }

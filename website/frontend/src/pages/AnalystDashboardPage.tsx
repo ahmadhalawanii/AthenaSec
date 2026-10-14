@@ -1,399 +1,299 @@
 import { useMemo, useState } from 'react'
-import type {
-  AlertSeverity,
-  DashboardAlert,
-} from '../types/analystDashboardTypes'
+import { Link } from 'react-router-dom'
 
-import { dashboardAlerts } from '../data/analystDashboardData'
+import AttackPathMap from '../components/AttackPathMap'
+import RiskRing from '../components/RiskRing'
+import Segmented from '../components/Segmented'
+import SeverityBadge from '../components/SeverityBadge'
+import Timeline from '../components/Timeline'
+import { OUTCOME_LABELS } from '../data/agentPolicyData'
+import { alertEvidence } from '../data/alertDetailsData'
+import {
+  buildDecisionQueue,
+  buildPosture,
+  buildResponseLog,
+  latestEventTime,
+  mostUrgentPath,
+} from '../data/analystDashboardData'
+import { buildAttackMap } from '../data/attackPathData'
+import { alertTimeline, executionFor, needsDecision } from '../data/statusSummary'
+import { useAssessments } from '../hooks/useAssessments'
+import { PHONE_QUERY, useMediaQuery } from '../hooks/useMediaQuery'
+import { useSocState } from '../hooks/useSocState'
+import type { SearchNavigationState } from '../types/searchTypes'
+import { statusTone } from '../utils/statusTone'
 
-function severityClass(severity: AlertSeverity) {
-  if (severity === 'Critical') {
-    return 'danger'
-  }
+type MapView = 'map' | 'list'
 
-  if (severity === 'High') {
-    return 'warn'
-  }
-
-  if (severity === 'Medium') {
-    return 'blue'
-  }
-
-  return 'muted'
-}
+const MAP_VIEWS = [
+  { value: 'map' as const, label: 'Map' },
+  { value: 'list' as const, label: 'List' },
+]
 
 function AnalystDashboardPage() {
-  const [search, setSearch] = useState('')
-  const [severity, setSeverity] = useState('all')
-  const [selectedAlert, setSelectedAlert] =
-    useState<DashboardAlert | null>(null)
+  const {
+    alerts,
+    executions,
+    cases,
+    actions,
+    currentUser,
+    approvals,
+    toggleAlertStatus,
+    assignToMe,
+  } = useSocState()
 
-  const filteredAlerts = useMemo(() => {
-    const normalizedSearch = search.trim().toLowerCase()
+  const assessments = useAssessments()
 
-    return dashboardAlerts.filter((alert) => {
-      const matchesSearch =
-        normalizedSearch === '' ||
-        alert.id.toLowerCase().includes(normalizedSearch) ||
-        alert.type.toLowerCase().includes(normalizedSearch) ||
-        alert.endpoint.toLowerCase().includes(normalizedSearch) ||
-        alert.severity.toLowerCase().includes(normalizedSearch)
+  const isPhone = useMediaQuery(PHONE_QUERY)
+  const [view, setView] = useState<MapView>('map')
+  // Phones always get the list; the map needs the room.
+  const showMap = view === 'map' && !isPhone
 
-      const matchesSeverity =
-        severity === 'all' || alert.severity === severity
+  const attackMap = useMemo(
+    () => buildAttackMap(alerts, executions, approvals),
+    [alerts, executions, approvals],
+  )
+  const queue = useMemo(
+    () => buildDecisionQueue(alerts, executions, approvals),
+    [alerts, executions, approvals],
+  )
+  const posture = useMemo(
+    () => buildPosture(alerts, executions, cases, approvals),
+    [alerts, executions, cases, approvals],
+  )
+  const responseLog = useMemo(() => buildResponseLog(executions, approvals), [executions, approvals])
 
-      return matchesSearch && matchesSeverity
-    })
-  }, [search, severity])
+  // Start on the path that most needs attention: an active one waiting for approval, then by risk
+  const [selectedId, setSelectedId] = useState(() => mostUrgentPath(attackMap.paths, queue))
+
+  const selectedPath = attackMap.paths.find((path) => path.alert.id === selectedId) ?? attackMap.paths[0]
+  const selected = selectedPath.alert
+  const selectedDecision = queue.find((item) => item.alert.id === selected.id)
+  const selectedEvidence = alertEvidence[selected.id]?.[0]?.text ?? selected.summary
+  const timeline = alertTimeline(selected, executions, cases, actions, approvals)
+  const activePaths = attackMap.paths.filter((path) => path.status === 'active').length
+
+  const alertsLinkState = (alertId: string): SearchNavigationState => ({ highlight: alertId })
+
+  function decisionButtons(alertId: string, assignedAnalyst: string, where: string) {
+    return (
+      <>
+        <button
+          className="btn"
+          type="button"
+          aria-label={`Close alert ${alertId}${where}`}
+          onClick={() => toggleAlertStatus(alertId)}
+        >
+          Close alert
+        </button>
+        {assignedAnalyst === currentUser ? (
+          <span className="assigned-note">Assigned to you</span>
+        ) : (
+          <button
+            className="btn ghost"
+            type="button"
+            aria-label={`Assign to me: ${alertId}${where}`}
+            onClick={() => assignToMe(alertId)}
+          >
+            Assign to me
+          </button>
+        )}
+      </>
+    )
+  }
 
   return (
-    <div className="role-view" data-role-view="Analyst">
+    <section className="page active" data-page="dashboard" data-page-name="Security Dashboard">
       <div className="headline">
         <div>
           <h1>Security Dashboard</h1>
-
           <p className="sub">
-            Monitor detections, cases, and autonomous response history.
+            {activePaths === 0
+              ? 'No attack path is active. Everything is blocked, contained or closed.'
+              : `${activePaths} attack ${activePaths === 1 ? 'path is' : 'paths are'} still active. Everything else is blocked, contained or closed.`}
           </p>
         </div>
-
-        <span className="pill ok">System Online</span>
+        <p className="dash-latest">
+          Latest event <span className="mono">{latestEventTime(alerts)}</span>
+        </p>
       </div>
 
-      <div className="grid stats">
-        <div className="stat">
-          <strong>5</strong>
-          <span>Total Alerts</span>
-          <small>+18% today</small>
-        </div>
-
-        <div className="stat">
-          <strong>2</strong>
-          <span>Critical Alerts</span>
-          <small>AI handled</small>
-        </div>
-
-        <div className="stat">
-          <strong>2</strong>
-          <span>Open Cases</span>
-          <small>Analyst-owned</small>
-        </div>
-
-        <div className="stat">
-          <strong>2</strong>
-          <span>AI Actions</span>
-          <small>AI handled</small>
-        </div>
-      </div>
-
-      <div className="card" style={{ marginTop: '18px' }}>
-        <div className="headline">
-          <div>
-            <h2>Recent Alerts</h2>
-
-            <p className="sub">
-              Search and filter recent alerts without leaving this view.
-            </p>
+      <div className="card key dash-hero">
+        <section className="dash-map" aria-labelledby="mapTitle">
+          <div className="dash-map-head">
+            <h2 id="mapTitle">Attack paths today</h2>
+            {!isPhone && (
+              <Segmented label="Show attack paths as" options={MAP_VIEWS} value={view} onChange={setView} />
+            )}
           </div>
 
-          <div className="toolbar" style={{ marginBottom: 0 }}>
-            <input
-              className="field-input"
-              id="dashboardSearch"
-              placeholder="Search recent alerts"
-              value={search}
-              onChange={(event) => setSearch(event.target.value)}
+          <p className="visually-hidden" id="pathSummary">
+            {attackMap.summary}
+          </p>
+
+          {showMap ? (
+            <AttackPathMap
+              map={attackMap}
+              selectedId={selected.id}
+              onSelect={setSelectedId}
+              describedBy="pathSummary"
             />
-
-            <select
-              className="select-input"
-              id="dashboardSeverity"
-              value={severity}
-              onChange={(event) => setSeverity(event.target.value)}
-            >
-              <option value="all">All Severities</option>
-              <option value="Critical">Critical</option>
-              <option value="High">High</option>
-              <option value="Medium">Medium</option>
-              <option value="Low">Low</option>
-            </select>
-          </div>
-        </div>
-
-        <div className="table-scroll">
-          <table>
-            <thead>
-              <tr>
-                <th>Alert</th>
-                <th>Type</th>
-                <th>Endpoint</th>
-                <th>Severity</th>
-                <th>Risk</th>
-                <th>Action</th>
-              </tr>
-            </thead>
-
-            <tbody id="dashboardAlertRows">
-              {filteredAlerts.map((alert) => (
-                <tr
-                  key={alert.id}
-                  data-dashboard-alert
-                  data-severity={alert.severity}
-                >
-                  <td>{alert.id}</td>
-                  <td>{alert.type}</td>
-                  <td>{alert.endpoint}</td>
-
-                  <td>
-                    <span
-                      className={`pill ${severityClass(
-                        alert.severity,
-                      )}`}
-                    >
-                      {alert.severity}
+          ) : (
+            <ul className="path-list" aria-label="Attack paths" aria-describedby="pathSummary">
+              {attackMap.paths.map((path) => (
+                <li key={path.alert.id}>
+                  <button
+                    type="button"
+                    className={`path-list-item ${path.status}`}
+                    aria-pressed={path.alert.id === selected.id}
+                    onClick={() => setSelectedId(path.alert.id)}
+                    data-path-id={path.alert.id}
+                  >
+                    <span className="path-list-top">
+                      <span className="mono">{path.alert.id}</span>
+                      <SeverityBadge severity={path.alert.severity} />
+                      <span className={`path-status ${statusTone(path.statusLabel)}`}>{path.statusLabel}</span>
                     </span>
-                  </td>
-
-                  <td>{alert.risk}</td>
-
-                  <td>
-                    <button
-                      className="btn small"
-                      type="button"
-                      onClick={() => setSelectedAlert(alert)}
-                    >
-                      View
-                    </button>
-                  </td>
-                </tr>
+                    <span className="path-list-title">{path.alert.attackType}</span>
+                    <span className="path-list-route mono">{path.route}</span>
+                  </button>
+                </li>
               ))}
+            </ul>
+          )}
+        </section>
 
-              {filteredAlerts.length === 0 && (
-                <tr>
-                  <td colSpan={6}>
-                    <div className="empty">
-                      No alerts match the selected filters.
-                    </div>
-                  </td>
-                </tr>
+        <section className="dash-path" aria-labelledby="pathTitle" data-selected-path={selected.id}>
+          <p className="visually-hidden" role="status">
+            Showing {selected.id}, {selected.attackType}, {selectedPath.statusLabel}
+          </p>
+
+          <div className="dash-path-meta">
+            <SeverityBadge severity={selected.severity} />
+            <span className="mono">{selected.id}</span>
+            <span className={`path-status ${statusTone(selectedPath.statusLabel)}`}>{selectedPath.statusLabel}</span>
+          </div>
+
+          <h2 className="dash-path-title" id="pathTitle">{selected.attackType}</h2>
+          <p className="dash-path-route mono">{selectedPath.route}</p>
+
+          <div className="dash-risk">
+            <RiskRing score={selected.risk} size={54} />
+            <div>
+              <p className="dash-risk-score">
+                {selected.risk}
+                <span> / 100 risk</span>
+              </p>
+              <p className="dash-risk-evidence">{selectedEvidence}</p>
+              {assessments[selected.id] && (
+                <p className="dash-risk-outcome" data-field="outcome">
+                  {OUTCOME_LABELS[assessments[selected.id].outcome]}, confidence{' '}
+                  {assessments[selected.id].confidence.toFixed(2)}
+                </p>
               )}
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-      <div className="grid two" style={{ marginTop: '18px' }}>
-        <div className="card">
-          <h2>Alert Severity - Last 24 Hours</h2>
-
-          <div className="chart">
-            <button
-              className="bar"
-              type="button"
-              style={{ height: '38%' }}
-              onClick={() => setSeverity('Low')}
-            >
-              <span>Low</span>
-            </button>
-
-            <button
-              className="bar"
-              type="button"
-              style={{ height: '58%' }}
-              onClick={() => setSeverity('Medium')}
-            >
-              <span>Medium</span>
-            </button>
-
-            <button
-              className="bar"
-              type="button"
-              style={{ height: '74%' }}
-              onClick={() => setSeverity('High')}
-            >
-              <span>High</span>
-            </button>
-
-            <button
-              className="bar"
-              type="button"
-              style={{ height: '88%' }}
-              onClick={() => setSeverity('Critical')}
-            >
-              <span>Critical</span>
-            </button>
-
-            <button
-              className="bar"
-              type="button"
-              style={{ height: '66%' }}
-              onClick={() => setSeverity('all')}
-            >
-              <span>All</span>
-            </button>
+            </div>
           </div>
-        </div>
 
-        <div className="card">
-          <h2>Endpoint Status</h2>
+          <dl className="dash-path-facts">
+            <div>
+              <dt>Assigned</dt>
+              <dd className="dash-assigned">{selected.assignedAnalyst}</dd>
+            </div>
+            <div>
+              <dt>Status</dt>
+              <dd>{selected.status}</dd>
+            </div>
+            <div>
+              <dt>Response</dt>
+              <dd className="mono">{executionFor(selected, executions)?.id ?? 'None'}</dd>
+            </div>
+          </dl>
 
-          <div className="table-scroll">
-            <table>
-              <tbody>
-                <tr>
-                  <td>Active</td>
-                  <td>
-                    <span className="pill ok">2</span>
-                  </td>
-                </tr>
+          <Timeline steps={timeline} label={`${selected.id} timeline`} />
 
-                <tr>
-                  <td>Warning</td>
-                  <td>
-                    <span className="pill warn">1</span>
-                  </td>
-                </tr>
-
-                <tr>
-                  <td>Isolated</td>
-                  <td>
-                    <span className="pill danger">1</span>
-                  </td>
-                </tr>
-
-                <tr>
-                  <td>Offline</td>
-                  <td>
-                    <span className="pill danger">1</span>
-                  </td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-        </div>
-      </div>
-
-      {selectedAlert && (
-        <div
-          className="drawer-backdrop"
-          role="presentation"
-          onClick={() => setSelectedAlert(null)}
-        >
-          <aside
-            className="alert-drawer"
-            role="dialog"
-            aria-modal="true"
-            aria-label="Alert analysis"
-            onClick={(event) => event.stopPropagation()}
-          >
-            <div className="drawer-head">
-              <div>
-                <span className="sub">Alert Analysis</span>
-                <h2>{selectedAlert.id}</h2>
-              </div>
-
-              <button
-                className="icon-btn"
-                type="button"
-                aria-label="Close alert analysis"
-                onClick={() => setSelectedAlert(null)}
-              >
-                ×
+          <div className="dash-path-actions">
+            {needsDecision(selected, executions) && selectedDecision ? (
+              decisionButtons(selected.id, selected.assignedAnalyst, '')
+            ) : (
+              <button className="btn" type="button" onClick={() => toggleAlertStatus(selected.id)}>
+                {selected.status === 'Closed' ? 'Reopen alert' : 'Close alert'}
               </button>
-            </div>
+            )}
+            <Link className="btn ghost" to="/app/alerts" state={alertsLinkState(selected.id)}>
+              Open in Alerts
+            </Link>
+          </div>
+        </section>
+      </div>
 
-            <div className="drawer-body">
-              <div className="card">
-                <h3>Alert Details</h3>
+      <ul className="card posture" aria-label="Current posture">
+        {posture.map((item) => (
+          <li key={item.label} className={item.tone ? `posture-${item.tone}` : undefined}>
+            <strong>{item.value}</strong>
+            <span className="posture-label">{item.label}</span>
+            <span className="posture-note">{item.note}</span>
+          </li>
+        ))}
+      </ul>
 
-                <div className="kv">
-                  <span>Alert ID</span>
-                  <strong>{selectedAlert.id}</strong>
-                </div>
+      <div className="dash-lower">
+        <section className="card dash-queue" aria-labelledby="queueTitle">
+          <div className="dash-card-head">
+            <h2 id="queueTitle">Needs a decision</h2>
+            <Link className="text-link" to="/app/alerts">Open Alerts</Link>
+          </div>
 
-                <div className="kv">
-                  <span>Severity</span>
-                  <strong>{selectedAlert.severity}</strong>
-                </div>
+          {queue.length === 0 ? (
+            <p className="dash-empty">Nothing needs a decision right now.</p>
+          ) : (
+            <ul className="decision-list">
+              {queue.map((item) => (
+                <li key={item.alert.id} className="decision-item" data-decision-id={item.alert.id}>
+                  <RiskRing score={item.alert.risk} size={38} />
+                  <div className="decision-text">
+                    <p className="decision-title">
+                      <span>{item.alert.attackType} on {item.alert.endpoint}</span>
+                      <SeverityBadge severity={item.alert.severity} />
+                    </p>
+                    <p className="decision-detail">
+                      <span className="mono">{item.alert.id}</span> {item.detail}
+                    </p>
+                    <p className="decision-detail">
+                      Assigned to <span className="decision-assigned">{item.alert.assignedAnalyst}</span>
+                    </p>
+                  </div>
+                  <div className="decision-actions">
+                    {decisionButtons(item.alert.id, item.alert.assignedAnalyst, ' (from the queue)')}
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
 
-                <div className="kv">
-                  <span>Attack Type</span>
-                  <strong>{selectedAlert.type}</strong>
-                </div>
+        <section className="card dash-log" aria-labelledby="logTitle">
+          <div className="dash-card-head">
+            <h2 id="logTitle">Automated response log</h2>
+            <Link className="text-link" to="/app/incident">Incident Response</Link>
+          </div>
 
-                <div className="kv">
-                  <span>Source IP</span>
-                  <strong>{selectedAlert.sourceIp}</strong>
-                </div>
-
-                <div className="kv">
-                  <span>Destination IP</span>
-                  <strong>{selectedAlert.destinationIp}</strong>
-                </div>
-
-                <div className="kv">
-                  <span>Endpoint</span>
-                  <strong>{selectedAlert.endpoint}</strong>
-                </div>
-
-                <div className="kv">
-                  <span>Risk Score</span>
-                  <strong>{selectedAlert.risk} / 100</strong>
-                </div>
-
-                <div className="kv">
-                  <span>Status</span>
-                  <strong>{selectedAlert.status}</strong>
-                </div>
-
-                <div className="kv">
-                  <span>Assigned Analyst</span>
-                  <strong>{selectedAlert.assignedAnalyst}</strong>
-                </div>
-
-                <div className="kv">
-                  <span>Time</span>
-                  <strong>{selectedAlert.time}</strong>
-                </div>
-              </div>
-
-              <div className="card">
-                <h3>Attack Workflow</h3>
-
-                <div className="analysis-flow">
-                  <span>Detection</span>
-                  <span>Correlation</span>
-                  <span>Risk Scoring</span>
-                  <span>AI Analysis</span>
-                </div>
-              </div>
-
-              <div className="card">
-                <h3>AI-Generated Analysis</h3>
-                <p className="sub">{selectedAlert.summary}</p>
-              </div>
-
-              <div className="card">
-                <h3>AI Reasoning</h3>
-                <p className="sub">{selectedAlert.reasoning}</p>
-              </div>
-
-              <div className="card">
-                <h3>MITRE ATT&amp;CK Mapping</h3>
-                <span className="pill blue">
-                  {selectedAlert.mitre}
+          <ol className="response-log">
+            {responseLog.map((item) => (
+              <li key={item.id} data-log-id={item.id}>
+                <span className="mono response-log-time">{item.time}</span>
+                <span className="response-log-text">
+                  <span>{item.action}</span>
+                  <span className="response-log-by">{item.by}</span>
                 </span>
-              </div>
-
-              <div className="card">
-                <h3>Technical Explanation</h3>
-                <p className="sub">{selectedAlert.explanation}</p>
-              </div>
-            </div>
-          </aside>
-        </div>
-      )}
-    </div>
+                <span className={`response-log-result ${item.result === 'Done' ? 'ok' : 'danger'}`}>
+                  {item.result}
+                </span>
+              </li>
+            ))}
+          </ol>
+        </section>
+      </div>
+    </section>
   )
 }
 

@@ -9,24 +9,42 @@ import type {
   ModalMode,
   UserFormState,
   UserRecord,
-  UserRole,
   UserStatus,
 } from '../types/userManagementTypes'
 
-import { initialUsers, emptyUserForm } from '../data/userManagementData'
+import IdText from '../components/IdText'
+import OverflowMenu from '../components/OverflowMenu'
+import TableScroll from '../components/TableScroll'
+import { accessReview, accountHealth } from '../data/statusSummary'
+import { emptyUserForm } from '../data/userManagementData'
+import { useAdminState } from '../hooks/useAdminState'
+import { useDialog } from '../hooks/useDialog'
+import { statusTone } from '../utils/statusTone'
 
-
-function statusClass(status: UserStatus) {
-  return status === 'Active' ? 'ok' : 'danger'
-}
-
-function roleClass(role: UserRole) {
-  return role === 'Administrator' ? 'warn' : 'blue'
-}
+const SELF_ACTION_REASON =
+  'You cannot suspend, delete, or change the role of your own account.'
 
 function UserManagementPage() {
-  const [users, setUsers] =
-    useState<UserRecord[]>(initialUsers)
+  /*
+    Shared admin state: changes reach search, the dashboard and the
+    audit log. The signed-in account is resolved by ID once (by the
+    provider), so the protection still holds if the administrator edits
+    their own email address. The provider refuses self changes too.
+  */
+  const {
+    users,
+    currentUserId,
+    saveUser: storeUser,
+    toggleUserStatus: storeUserStatus,
+    deleteUser,
+    requireMfa,
+    resetPassword,
+    nextUserId,
+  } = useAdminState()
+
+  function isCurrentUser(user: UserRecord) {
+    return user.id === currentUserId
+  }
 
   const [searchQuery, setSearchQuery] = useState('')
   const [roleFilter, setRoleFilter] = useState('all')
@@ -37,6 +55,13 @@ function UserManagementPage() {
 
   const [modalMode, setModalMode] =
     useState<ModalMode>(null)
+
+  const dialogRef = useDialog(closeModal)
+
+  const editingOwnAccount =
+    modalMode === 'edit' &&
+    selectedUser !== null &&
+    isCurrentUser(selectedUser)
 
   const [userForm, setUserForm] =
     useState<UserFormState>(emptyUserForm)
@@ -68,17 +93,8 @@ function UserManagementPage() {
     })
   }, [users, searchQuery, roleFilter, statusFilter])
 
-  const activeCount = users.filter(
-    (user) => user.status === 'Active',
-  ).length
-
-  const suspendedCount = users.filter(
-    (user) => user.status === 'Suspended',
-  ).length
-
-  const administratorCount = users.filter(
-    (user) => user.role === 'Administrator',
-  ).length
+  const health = accountHealth(users)
+  const reviewUsers = accessReview(users)
 
   function resetFilters() {
     setSearchQuery('')
@@ -199,23 +215,8 @@ function UserManagementPage() {
     }
 
     if (modalMode === 'add') {
-      const highestUserNumber = users.reduce(
-        (highestNumber, user) => {
-          const userNumber = Number(
-            user.id.replace('USR-', ''),
-          )
-
-          return Number.isNaN(userNumber)
-            ? highestNumber
-            : Math.max(highestNumber, userNumber)
-        },
-        0,
-      )
-
       const newUser: UserRecord = {
-        id: `USR-${String(
-          highestUserNumber + 1,
-        ).padStart(3, '0')}`,
+        id: nextUserId(),
         name: userForm.name.trim(),
         email: userForm.email.trim().toLowerCase(),
         role: userForm.role,
@@ -227,10 +228,7 @@ function UserManagementPage() {
         createdAt: 'Today',
       }
 
-      setUsers((currentUsers) => [
-        ...currentUsers,
-        newUser,
-      ])
+      storeUser(newUser)
 
       setPageMessage(
         `${newUser.name} was added successfully.`,
@@ -241,25 +239,19 @@ function UserManagementPage() {
     }
 
     if (modalMode === 'edit' && selectedUser) {
-      setUsers((currentUsers) =>
-        currentUsers.map((user) =>
-          user.id === selectedUser.id
-            ? {
-                ...user,
-                name: userForm.name.trim(),
-                email: userForm.email
-                  .trim()
-                  .toLowerCase(),
-                role: userForm.role,
-                status: userForm.status,
-                department:
-                  userForm.department.trim(),
-                phone: userForm.phone.trim(),
-                mfaEnabled: userForm.mfaEnabled,
-              }
-            : user,
-        ),
-      )
+      const editingSelf = isCurrentUser(selectedUser)
+      const user = users.find((item) => item.id === selectedUser.id) ?? selectedUser
+
+      storeUser({
+        ...user,
+        name: userForm.name.trim(),
+        email: userForm.email.trim().toLowerCase(),
+        role: editingSelf ? user.role : userForm.role,
+        status: editingSelf ? user.status : userForm.status,
+        department: userForm.department.trim(),
+        phone: userForm.phone.trim(),
+        mfaEnabled: userForm.mfaEnabled,
+      })
 
       setPageMessage(
         `${userForm.name.trim()} was updated successfully.`,
@@ -283,16 +275,12 @@ function UserManagementPage() {
         ? 'Suspended'
         : 'Active'
 
-    setUsers((currentUsers) =>
-      currentUsers.map((user) =>
-        user.id === userId
-          ? {
-              ...user,
-              status: nextStatus,
-            }
-          : user,
-      ),
-    )
+    // The controls for your own account are disabled; the shared state
+    // refuses it as well, so a call that gets past the UI changes nothing
+    if (!storeUserStatus(userId)) {
+      setPageMessage(SELF_ACTION_REASON)
+      return
+    }
 
     setSelectedUser((currentSelectedUser) => {
       if (
@@ -309,7 +297,9 @@ function UserManagementPage() {
     })
 
     setPageMessage(
-      `${currentUser.name} was ${nextStatus.toLowerCase()}.`,
+      `${currentUser.name} was ${
+        nextStatus === 'Active' ? 'activated' : 'suspended'
+      }.`,
     )
   }
 
@@ -318,11 +308,12 @@ function UserManagementPage() {
       return
     }
 
-    setUsers((currentUsers) =>
-      currentUsers.filter(
-        (user) => user.id !== selectedUser.id,
-      ),
-    )
+    // Refused by the shared state for your own account (see toggleUserStatus)
+    if (!deleteUser(selectedUser.id)) {
+      setPageMessage(SELF_ACTION_REASON)
+      closeModal()
+      return
+    }
 
     setPageMessage(
       `${selectedUser.name} was deleted.`,
@@ -331,10 +322,20 @@ function UserManagementPage() {
     closeModal()
   }
 
+  function requireMfaFor(user: UserRecord) {
+    if (!requireMfa(user.id)) {
+      return
+    }
+
+    setPageMessage(`MFA is now required for ${user.name}.`)
+  }
+
   function resetSelectedUserPassword() {
     if (!selectedUser) {
       return
     }
+
+    resetPassword(selectedUser.id)
 
     setPageMessage(
       `A temporary password was generated for ${selectedUser.name}.`,
@@ -356,8 +357,7 @@ function UserManagementPage() {
           <h1>User Management</h1>
 
           <p className="sub">
-            Manage AthenaSec analyst and administrator accounts,
-            roles, access status, MFA, and temporary password resets.
+            Who can sign in, what they can do, and whether their account is protected.
           </p>
         </div>
 
@@ -370,37 +370,96 @@ function UserManagementPage() {
         </button>
       </div>
 
-      <div className="grid stats">
-        <div className="stat">
-          <strong>{users.length}</strong>
-          <span>Total Users</span>
-          <small>Current frontend accounts</small>
+      <section className="um-summary" aria-label="Access summary">
+        <div className="card um-health" id="accountHealth">
+          <div className="um-health-head">
+            <h2>Account health</h2>
+            <span className="sub">
+              {health.total} {health.total === 1 ? 'account' : 'accounts'}
+            </span>
+          </div>
+
+          <div
+            className="um-health-bar"
+            role="img"
+            aria-label={`${health.activeWithMfa} active with MFA, ${health.activeWithoutMfa} active without MFA, ${health.suspended} suspended`}
+          >
+            <span className="ok" style={{ flexGrow: health.activeWithMfa }} />
+            <span className="warn" style={{ flexGrow: health.activeWithoutMfa }} />
+            <span className="danger" style={{ flexGrow: health.suspended }} />
+          </div>
+
+          <dl className="um-health-counts">
+            <div data-count="active-with-mfa">
+              <dd>{health.activeWithMfa}</dd>
+              <dt>active with MFA</dt>
+            </div>
+            <div data-count="suspended" className={health.suspended > 0 ? 'attention' : undefined}>
+              <dd>{health.suspended}</dd>
+              <dt>suspended</dt>
+            </div>
+            <div data-count="administrators">
+              <dd>{health.administrators}</dd>
+              <dt>{health.administrators === 1 ? 'administrator' : 'administrators'}</dt>
+            </div>
+            <div data-count="analysts">
+              <dd>{health.analysts}</dd>
+              <dt>{health.analysts === 1 ? 'analyst' : 'analysts'}</dt>
+            </div>
+          </dl>
         </div>
 
-        <div className="stat">
-          <strong>{activeCount}</strong>
-          <span>Active</span>
-          <small>Can access AthenaSec</small>
-        </div>
+        <div className="card key um-review" id="accessReview">
+          <h2>Access review</h2>
 
-        <div className="stat">
-          <strong>{suspendedCount}</strong>
-          <span>Suspended</span>
-          <small>Access temporarily disabled</small>
-        </div>
+          {reviewUsers.length === 0 ? (
+            <p className="um-review-text" data-review="clear">
+              No account needs review. Every suspended account has MFA turned on.
+            </p>
+          ) : (
+            <ul className="um-review-list">
+              {reviewUsers.map((user) => (
+                <li key={user.id} data-review-id={user.id}>
+                  <p className="um-review-text">
+                    {user.name} is suspended and has MFA turned off (last sign-in{' '}
+                    {user.lastLogin}). Remove the account or require MFA before
+                    reactivating it.
+                  </p>
 
-        <div className="stat">
-          <strong>{administratorCount}</strong>
-          <span>Administrators</span>
-          <small>Security-management access</small>
+                  <div className="um-review-actions">
+                    <button
+                      className="btn"
+                      type="button"
+                      onClick={() => requireMfaFor(user)}
+                    >
+                      Require MFA
+                    </button>
+
+                    <button
+                      className="btn danger"
+                      type="button"
+                      onClick={() => openDeleteModal(user)}
+                      disabled={isCurrentUser(user)}
+                      title={
+                        isCurrentUser(user)
+                          ? SELF_ACTION_REASON
+                          : undefined
+                      }
+                    >
+                      Remove account
+                    </button>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
         </div>
-      </div>
+      </section>
 
       {pageMessage && (
         <div
           className="notice"
           role="status"
-          style={{ marginTop: '18px' }}
         >
           {pageMessage}
         </div>
@@ -408,12 +467,14 @@ function UserManagementPage() {
 
       <div
         className="toolbar"
-        style={{ marginTop: '18px' }}
       >
         <input
           className="field-input"
           type="search"
-          placeholder="Search users"
+          name="userSearch"
+          autoComplete="off"
+          aria-label="Search users"
+          placeholder="Search users…"
           value={searchQuery}
           onChange={(event) =>
             setSearchQuery(event.target.value)
@@ -422,6 +483,9 @@ function UserManagementPage() {
 
         <select
           className="select-input"
+          name="roleFilter"
+          autoComplete="off"
+          aria-label="Filter by role"
           value={roleFilter}
           onChange={(event) =>
             setRoleFilter(event.target.value)
@@ -436,6 +500,9 @@ function UserManagementPage() {
 
         <select
           className="select-input"
+          name="statusFilter"
+          autoComplete="off"
+          aria-label="Filter by status"
           value={statusFilter}
           onChange={(event) =>
             setStatusFilter(event.target.value)
@@ -460,15 +527,17 @@ function UserManagementPage() {
       </div>
 
       <div className="card">
-        <div className="table-scroll">
+        <TableScroll label="Users">
           <table>
             <thead>
               <tr>
                 <th>User</th>
                 <th>Role</th>
                 <th>Status</th>
-                <th>Actions</th>
-                <th>Last Login</th>
+                <th>MFA</th>
+                <th>Department</th>
+                <th className="actions-col">Actions</th>
+                <th>Last sign-in</th>
               </tr>
             </thead>
 
@@ -479,24 +548,32 @@ function UserManagementPage() {
                   className="data-row"
                   data-search-record
                   data-page-target="user-management"
+                  data-record-id={user.id}
                 >
                   <td>
-                    <strong>{user.name}</strong>
+                    <div className="um-user">
+                      <span className="um-user-text">
+                        <strong>
+                          {user.name}
+                          {isCurrentUser(user) && (
+                            <span className="um-you"> (you)</span>
+                          )}
+                        </strong>
 
-                    <div
-                      className="sub"
-                      style={{
-                        marginTop: '4px',
-                        fontSize: '12px',
-                      }}
-                    >
-                      {user.id} · {user.email}
+                        <span className="sub um-user-sub">
+                          <IdText>{`${user.id} · `}</IdText>
+                          {/* A narrow column breaks the address after the "@", never mid-word */}
+                          {user.email.slice(0, user.email.indexOf('@') + 1)}
+                          <wbr />
+                          {user.email.slice(user.email.indexOf('@') + 1)}
+                        </span>
+                      </span>
                     </div>
                   </td>
 
                   <td>
                     <span
-                      className={`pill ${roleClass(
+                      className={`pill ${statusTone(
                         user.role,
                       )}`}
                     >
@@ -505,35 +582,54 @@ function UserManagementPage() {
                   </td>
 
                   <td>
-                    <span
-                      className={`pill ${statusClass(
-                        user.status,
-                      )}`}
-                    >
+                    <span className="um-status" data-field="status">
+                      <span
+                        className={`audit-dot ${statusTone(user.status)}`}
+                        aria-hidden="true"
+                      />
                       {user.status}
                     </span>
                   </td>
 
+                  <td>
+                    <span
+                      className={user.mfaEnabled ? 'um-mfa' : 'um-mfa off'}
+                      data-field="mfa"
+                    >
+                      {user.mfaEnabled ? 'Enabled' : 'Disabled'}
+                    </span>
+                  </td>
+
+                  <td data-field="department">{user.department}</td>
+
+                  {/*
+                    Wide screens show every action. On phones the
+                    four after View move into the "⋯" menu (see
+                    user-management-table-fix.css).
+                  */}
                   <td className="actions-cell">
                     <button
                       className="btn small"
                       type="button"
+                      aria-label={`View ${user.name}`}
                       onClick={() => openViewModal(user)}
                     >
                       View
                     </button>
 
                     <button
-                      className="btn small"
+                      className="btn small row-action-inline"
                       type="button"
+                      aria-label={`Edit user ${user.name}`}
                       onClick={() => openEditModal(user)}
                     >
                       Edit
                     </button>
 
                     <button
-                      className="btn small"
+                      className="btn small row-action-inline"
                       type="button"
+                      aria-label={`Reset Password for ${user.name}`}
                       onClick={() =>
                         openResetPasswordModal(user)
                       }
@@ -544,12 +640,19 @@ function UserManagementPage() {
                     <button
                       className={
                         user.status === 'Active'
-                          ? 'btn small danger'
-                          : 'btn small primary'
+                          ? 'btn small danger row-action-inline'
+                          : 'btn small row-action-inline'
                       }
                       type="button"
+                      aria-label={`${user.status === 'Active' ? 'Suspend' : 'Activate'} user ${user.name}`}
                       onClick={() =>
                         toggleUserStatus(user.id)
+                      }
+                      disabled={isCurrentUser(user)}
+                      title={
+                        isCurrentUser(user)
+                          ? SELF_ACTION_REASON
+                          : undefined
                       }
                     >
                       {user.status === 'Active'
@@ -558,14 +661,60 @@ function UserManagementPage() {
                     </button>
 
                     <button
-                      className="btn small danger"
+                      className="btn small danger row-action-inline"
                       type="button"
+                      aria-label={`Delete user ${user.name}`}
                       onClick={() =>
                         openDeleteModal(user)
+                      }
+                      disabled={isCurrentUser(user)}
+                      title={
+                        isCurrentUser(user)
+                          ? SELF_ACTION_REASON
+                          : undefined
                       }
                     >
                       Delete
                     </button>
+
+                    <OverflowMenu
+                      className="row-action-overflow"
+                      label={`More actions for ${user.name}`}
+                      disabledReason={SELF_ACTION_REASON}
+                      items={[
+                        {
+                          label: 'Edit',
+                          onSelect: () => openEditModal(user),
+                        },
+                        {
+                          label: 'Reset Password',
+                          onSelect: () =>
+                            openResetPasswordModal(user),
+                        },
+                        {
+                          label:
+                            user.status === 'Active'
+                              ? 'Suspend'
+                              : 'Activate',
+                          onSelect: () =>
+                            toggleUserStatus(user.id),
+                          disabled: isCurrentUser(user),
+                          destructive: user.status === 'Active',
+                        },
+                        {
+                          label: 'Delete',
+                          onSelect: () => openDeleteModal(user),
+                          disabled: isCurrentUser(user),
+                          destructive: true,
+                        },
+                      ]}
+                    />
+
+                    {isCurrentUser(user) && (
+                      <span className="um-self-note row-action-inline">
+                        You can't suspend or delete your own account.
+                      </span>
+                    )}
                   </td>
 
                   <td>{user.lastLogin}</td>
@@ -574,7 +723,7 @@ function UserManagementPage() {
 
               {visibleUsers.length === 0 && (
                 <tr>
-                  <td colSpan={5}>
+                  <td colSpan={7}>
                     <div className="empty">
                       <strong>No users found</strong>
 
@@ -597,7 +746,7 @@ function UserManagementPage() {
               )}
             </tbody>
           </table>
-        </div>
+        </TableScroll>
       </div>
 
       {(modalMode === 'add' ||
@@ -609,7 +758,13 @@ function UserManagementPage() {
             onClick={closeModal}
           >
             <form
+              ref={dialogRef}
               className="modal"
+              role="dialog"
+              aria-modal="true"
+              aria-label={
+                modalMode === 'add' ? 'Add user' : 'Edit user'
+              }
               onSubmit={saveUser}
               onClick={(event) =>
                 event.stopPropagation()
@@ -628,8 +783,8 @@ function UserManagementPage() {
               <div className="modal-body">
                 <p className="sub">
                   {modalMode === 'add'
-                    ? 'Create a temporary frontend user account.'
-                    : 'Update the selected frontend user account.'}
+                    ? 'Create a user account.'
+                    : 'Update this user account.'}
                 </p>
 
                 {formError && (
@@ -657,9 +812,10 @@ function UserManagementPage() {
                       className="field-input"
                       id="userName"
                       name="name"
+                      autoComplete="off"
                       value={userForm.name}
                       onChange={handleFormChange}
-                      placeholder="Example: Analyst D"
+                      placeholder="Example: Analyst D…"
                     />
                   </div>
 
@@ -676,9 +832,11 @@ function UserManagementPage() {
                       id="userEmail"
                       name="email"
                       type="email"
+                      autoComplete="off"
+                      spellCheck={false}
                       value={userForm.email}
                       onChange={handleFormChange}
-                      placeholder="analyst.d@athenasec.com"
+                      placeholder="analyst.d@athenasec.com…"
                     />
                   </div>
 
@@ -694,8 +852,15 @@ function UserManagementPage() {
                       className="select-input"
                       id="userRole"
                       name="role"
+                      autoComplete="off"
                       value={userForm.role}
                       onChange={handleFormChange}
+                      disabled={editingOwnAccount}
+                      aria-describedby={
+                        editingOwnAccount
+                          ? 'selfEditNote'
+                          : undefined
+                      }
                     >
                       <option value="Analyst">
                         Analyst
@@ -719,8 +884,15 @@ function UserManagementPage() {
                       className="select-input"
                       id="userStatus"
                       name="status"
+                      autoComplete="off"
                       value={userForm.status}
                       onChange={handleFormChange}
+                      disabled={editingOwnAccount}
+                      aria-describedby={
+                        editingOwnAccount
+                          ? 'selfEditNote'
+                          : undefined
+                      }
                     >
                       <option value="Active">
                         Active
@@ -730,6 +902,12 @@ function UserManagementPage() {
                         Suspended
                       </option>
                     </select>
+
+                    {editingOwnAccount && (
+                      <p className="sub" id="selfEditNote">
+                        {SELF_ACTION_REASON}
+                      </p>
+                    )}
                   </div>
 
                   <div>
@@ -744,9 +922,10 @@ function UserManagementPage() {
                       className="field-input"
                       id="userDepartment"
                       name="department"
+                      autoComplete="off"
                       value={userForm.department}
                       onChange={handleFormChange}
-                      placeholder="Security Operations"
+                      placeholder="Security Operations…"
                     />
                   </div>
 
@@ -762,21 +941,16 @@ function UserManagementPage() {
                       className="field-input"
                       id="userPhone"
                       name="phone"
+                      type="tel"
+                      autoComplete="off"
                       value={userForm.phone}
                       onChange={handleFormChange}
-                      placeholder="+971 50 555 0105"
+                      placeholder="+971 50 555 0105…"
                     />
                   </div>
                 </div>
 
-                <label
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '10px',
-                    marginTop: '18px',
-                  }}
-                >
+                <label className="check-row" style={{ marginTop: '18px' }}>
                   <input
                     name="mfaEnabled"
                     type="checkbox"
@@ -820,6 +994,7 @@ function UserManagementPage() {
             onClick={closeModal}
           >
             <div
+              ref={dialogRef}
               className="modal"
               role="dialog"
               aria-modal="true"
@@ -842,7 +1017,7 @@ function UserManagementPage() {
                 </div>
 
                 <span
-                  className={`pill ${statusClass(
+                  className={`pill ${statusTone(
                     selectedUser.status,
                   )}`}
                 >
@@ -905,9 +1080,8 @@ function UserManagementPage() {
                   className="notice"
                   style={{ marginTop: '16px' }}
                 >
-                  These account changes are temporary frontend
-                  demonstrations and do not update real authentication
-                  records.
+                  Account changes are simulated in this demo and
+                  don’t affect real sign-in records.
                 </div>
               </div>
 
@@ -944,11 +1118,17 @@ function UserManagementPage() {
                   className={
                     selectedUser.status === 'Active'
                       ? 'btn danger'
-                      : 'btn primary'
+                      : 'btn'
                   }
                   type="button"
                   onClick={() =>
                     toggleUserStatus(selectedUser.id)
+                  }
+                  disabled={isCurrentUser(selectedUser)}
+                  title={
+                    isCurrentUser(selectedUser)
+                      ? SELF_ACTION_REASON
+                      : undefined
                   }
                 >
                   {selectedUser.status === 'Active'
@@ -970,6 +1150,7 @@ function UserManagementPage() {
             onClick={closeModal}
           >
             <div
+              ref={dialogRef}
               className="modal"
               role="dialog"
               aria-modal="true"
@@ -1026,6 +1207,7 @@ function UserManagementPage() {
             onClick={closeModal}
           >
             <div
+              ref={dialogRef}
               className="modal"
               role="dialog"
               aria-modal="true"
@@ -1046,8 +1228,8 @@ function UserManagementPage() {
                   className="sub"
                   style={{ marginTop: '10px' }}
                 >
-                  This removes the account for the current
-                  frontend session.
+                  In this demo the account comes back when you
+                  sign out or reload.
                 </p>
               </div>
 

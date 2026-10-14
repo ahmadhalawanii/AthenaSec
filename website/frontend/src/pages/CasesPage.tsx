@@ -1,36 +1,41 @@
 import { useMemo, useState } from 'react'
-import { createPortal } from 'react-dom'
-import type {
-  CaseRecord,
-  CaseSeverity,
-  CaseStatus,
-} from '../types/casesTypes'
+import { Link } from 'react-router-dom'
 
-import { initialCases } from '../data/casesData'
+import ResponsiveDetail from '../components/ResponsiveDetail'
+import SeverityBadge from '../components/SeverityBadge'
+import Timeline from '../components/Timeline'
+import { OUTCOME_LABELS } from '../data/agentPolicyData'
+import { caseTimeline } from '../data/statusSummary'
+import { useAssessments } from '../hooks/useAssessments'
+import { useSearchSelection } from '../hooks/useSearchSelection'
+import { useSocState } from '../hooks/useSocState'
+import type { CaseRecord } from '../types/casesTypes'
+import type { SearchNavigationState } from '../types/searchTypes'
+import type { CaseActionState } from '../types/socTypes'
+import { statusTone } from '../utils/statusTone'
 
-function severityClass(severity: CaseSeverity) {
-  if (severity === 'Critical') {
-    return 'danger'
-  }
+const linkState = (id: string): SearchNavigationState => ({ highlight: id })
 
-  if (severity === 'High') {
-    return 'warn'
-  }
+// Board columns, in reading order
+const COLUMNS = [
+  { status: 'Open' as const, label: 'Investigating' },
+  { status: 'Closed' as const, label: 'Closed' },
+]
 
-  return 'blue'
-}
-
-function statusClass(status: CaseStatus) {
-  return status === 'Closed' ? 'ok' : 'blue'
-}
+const doneCount = (actions: CaseActionState[]) =>
+  actions.filter((action) => action.done).length
 
 function CasesPage() {
-  const [cases, setCases] = useState<CaseRecord[]>(initialCases)
+  // Shared with the sidebar badge, search, dashboard and Alerts page
+  const { cases, caseActions, caseEvents, toggleCaseStatus, toggleCaseAction } = useSocState()
+  const assessments = useAssessments()
+
   const [searchQuery, setSearchQuery] = useState('')
   const [severityFilter, setSeverityFilter] = useState('all')
   const [statusFilter, setStatusFilter] = useState('all')
-  const [selectedCase, setSelectedCase] =
-    useState<CaseRecord | null>(null)
+  const [selectedId, setSelectedId] = useState<string | null>(null)
+  // Phones: the detail opens as a drawer only when a case is chosen
+  const [detailOpen, setDetailOpen] = useState(false)
 
   const visibleCases = useMemo(() => {
     const normalizedQuery = searchQuery.trim().toLowerCase()
@@ -38,60 +43,36 @@ function CasesPage() {
     return cases.filter((caseItem) => {
       const matchesSearch =
         normalizedQuery === '' ||
-        caseItem.id.toLowerCase().includes(normalizedQuery) ||
-        caseItem.sourceAlert.toLowerCase().includes(normalizedQuery) ||
-        caseItem.assignedAnalyst
-          .toLowerCase()
-          .includes(normalizedQuery) ||
-        caseItem.attackType.toLowerCase().includes(normalizedQuery) ||
-        caseItem.endpoint.toLowerCase().includes(normalizedQuery) ||
-        caseItem.sourceIp.toLowerCase().includes(normalizedQuery)
+        [
+          caseItem.id,
+          caseItem.sourceAlert,
+          caseItem.assignedAnalyst,
+          caseItem.attackType,
+          caseItem.endpoint,
+          caseItem.sourceIp,
+        ].some((value) => value.toLowerCase().includes(normalizedQuery))
 
       const matchesSeverity =
-        severityFilter === 'all' ||
-        caseItem.severity === severityFilter
+        severityFilter === 'all' || caseItem.severity === severityFilter
 
       const matchesStatus =
-        statusFilter === 'all' ||
-        caseItem.status === statusFilter
+        statusFilter === 'all' || caseItem.status === statusFilter
 
       return matchesSearch && matchesSeverity && matchesStatus
     })
   }, [cases, searchQuery, severityFilter, statusFilter])
 
-  const activeCaseCount = cases.filter(
-    (caseItem) => caseItem.status === 'Open',
-  ).length
+  // Reading order: the Investigating column, then Closed
+  const columns = COLUMNS.map((column) => ({
+    ...column,
+    cases: visibleCases.filter((caseItem) => caseItem.status === column.status),
+  }))
+  const ordered = columns.flatMap((column) => column.cases)
 
-  function toggleCaseStatus(caseId: string) {
-    setCases((currentCases) =>
-      currentCases.map((caseItem) => {
-        if (caseItem.id !== caseId) {
-          return caseItem
-        }
+  const selected = ordered.find((caseItem) => caseItem.id === selectedId) ?? ordered[0] ?? null
 
-        return {
-          ...caseItem,
-          status:
-            caseItem.status === 'Closed' ? 'Open' : 'Closed',
-          lastUpdated: 'Just now',
-        }
-      }),
-    )
-
-    setSelectedCase((currentCase) => {
-      if (!currentCase || currentCase.id !== caseId) {
-        return currentCase
-      }
-
-      return {
-        ...currentCase,
-        status:
-          currentCase.status === 'Closed' ? 'Open' : 'Closed',
-        lastUpdated: 'Just now',
-      }
-    })
-  }
+  const openTotal = cases.filter((caseItem) => caseItem.status === 'Open').length
+  const closedTotal = cases.length - openTotal
 
   function resetFilters() {
     setSearchQuery('')
@@ -99,46 +80,48 @@ function CasesPage() {
     setStatusFilter('all')
   }
 
+  function choose(caseId: string) {
+    setSelectedId(caseId)
+    setDetailOpen(true)
+  }
+
+  // Search and links from Alerts: clear the filters, then select the case
+  useSearchSelection(cases.map((caseItem) => caseItem.id), setSelectedId, resetFilters)
+
+  const selectedActions = selected ? caseActions[selected.id] ?? [] : []
+
   return (
-    <section
-      className="page active"
-      data-page="incidents"
-      data-page-name="Case Management"
-      data-search-page
-    >
+    <section className="page active" data-page="cases" data-page-name="Case Management" data-search-page>
       <div className="headline">
         <div>
           <h1>Case Management</h1>
-
           <p className="sub">
-            Analyst-owned cases created from validated Brute Force and
-            Privilege Escalation alerts.
+            Investigations opened from validated alerts. {openTotal} in progress, {closedTotal} closed.
           </p>
         </div>
-
-        <span className="pill blue">
-          {activeCaseCount} active{' '}
-          {activeCaseCount === 1 ? 'case' : 'cases'}
-        </span>
       </div>
 
       <div className="toolbar">
         <input
           className="field-input"
-          id="incidentSearch"
+          id="casesearch"
+          name="caseSearch"
+          autoComplete="off"
           type="search"
-          placeholder="Search cases"
+          aria-label="Search cases"
+          placeholder="Search cases…"
           value={searchQuery}
           onChange={(event) => setSearchQuery(event.target.value)}
         />
 
         <select
           className="select-input"
-          id="incidentSeverity"
+          id="caseseverity"
+          name="severityFilter"
+          autoComplete="off"
+          aria-label="Filter by severity"
           value={severityFilter}
-          onChange={(event) =>
-            setSeverityFilter(event.target.value)
-          }
+          onChange={(event) => setSeverityFilter(event.target.value)}
         >
           <option value="all">All Severities</option>
           <option value="Critical">Critical</option>
@@ -148,347 +131,247 @@ function CasesPage() {
 
         <select
           className="select-input"
-          id="incidentStatus"
+          id="casestatus"
+          name="statusFilter"
+          autoComplete="off"
+          aria-label="Filter by status"
           value={statusFilter}
-          onChange={(event) =>
-            setStatusFilter(event.target.value)
-          }
+          onChange={(event) => setStatusFilter(event.target.value)}
         >
           <option value="all">All Statuses</option>
           <option value="Open">Open</option>
           <option value="Closed">Closed</option>
         </select>
 
-        <button
-          className="btn"
-          type="button"
-          onClick={resetFilters}
-        >
+        <button className="btn" type="button" onClick={resetFilters}>
           Reset Filters
         </button>
+
+        <span className="pill blue" id="visibleCaseCount" role="status">
+          {visibleCases.length} visible
+        </span>
       </div>
 
-      <div className="card">
-        <div className="headline">
-          <div>
-            <h2>Case Queue</h2>
-
-            <p className="sub">
-              {visibleCases.length} visible{' '}
-              {visibleCases.length === 1 ? 'case' : 'cases'}
-            </p>
-          </div>
-        </div>
-
-        <div className="table-scroll">
-          <table>
-            <thead>
-              <tr>
-                <th>Case</th>
-                <th>Source Alert</th>
-                <th>Severity</th>
-                <th>Status</th>
-                <th>Assigned Analyst</th>
-                <th>Action</th>
-              </tr>
-            </thead>
-
-            <tbody id="incidentRows">
-              {visibleCases.map((caseItem) => (
-                <tr
-                  key={caseItem.id}
-                  className="data-row"
-                  data-search-record
-                  data-page-target="incidents"
-                  data-case-id={caseItem.id}
-                  data-severity={caseItem.severity}
-                  data-status={caseItem.status}
-                >
-                  <td>{caseItem.id}</td>
-                  <td>{caseItem.sourceAlert}</td>
-
-                  <td>
-                    <span
-                      className={`pill ${severityClass(
-                        caseItem.severity,
-                      )}`}
-                    >
-                      {caseItem.severity}
-                    </span>
-                  </td>
-
-                  <td className="incident-status">
-                    <span
-                      className={`pill ${statusClass(
-                        caseItem.status,
-                      )}`}
-                    >
-                      {caseItem.status}
-                    </span>
-                  </td>
-
-                  <td className="incident-assigned">
-                    {caseItem.assignedAnalyst}
-                  </td>
-
-                  <td className="actions-cell">
-                    <button
-                      className="btn small"
-                      type="button"
-                      onClick={() => setSelectedCase(caseItem)}
-                    >
-                      View
-                    </button>
-
-                    <button
-                      className={
-                        caseItem.status === 'Closed'
-                          ? 'btn small primary'
-                          : 'btn small danger'
-                      }
-                      type="button"
-                      onClick={() =>
-                        toggleCaseStatus(caseItem.id)
-                      }
-                    >
-                      {caseItem.status === 'Closed'
-                        ? 'Reopen Case'
-                        : 'Close Case'}
-                    </button>
-                  </td>
-                </tr>
-              ))}
-
-              {visibleCases.length === 0 && (
-                <tr>
-                  <td colSpan={6}>
-                    <div className="empty">
-                      <strong>No cases found</strong>
-
-                      <p className="sub">
-                        No cases match the current search and filters.
-                      </p>
-
-                      <button
-                        className="btn primary"
-                        type="button"
-                        onClick={resetFilters}
-                        style={{ marginTop: '14px' }}
-                      >
-                        Clear Filters
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-      {selectedCase &&
-        createPortal(
-          <div
-            className="drawer-backdrop"
-            role="presentation"
-            onClick={() => setSelectedCase(null)}
-          >
-            <aside
-              className="alert-drawer"
-              role="dialog"
-              aria-modal="true"
-              aria-label="Case details"
-              onClick={(event) => event.stopPropagation()}
+      <div className="split-layout">
+        <div className="board" aria-label="Case board">
+          {columns.map((column) => (
+            <section
+              key={column.status}
+              className="board-column"
+              aria-labelledby={`column-${column.status}`}
+              data-column={column.label}
             >
-              <div className="drawer-head">
-                <div>
-                  <span className="sub">Case Details</span>
-                  <h2>{selectedCase.id}</h2>
-                </div>
+              <h2 className="board-column-title" id={`column-${column.status}`}>
+                {column.label} <span className="board-count">{column.cases.length}</span>
+              </h2>
 
+              {column.cases.length === 0 ? (
+                <p className="board-empty">No matching cases</p>
+              ) : (
+                <ul className="board-list">
+                  {column.cases.map((caseItem) => (
+                    <li key={caseItem.id}>
+                      <CaseCard
+                        caseItem={caseItem}
+                        actions={caseActions[caseItem.id] ?? []}
+                        selected={caseItem.id === selected?.id}
+                        onChoose={() => choose(caseItem.id)}
+                      />
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </section>
+          ))}
+        </div>
+
+        {selected && (
+          <ResponsiveDetail
+            open={detailOpen}
+            onClose={() => setDetailOpen(false)}
+            labelledBy="caseDetailTitle"
+            closeLabel="Close case details"
+            className="case-detail"
+          >
+            <div className="workspace-head" data-case-id={selected.id}>
+              <p className="case-origin">
+                <span className="mono">{selected.id}</span> from{' '}
+                <Link className="mono text-inline-link" to="/app/alerts" state={linkState(selected.sourceAlert)}>
+                  {selected.sourceAlert}
+                </Link>
+              </p>
+              <h2 className="workspace-title" id="caseDetailTitle">
+                {selected.attackType}
+              </h2>
+              <p className="workspace-text">{selected.summary}</p>
+              <div className="workspace-actions">
                 <button
-                  className="icon-btn"
+                  className={selected.status === 'Open' ? 'btn primary' : 'btn'}
                   type="button"
-                  aria-label="Close case details"
-                  onClick={() => setSelectedCase(null)}
+                  onClick={() => toggleCaseStatus(selected.id)}
                 >
-                  ×
+                  {selected.status === 'Open' ? 'Close case' : 'Reopen case'}
                 </button>
               </div>
+            </div>
 
-              <div className="drawer-body">
-                <div className="card">
-                  <div className="headline">
-                    <div>
-                      <h3>Case Overview</h3>
-                    </div>
-
-                    <span
-                      className={`pill ${statusClass(
-                        selectedCase.status,
-                      )}`}
-                    >
-                      {selectedCase.status}
-                    </span>
-                  </div>
-
-                  <div className="kv">
-                    <span>Case ID</span>
-                    <strong>{selectedCase.id}</strong>
-                  </div>
-
-                  <div className="kv">
-                    <span>Source Alert</span>
-                    <strong>{selectedCase.sourceAlert}</strong>
-                  </div>
-
-                  <div className="kv">
-                    <span>Severity</span>
-                    <strong>{selectedCase.severity}</strong>
-                  </div>
-
-                  <div className="kv">
-                    <span>Assigned Analyst</span>
-                    <strong>
-                      {selectedCase.assignedAnalyst}
-                    </strong>
-                  </div>
-
-                  <div className="kv">
-                    <span>Attack Type</span>
-                    <strong>{selectedCase.attackType}</strong>
-                  </div>
-
-                  <div className="kv">
-                    <span>Endpoint</span>
-                    <strong>{selectedCase.endpoint}</strong>
-                  </div>
-
-                  <div className="kv">
-                    <span>Source IP</span>
-                    <strong>{selectedCase.sourceIp}</strong>
-                  </div>
-
-                  <div className="kv">
-                    <span>Risk Score</span>
-                    <strong>
-                      {selectedCase.riskScore} / 100
-                    </strong>
-                  </div>
-
-                  <div className="kv">
-                    <span>Created</span>
-                    <strong>{selectedCase.createdAt}</strong>
-                  </div>
-
-                  <div className="kv">
-                    <span>Last Updated</span>
-                    <strong>{selectedCase.lastUpdated}</strong>
-                  </div>
-                </div>
-
-                <div className="card">
-                  <h3>Case Summary</h3>
-
-                  <p className="sub">{selectedCase.summary}</p>
-                </div>
-
-                <div className="card">
-                  <h3>MITRE ATT&amp;CK Mapping</h3>
-
-                  <span className="pill blue">
-                    {selectedCase.mitre}
-                  </span>
-                </div>
-
-                <div className="card">
-                  <h3>Collected Evidence</h3>
-
-                  <div className="stack">
-                    {selectedCase.evidence.map((item) => (
-                      <div className="kv" key={item}>
-                        <span>Evidence</span>
-                        <strong>{item}</strong>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-
-                <div className="card">
-                  <h3>Recommended Actions</h3>
-
-                  <div className="stack">
-                    {selectedCase.recommendedActions.map(
-                      (action, index) => (
-                        <div className="kv" key={action}>
-                          <span>Action {index + 1}</span>
-                          <strong>{action}</strong>
-                        </div>
-                      ),
-                    )}
-                  </div>
-                </div>
-
-                <div className="card">
-                  <h3>Case Timeline</h3>
-
-                  <div className="timeline">
-                    {selectedCase.timeline.map((item) => (
-                      <div
-                        className="timeline-item"
-                        key={`${item.time}-${item.title}`}
-                      >
-                        <div className="timeline-dot" />
-
-                        <div>
-                          <div className="timeline-head">
-                            <strong>{item.title}</strong>
-                            <span className="sub">
-                              {item.time}
-                            </span>
-                          </div>
-
-                          <p className="sub">
-                            {item.description}
-                          </p>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-
-                <div className="card">
-                  <h3>Case Action</h3>
-
-                  <p className="sub">
-                    {selectedCase.status === 'Closed'
-                      ? 'Reopen this case and return it to the active investigation queue.'
-                      : 'Close this case after the investigation and response have been reviewed.'}
-                  </p>
-
-                  <button
-                    className={
-                      selectedCase.status === 'Closed'
-                        ? 'btn primary'
-                        : 'btn danger'
-                    }
-                    type="button"
-                    onClick={() =>
-                      toggleCaseStatus(selectedCase.id)
-                    }
-                    style={{ marginTop: '14px' }}
-                  >
-                    {selectedCase.status === 'Closed'
-                      ? 'Reopen Case'
-                      : 'Close Case'}
-                  </button>
-                </div>
+            <dl className="facts case-facts">
+              <div>
+                <dt>Status</dt>
+                <dd data-field="status">
+                  <span className={`pill ${statusTone(selected.status)}`}>{selected.status}</span>
+                </dd>
               </div>
-            </aside>
-          </div>,
-          document.body,
+              <div>
+                <dt>Assigned analyst</dt>
+                <dd data-field="assignedAnalyst">{selected.assignedAnalyst}</dd>
+              </div>
+              <div>
+                <dt>Source alert</dt>
+                <dd className="mono" data-field="sourceAlert">{selected.sourceAlert}</dd>
+              </div>
+              <div>
+                <dt>Severity</dt>
+                <dd data-field="severity">
+                  <SeverityBadge severity={selected.severity} />
+                </dd>
+              </div>
+              <div>
+                <dt>Endpoint</dt>
+                <dd className="mono" data-field="endpoint">{selected.endpoint}</dd>
+              </div>
+              <div>
+                <dt>Source IP</dt>
+                <dd className="mono" data-field="sourceIp">{selected.sourceIp}</dd>
+              </div>
+              <div>
+                <dt>Risk score</dt>
+                <dd data-field="riskScore">{selected.riskScore} / 100</dd>
+              </div>
+              <div>
+                <dt>Agent outcome</dt>
+                <dd data-field="outcome">
+                  {assessments[selected.sourceAlert]
+                    ? OUTCOME_LABELS[assessments[selected.sourceAlert].outcome]
+                    : 'Not assessed'}
+                </dd>
+              </div>
+              <div>
+                <dt>MITRE ATT&amp;CK</dt>
+                <dd data-field="mitre">{selected.mitre}</dd>
+              </div>
+              <div>
+                <dt>Created</dt>
+                <dd data-field="createdAt">{selected.createdAt}</dd>
+              </div>
+              <div>
+                <dt>Last updated</dt>
+                <dd data-field="lastUpdated">{selected.lastUpdated}</dd>
+              </div>
+            </dl>
+
+            <div className="case-columns">
+              <section aria-labelledby="caseEvidenceTitle">
+                <h3 className="workspace-subhead" id="caseEvidenceTitle">Collected evidence</h3>
+                <ul className="evidence-list case-evidence">
+                  {selected.evidence.map((item) => (
+                    <li key={item}>{item}</li>
+                  ))}
+                </ul>
+              </section>
+
+              <section aria-labelledby="caseActionsTitle">
+                <h3 className="workspace-subhead" id="caseActionsTitle">
+                  Recommended actions{' '}
+                  <span className="case-progress-text" role="status">
+                    {doneCount(selectedActions)} of {selectedActions.length} done
+                  </span>
+                </h3>
+                <ul className="case-actions">
+                  {selectedActions.map((action, index) => (
+                    <li key={action.label} className={action.done ? 'done' : undefined}>
+                      <label className="case-action">
+                        <input
+                          type="checkbox"
+                          name="caseAction"
+                          checked={action.done}
+                          // Run-linked actions follow their response run
+                          disabled={Boolean(action.runId || action.approvalId)}
+                          onChange={() => toggleCaseAction(selected.id, index)}
+                          data-action-index={index}
+                        />
+                        <span className="case-action-text">
+                          <span>{action.label}</span>
+                          {(action.runId || action.approvalId) && (
+                            <span className="case-action-run">
+                              {action.done
+                                ? `Done by ${action.runId}`
+                                : action.runId
+                                  ? `${action.runId} ${action.runResult?.toLowerCase() ?? 'pending'}; it needs a new approval`
+                                  : `Waiting for approval (${action.approvalId})`}
+                            </span>
+                          )}
+                        </span>
+                      </label>
+                    </li>
+                  ))}
+                </ul>
+              </section>
+            </div>
+
+            <h3 className="workspace-subhead">Case timeline</h3>
+            <Timeline steps={caseTimeline(selected, caseEvents)} label={`${selected.id} timeline`} />
+          </ResponsiveDetail>
         )}
+      </div>
     </section>
+  )
+}
+
+type CaseCardProps = {
+  caseItem: CaseRecord
+  actions: CaseActionState[]
+  selected: boolean
+  onChoose: () => void
+}
+
+function CaseCard({ caseItem, actions, selected, onChoose }: CaseCardProps) {
+  const done = doneCount(actions)
+  const percent = actions.length ? Math.round((done / actions.length) * 100) : 0
+
+  return (
+    <button
+      type="button"
+      className="case-card"
+      aria-pressed={selected}
+      onClick={onChoose}
+      data-record-id={caseItem.id}
+    >
+      <span className="case-card-top">
+        <span className="mono">{caseItem.id}</span>
+        <SeverityBadge severity={caseItem.severity} />
+      </span>
+      <span className="case-card-title">
+        {caseItem.attackType} on <span className="nowrap">{caseItem.endpoint}</span>
+      </span>
+      <span className="case-bar" aria-hidden="true">
+        <span
+          className={done === actions.length ? 'case-bar-fill complete' : 'case-bar-fill'}
+          style={{ width: `${percent}%` }}
+        />
+      </span>
+      <span className="case-card-meta">
+        <span className="nowrap">{caseItem.assignedAnalyst}</span>
+        <span className="nowrap case-card-progress">
+          {done} of {actions.length} actions
+        </span>
+      </span>
+      <span className="case-card-meta">
+        <span>
+          From <span className="mono">{caseItem.sourceAlert}</span>
+        </span>
+      </span>
+    </button>
   )
 }
 

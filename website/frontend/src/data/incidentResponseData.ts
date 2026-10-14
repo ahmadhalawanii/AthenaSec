@@ -1,180 +1,60 @@
 import type { ExecutionRecord } from '../types/incidentResponseTypes'
 
+import { riskFor } from './alertAssessments'
+
+/*
+  What has run today. Nothing runs without a person's approval, so a
+  run exists only after its approval record (approvalData.ts). Only the
+  isolation of endpoint-12 has been approved and carried out; ALT-001's
+  block is still waiting for an analyst. The score in the evidence
+  comes from the policy formula, like every other score.
+*/
 export const executionRecords: ExecutionRecord[] = [
   {
-    id: 'EXE-004',
-    triggeringAlert: 'ALT-004',
-    policy: 'Critical Host Isolation',
-    action: 'Isolate Host',
-    target: 'endpoint-09',
-    initiator: 'AthenaSec AI',
-    approvalType: 'Automatic',
-    startTime: '15:17',
-    endTime: '15:19',
-    duration: '2 minutes',
-    result: 'Completed',
-    rollbackStatus: 'Not required',
-    failureReason: 'None',
-    happened:
-      'AthenaSec AI isolated endpoint-09 after kernel exploit telemetry matched a critical response policy.',
-    classified:
-      'The telemetry showed privilege escalation behavior, local exploit indicators, and a risk score above the autonomous response threshold.',
-    responseReason:
-      'Endpoint isolation was selected to prevent lateral movement while preserving telemetry for investigation.',
-    evidence: [
-      'Risk score 95',
-      'Kernel exploit attempt',
-      'Endpoint endpoint-09',
-      'Policy threshold met',
-    ],
-    timeline: [
-      {
-        time: '15:17',
-        event: 'Exploit pattern detected',
-      },
-      {
-        time: '15:18',
-        event: 'Risk score calculated',
-      },
-      {
-        time: '15:18',
-        event: 'Critical Host Isolation policy matched',
-      },
-      {
-        time: '15:19',
-        event: 'Endpoint isolated successfully',
-      },
-    ],
-  },
-  {
     id: 'EXE-001',
-    triggeringAlert: 'ALT-001',
-    policy: 'Critical Authentication Abuse',
-    action: 'Block IP',
-    target: '192.168.1.45',
-    initiator: 'AthenaSec AI',
-    approvalType: 'Automatic',
-    startTime: '14:32',
-    endTime: '14:33',
-    duration: '1 minute',
-    result: 'Completed',
-    rollbackStatus: 'Not required',
-    failureReason: 'None',
-    happened:
-      'AthenaSec AI blocked source IP 192.168.1.45 after a critical brute force alert.',
-    classified:
-      'The source matched suspicious reputation and generated a high-frequency authentication failure burst.',
-    responseReason:
-      'Blocking the IP reduced active credential attack pressure against privileged accounts.',
-    evidence: [
-      'Risk score 92',
-      'SSH failure burst',
-      'Privileged account targeting',
-      'Scanner reputation match',
-    ],
-    timeline: [
-      {
-        time: '14:32',
-        event: 'Failed SSH burst detected',
-      },
-      {
-        time: '14:33',
-        event: 'Critical Authentication Abuse policy matched',
-      },
-      {
-        time: '14:33',
-        event: 'Source IP blocked successfully',
-      },
-    ],
-  },
-  {
-    id: 'EXE-003',
-    triggeringAlert: 'ALT-003',
-    policy: 'VPN Password Spray Containment',
-    action: 'Block IP',
-    target: '203.0.113.88',
-    initiator: 'Analyst A',
-    approvalType: 'Analyst Approved',
-    startTime: '15:08',
-    endTime: '15:09',
-    duration: '1 minute',
-    result: 'Completed',
-    rollbackStatus: 'Not required',
-    failureReason: 'None',
-    happened:
-      'Analyst A approved a temporary IP block after AthenaSec correlated a VPN password-spray pattern.',
-    classified:
-      'The source attempted authentication across multiple accounts using a distributed password-spray pattern.',
-    responseReason:
-      'A temporary block was selected to stop further authentication attempts while the related accounts were reviewed.',
-    evidence: [
-      'Risk score 64',
-      'Multiple accounts targeted',
-      'VPN authentication failures',
-      'Analyst approval recorded',
-    ],
-    timeline: [
-      {
-        time: '15:02',
-        event: 'Password-spray alert created',
-      },
-      {
-        time: '15:06',
-        event: 'Analyst reviewed AI recommendation',
-      },
-      {
-        time: '15:08',
-        event: 'Response approved',
-      },
-      {
-        time: '15:09',
-        event: 'Source IP blocked',
-      },
-    ],
-  },
-  {
-    id: 'EXE-002',
-    triggeringAlert: 'ALT-002',
-    policy: 'Privilege Escalation Session Control',
+    triggeringAlert: 'ALT-006',
+    approvalId: 'APR-001',
+    policy: 'Response policy v2: isolate_host',
     action: 'Isolate Host',
-    target: 'endpoint-03',
-    initiator: 'AthenaSec AI',
-    approvalType: 'Automatic',
-    startTime: '14:41',
-    endTime: '14:42',
+    target: 'endpoint-12',
+    startTime: '15:44',
+    endTime: '15:45',
     duration: '1 minute',
-    result: 'Failed',
-    rollbackStatus: 'Not applicable',
-    failureReason:
-      'The endpoint agent did not acknowledge the isolation command before the execution timeout.',
+    result: 'Completed',
+    rollbackStatus: 'Reconnects automatically at 17:44',
+    failureReason: 'None',
     happened:
-      'AthenaSec attempted to isolate endpoint-03 after suspicious sudo escalation activity was detected.',
+      'AthenaSec isolated endpoint-12 after the System Administrator approved the recommendation.',
     classified:
-      'The command sequence and user behavior matched privilege-escalation telemetry outside the normal maintenance window.',
+      'EDR flagged the web service injecting code into a system process, the host beaconed every 60 seconds to a command-and-control address listed by MISP, and a persistence service was created.',
     responseReason:
-      'Host isolation was selected to limit further privileged activity while preserving endpoint evidence.',
+      'Isolation stops the beaconing and any lateral movement while the host keeps its telemetry for investigation. The host is a Business asset, so isolation was allowed, and a SOC lead approved it.',
     evidence: [
-      'Risk score 84',
-      'Unexpected sudo execution',
-      'Maintenance-window mismatch',
-      'Endpoint command timeout',
+      `Risk score ${riskFor('ALT-006')}`,
+      'Code injection into a system process',
+      'Beaconing to 203.0.113.9 every 60 seconds',
+      'Approved by the System Administrator at 15:43',
     ],
     timeline: [
       {
-        time: '14:41',
-        event: 'Privilege escalation detected',
+        time: '15:41',
+        event: 'Code injection and beaconing detected',
       },
       {
-        time: '14:41',
-        event: 'Response policy matched',
+        time: '15:42',
+        event: 'Isolation recommended for endpoint-12',
       },
       {
-        time: '14:42',
-        event: 'Isolation command timed out',
+        time: '15:43',
+        event: 'Approved by the System Administrator (SOC lead)',
       },
       {
-        time: '14:42',
-        event: 'Failure recorded for analyst review',
+        time: '15:44',
+        event: 'Isolation command sent, approval token used',
+      },
+      {
+        time: '15:45',
+        event: 'endpoint-12 isolated successfully',
       },
     ],
   },

@@ -1,29 +1,38 @@
 import {
   useMemo,
   useState,
-  type ChangeEvent,
   type FormEvent,
 } from 'react'
+import { Link } from 'react-router-dom'
 import type {
+  LanguagePreference,
+  SessionTimeout,
+  SettingsBooleanKey,
   SettingsState,
+  SettingsToggle,
   SettingsValues,
+  ThemePreference,
 } from '../types/settingsTypes'
 
-import { initialSettings } from '../data/settingsData'
-
-function settingsStateClass(state: SettingsState) {
-  if (state === 'Saved') {
-    return 'ok'
-  }
-
-  if (state === 'Error') {
-    return 'danger'
-  }
-
-  return 'blue'
-}
+import Switch from '../components/Switch'
+import { DEFAULT_TIMEZONE } from '../data/profileData'
+import {
+  initialSettings,
+  languageOptions,
+  notificationToggles,
+  sessionToggles,
+  themeOptions,
+  timeoutOptions,
+} from '../data/settingsData'
+import { useAdminState } from '../hooks/useAdminState'
+import { initialsOf } from '../utils/initials'
+import { statusTone } from '../utils/statusTone'
 
 function SettingsPage() {
+  // The signed-in account's live record: edits on User Management show here
+  const { users, currentUserId } = useAdminState()
+  const me = users.find((user) => user.id === currentUserId)
+
   const [settings, setSettings] =
     useState<SettingsValues>(initialSettings)
 
@@ -33,9 +42,7 @@ function SettingsPage() {
   const [settingsState, setSettingsState] =
     useState<SettingsState>('Saved')
 
-  const [pageMessage, setPageMessage] = useState(
-    'Settings loaded successfully.',
-  )
+  const [pageMessage, setPageMessage] = useState('')
 
   const [validationError, setValidationError] = useState('')
 
@@ -50,26 +57,6 @@ function SettingsPage() {
     setSettingsState('Draft')
     setValidationError('')
     setPageMessage('Unsaved settings changes detected.')
-  }
-
-  function handleFieldChange(
-    event:
-      | ChangeEvent<HTMLSelectElement>
-      | ChangeEvent<HTMLInputElement>,
-  ) {
-    const { name, value, type } = event.target
-
-    const nextValue =
-      type === 'checkbox'
-        ? (event.target as HTMLInputElement).checked
-        : value
-
-    setSettings((currentSettings) => ({
-      ...currentSettings,
-      [name]: nextValue,
-    }))
-
-    updateSettingsState()
   }
 
   function validateSettings() {
@@ -114,7 +101,7 @@ function SettingsPage() {
     setValidationError('')
 
     setPageMessage(
-      'Settings saved for the current frontend session.',
+      'Settings saved.',
     )
   }
 
@@ -135,42 +122,73 @@ function SettingsPage() {
     )
   }
 
-  function toggleGeneralNotifications() {
-    const nextEnabled = !settings.notificationsEnabled
+  function setTheme(theme: ThemePreference) {
+    setSettings((currentSettings) => ({ ...currentSettings, theme }))
+    updateSettingsState()
+  }
 
-    setSettings((currentSettings) => ({
-      ...currentSettings,
-      notificationsEnabled: nextEnabled,
-      criticalAlertNotifications: nextEnabled
-        ? currentSettings.criticalAlertNotifications
-        : false,
-      caseNotifications: nextEnabled
-        ? currentSettings.caseNotifications
-        : false,
-      systemHealthNotifications: nextEnabled
-        ? currentSettings.systemHealthNotifications
-        : false,
-      emailNotifications: nextEnabled
-        ? currentSettings.emailNotifications
-        : false,
-    }))
+  function setLanguage(language: LanguagePreference) {
+    setSettings((currentSettings) => ({ ...currentSettings, language }))
+    updateSettingsState()
+  }
+
+  function setSessionTimeout(sessionTimeout: SessionTimeout) {
+    setSettings((currentSettings) => ({ ...currentSettings, sessionTimeout }))
+    updateSettingsState()
+  }
+
+  /*
+    One handler for every switch. Two are linked: turning notifications
+    off clears the channels, and turning MFA off clears the requirement
+    for sensitive actions.
+  */
+  function setToggle(key: SettingsBooleanKey, next: boolean) {
+    setSettings((currentSettings) => {
+      const updated = { ...currentSettings, [key]: next }
+
+      if (key === 'notificationsEnabled' && !next) {
+        updated.criticalAlertNotifications = false
+        updated.caseNotifications = false
+        updated.systemHealthNotifications = false
+        updated.emailNotifications = false
+      }
+
+      if (key === 'mfaEnabled' && !next) {
+        updated.requireMfaForSensitiveActions = false
+      }
+
+      return updated
+    })
 
     updateSettingsState()
   }
 
-  function toggleMfa() {
-    const nextMfaState = !settings.mfaEnabled
+  function renderToggle(toggle: SettingsToggle) {
+    const linkedOff =
+      (toggle.key === 'requireMfaForSensitiveActions' && !settings.mfaEnabled) ||
+      (toggle.key !== 'notificationsEnabled' &&
+        notificationToggles.some((item) => item.key === toggle.key) &&
+        !settings.notificationsEnabled)
 
-    setSettings((currentSettings) => ({
-      ...currentSettings,
-      mfaEnabled: nextMfaState,
-      requireMfaForSensitiveActions: nextMfaState
-        ? currentSettings.requireMfaForSensitiveActions
-        : false,
-    }))
+    return (
+      <li className="set-toggle" key={toggle.key} data-setting={toggle.key}>
+        <div className="set-toggle-text">
+          <span className="set-toggle-label">{toggle.label}</span>
+          <span className="set-toggle-note">{toggle.note}</span>
+        </div>
 
-    updateSettingsState()
+        <Switch
+          checked={settings[toggle.key]}
+          onChange={(next) => setToggle(toggle.key, next)}
+          label={settings[toggle.key] ? 'On' : 'Off'}
+          accessibleName={toggle.label}
+          disabled={linkedOff}
+        />
+      </li>
+    )
   }
+
+  const yesNo = (value: boolean) => (value ? 'Enabled' : 'Disabled')
 
   return (
     <section
@@ -190,33 +208,52 @@ function SettingsPage() {
           </p>
         </div>
 
-        <div
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: '10px',
-            flexWrap: 'wrap',
-          }}
-        >
-          <span className="pill ok">
-            Administrator Only
-          </span>
-
+        <div className="headline-actions">
           <span
-            className={`pill ${settingsStateClass(
+            className={`pill ${statusTone(
               settingsState,
             )}`}
+            id="settingsState"
           >
             {settingsState}
           </span>
         </div>
       </div>
 
+      {me && (
+        <section className="card key set-profile" aria-label="Your profile" id="settingsProfile">
+          <span className="set-profile-avatar" aria-hidden="true">
+            {initialsOf(me.name)}
+          </span>
+
+          <div className="set-profile-text">
+            <span className="set-profile-name" data-field="name">{me.name}</span>
+            <span className="set-profile-email mono" data-field="email">{me.email}</span>
+
+            <span className="set-profile-tags">
+              <span className="pill danger" data-field="role">{me.role}</span>
+              <span
+                className={me.mfaEnabled ? 'pill ok' : 'pill danger'}
+                data-field="mfa"
+              >
+                {me.mfaEnabled ? 'MFA on' : 'MFA off'}
+              </span>
+              <span className="pill neutral" data-field="where">
+                {me.department}, {DEFAULT_TIMEZONE}
+              </span>
+            </span>
+          </div>
+
+          <Link className="btn" to="/app/profile" id="editProfileLink">
+            Edit profile
+          </Link>
+        </section>
+      )}
+
       {pageMessage && (
         <div
           className="notice"
           role="status"
-          style={{ marginBottom: '18px' }}
         >
           {pageMessage}
         </div>
@@ -226,7 +263,6 @@ function SettingsPage() {
         <div
           className="notice"
           role="alert"
-          style={{ marginBottom: '18px' }}
         >
           <strong>Settings error</strong>
 
@@ -240,292 +276,115 @@ function SettingsPage() {
       )}
 
       <form onSubmit={saveSettings}>
-        <div className="grid two">
-          <div className="card">
-            <h2>Console Preferences</h2>
+        <div className="set-grid">
+          <section className="card set-card" aria-labelledby="setPrefTitle">
+            <h2 id="setPrefTitle">Console preferences</h2>
 
-            <label
-              className="form-label"
-              htmlFor="settingsTheme"
-            >
-              Theme
-            </label>
+            <div className="set-field">
+              <span className="form-label" id="setThemeLabel">Theme</span>
 
-            <select
-              className="select-input"
-              id="settingsTheme"
-              name="theme"
-              value={settings.theme}
-              onChange={handleFieldChange}
-            >
-              <option value="Dark Enterprise">
-                Dark Enterprise
-              </option>
+              <div className="set-themes" role="group" aria-labelledby="setThemeLabel">
+                {themeOptions.map((theme) => (
+                  <button
+                    key={theme.value}
+                    type="button"
+                    className="set-theme"
+                    aria-pressed={settings.theme === theme.value}
+                    onClick={() => setTheme(theme.value)}
+                    data-theme={theme.value}
+                  >
+                    <span className="set-swatch" aria-hidden="true">
+                      <span style={{ background: theme.sidebar }} />
+                      <span style={{ background: theme.main }} />
+                      <span className="set-swatch-accent" />
+                    </span>
 
-              <option value="High Contrast">
-                High Contrast
-              </option>
-            </select>
-
-            <label
-              className="form-label"
-              htmlFor="settingsLanguage"
-              style={{ marginTop: '16px' }}
-            >
-              Language
-            </label>
-
-            <select
-              className="select-input"
-              id="settingsLanguage"
-              name="language"
-              value={settings.language}
-              onChange={handleFieldChange}
-            >
-              <option value="English">English</option>
-              <option value="Arabic">Arabic</option>
-            </select>
-
-            <div
-              className="notice"
-              style={{ marginTop: '18px' }}
-            >
-              Theme and language changes are stored in React
-              state only. Full application-wide theme and
-              translation support will be connected later.
+                    <span>{theme.value}</span>
+                  </button>
+                ))}
+              </div>
             </div>
-          </div>
 
-          <div className="card">
-            <h2>General Notifications</h2>
+            <div className="set-field">
+              <label className="form-label" htmlFor="settingsLanguage">
+                Language
+              </label>
 
-            <label className="check-row">
-              <input
-                type="checkbox"
-                checked={settings.notificationsEnabled}
-                onChange={toggleGeneralNotifications}
-              />
+              <select
+                className="select-input"
+                id="settingsLanguage"
+                name="language"
+                autoComplete="off"
+                value={settings.language}
+                onChange={(event) =>
+                  setLanguage(event.target.value as LanguagePreference)
+                }
+              >
+                {languageOptions.map((option) => (
+                  <option value={option} key={option}>
+                    {option}
+                  </option>
+                ))}
+              </select>
+            </div>
 
-              Enable notifications
-            </label>
-
-            <p
-              className="sub"
-              style={{ marginTop: '10px' }}
-            >
-              Controls whether AthenaSec displays security and
-              operational notifications.
+            <p className="sub">
+              Theme and language are saved with your settings
+              but don’t change the console yet.
             </p>
+          </section>
 
-            <div className="kv">
-              <span>Notification Status</span>
+          <section className="card set-card" aria-labelledby="setSessionTitle">
+            <h2 id="setSessionTitle">Session security</h2>
 
-              <strong>
-                <span
-                  className={`pill ${
-                    settings.notificationsEnabled
-                      ? 'ok'
-                      : 'muted'
-                  }`}
-                >
-                  {settings.notificationsEnabled
-                    ? 'Enabled'
-                    : 'Disabled'}
-                </span>
-              </strong>
+            <div className="set-field">
+              <label className="form-label" htmlFor="sessionTimeout">
+                Session timeout
+              </label>
+
+              <select
+                className="select-input"
+                id="sessionTimeout"
+                name="sessionTimeout"
+                autoComplete="off"
+                value={settings.sessionTimeout}
+                onChange={(event) =>
+                  setSessionTimeout(event.target.value as SessionTimeout)
+                }
+              >
+                {timeoutOptions.map((option) => (
+                  <option value={option} key={option}>
+                    {option}
+                  </option>
+                ))}
+              </select>
             </div>
-          </div>
 
-          <div className="card">
-            <h2>Notification Preferences</h2>
+            <ul className="set-toggles">
+              {sessionToggles.map(renderToggle)}
+            </ul>
 
-            <label className="check-row">
-              <input
-                name="criticalAlertNotifications"
-                type="checkbox"
-                checked={
-                  settings.criticalAlertNotifications
-                }
-                disabled={!settings.notificationsEnabled}
-                onChange={handleFieldChange}
-              />
+            <div className="notice">
+              In this demo every sign-in uses the same MFA code,
+              123456.
+            </div>
+          </section>
 
-              Critical alert notifications
-            </label>
+          <section className="card set-card set-wide" aria-labelledby="setNotifyTitle">
+            <h2 id="setNotifyTitle">Notify me about</h2>
 
-            <label
-              className="check-row"
-              style={{ marginTop: '14px' }}
-            >
-              <input
-                name="caseNotifications"
-                type="checkbox"
-                checked={settings.caseNotifications}
-                disabled={!settings.notificationsEnabled}
-                onChange={handleFieldChange}
-              />
+            <ul className="set-toggles set-toggles-grid">
+              {notificationToggles.map(renderToggle)}
+            </ul>
 
-              Case creation and assignment notifications
-            </label>
-
-            <label
-              className="check-row"
-              style={{ marginTop: '14px' }}
-            >
-              <input
-                name="systemHealthNotifications"
-                type="checkbox"
-                checked={
-                  settings.systemHealthNotifications
-                }
-                disabled={!settings.notificationsEnabled}
-                onChange={handleFieldChange}
-              />
-
-              System health warnings
-            </label>
-
-            <label
-              className="check-row"
-              style={{ marginTop: '14px' }}
-            >
-              <input
-                name="emailNotifications"
-                type="checkbox"
-                checked={settings.emailNotifications}
-                disabled={!settings.notificationsEnabled}
-                onChange={handleFieldChange}
-              />
-
-              Email notifications
-            </label>
-
-            <div
-              className="notice"
-              style={{ marginTop: '18px' }}
-            >
+            <div className="notice">
               Notification delivery is simulated. No real email
               or external notification is sent.
             </div>
-          </div>
+          </section>
 
-          <div className="card">
-            <h2>Session Security</h2>
-
-            <label
-              className="form-label"
-              htmlFor="sessionTimeout"
-            >
-              Session Timeout
-            </label>
-
-            <select
-              className="select-input"
-              id="sessionTimeout"
-              name="sessionTimeout"
-              value={settings.sessionTimeout}
-              onChange={handleFieldChange}
-            >
-              <option value="30 minutes">
-                30 minutes
-              </option>
-
-              <option value="60 minutes">
-                60 minutes
-              </option>
-
-              <option value="4 hours">
-                4 hours
-              </option>
-            </select>
-
-            <label
-              className="check-row"
-              style={{ marginTop: '18px' }}
-            >
-              <input
-                name="autoLogoutWarning"
-                type="checkbox"
-                checked={settings.autoLogoutWarning}
-                onChange={handleFieldChange}
-              />
-
-              Show warning before automatic logout
-            </label>
-
-            <div className="kv">
-              <span>Selected Timeout</span>
-              <strong>{settings.sessionTimeout}</strong>
-            </div>
-
-            <div className="kv">
-              <span>Logout Warning</span>
-
-              <strong>
-                {settings.autoLogoutWarning
-                  ? 'Enabled'
-                  : 'Disabled'}
-              </strong>
-            </div>
-          </div>
-
-          <div className="card">
-            <h2>Multi-Factor Authentication</h2>
-
-            <label className="check-row">
-              <input
-                type="checkbox"
-                checked={settings.mfaEnabled}
-                onChange={toggleMfa}
-              />
-
-              Enable MFA
-            </label>
-
-            <label
-              className="check-row"
-              style={{ marginTop: '14px' }}
-            >
-              <input
-                name="requireMfaForSensitiveActions"
-                type="checkbox"
-                checked={
-                  settings.requireMfaForSensitiveActions
-                }
-                disabled={!settings.mfaEnabled}
-                onChange={handleFieldChange}
-              />
-
-              Require MFA for sensitive administrator actions
-            </label>
-
-            <div className="kv">
-              <span>MFA Status</span>
-
-              <strong>
-                <span
-                  className={`pill ${
-                    settings.mfaEnabled
-                      ? 'ok'
-                      : 'danger'
-                  }`}
-                >
-                  {settings.mfaEnabled
-                    ? 'Enabled'
-                    : 'Disabled'}
-                </span>
-              </strong>
-            </div>
-
-            <div className="notice">
-              The current prototype still uses the static MFA
-              verification code configured in the authentication
-              flow.
-            </div>
-          </div>
-
-          <div className="card">
-            <h2>Settings Summary</h2>
+          <section className="card set-card set-wide" aria-labelledby="setSummaryTitle">
+            <h2 id="setSummaryTitle">Settings Summary</h2>
 
             <div className="kv">
               <span>Theme</span>
@@ -539,12 +398,7 @@ function SettingsPage() {
 
             <div className="kv">
               <span>Notifications</span>
-
-              <strong>
-                {settings.notificationsEnabled
-                  ? 'Enabled'
-                  : 'Disabled'}
-              </strong>
+              <strong>{yesNo(settings.notificationsEnabled)}</strong>
             </div>
 
             <div className="kv">
@@ -555,10 +409,20 @@ function SettingsPage() {
             <div className="kv">
               <span>MFA</span>
 
+              {/*
+                Deliberately not statusTone('Disabled') (grey):
+                MFA being off is a security risk, so it shows red.
+              */}
               <strong>
-                {settings.mfaEnabled
-                  ? 'Enabled'
-                  : 'Disabled'}
+                <span
+                  className={`pill ${
+                    settings.mfaEnabled
+                      ? 'ok'
+                      : 'danger'
+                  }`}
+                >
+                  {yesNo(settings.mfaEnabled)}
+                </span>
               </strong>
             </div>
 
@@ -572,17 +436,10 @@ function SettingsPage() {
 
             <div className="kv">
               <span>Persistence</span>
-              <strong>Frontend session only</strong>
+              <strong>Until you leave this page (demo)</strong>
             </div>
 
-            <div
-              style={{
-                display: 'flex',
-                flexWrap: 'wrap',
-                gap: '10px',
-                marginTop: '18px',
-              }}
-            >
+            <div className="set-actions">
               <button
                 className="btn primary"
                 type="submit"
@@ -608,7 +465,7 @@ function SettingsPage() {
                 Restore Defaults
               </button>
             </div>
-          </div>
+          </section>
         </div>
       </form>
     </section>

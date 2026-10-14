@@ -5,3 +5,6 @@ export const timezoneOptions = [
   'Europe/London',
   'America/New_York',
 ]
+
+// Every account starts in this timezone; the Profile page edits it
+export const DEFAULT_TIMEZONE = 'Asia/Dubai'

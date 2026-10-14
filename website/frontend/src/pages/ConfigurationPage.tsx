@@ -9,22 +9,42 @@ import type {
   ConfigurationValues,
 } from '../types/configurationTypes'
 
-import { initialConfiguration } from '../data/configurationData'
+import {
+  configurationLimits,
+  destinationOptions,
+  environmentOptions,
+  initialConfiguration,
+  modeOptions,
+  notificationOptions,
+} from '../data/configurationData'
+import { useAdminState } from '../hooks/useAdminState'
+import { statusTone } from '../utils/statusTone'
+
+const { correlationWindowMinutes: windowLimits, criticalRiskThreshold: criticalLimits, retentionDays } =
+  configurationLimits
+
+// A number field's value, or null when it is empty or not a number
+function numberOf(value: string) {
+  const parsed = Number(value)
+
+  return value.trim() === '' || Number.isNaN(parsed) ? null : parsed
+}
 
 function ConfigurationPage() {
-  const [configuration, setConfiguration] =
-    useState<ConfigurationValues>(initialConfiguration)
+  // The saved values live in shared admin state; saving is audited
+  const {
+    configuration: savedConfiguration,
+    saveConfiguration: storeConfiguration,
+  } = useAdminState()
 
-  const [savedConfiguration, setSavedConfiguration] =
-    useState<ConfigurationValues>(initialConfiguration)
+  const [configuration, setConfiguration] =
+    useState<ConfigurationValues>(savedConfiguration)
 
   const [configurationState, setConfigurationState] =
     useState<ConfigurationState>('Saved')
 
   const [validationError, setValidationError] = useState('')
-  const [pageMessage, setPageMessage] = useState(
-    'Configuration loaded successfully.',
-  )
+  const [pageMessage, setPageMessage] = useState('')
 
   const hasUnsavedChanges = useMemo(() => {
     return (
@@ -33,13 +53,7 @@ function ConfigurationPage() {
     )
   }, [configuration, savedConfiguration])
 
-  function handleConfigurationChange(
-    event:
-      | ChangeEvent<HTMLInputElement>
-      | ChangeEvent<HTMLSelectElement>,
-  ) {
-    const { name, value } = event.target
-
+  function setField(name: keyof ConfigurationValues, value: string) {
     setConfiguration((currentConfiguration) => ({
       ...currentConfiguration,
       [name]: value,
@@ -47,7 +61,19 @@ function ConfigurationPage() {
 
     setConfigurationState('Draft')
     setValidationError('')
-    setPageMessage('Unsaved configuration changes detected.')
+    // The unsaved-changes banner already says so
+    setPageMessage('')
+  }
+
+  function handleConfigurationChange(
+    event:
+      | ChangeEvent<HTMLInputElement>
+      | ChangeEvent<HTMLSelectElement>,
+  ) {
+    setField(
+      event.target.name as keyof ConfigurationValues,
+      event.target.value,
+    )
   }
 
   function validateConfiguration() {
@@ -65,10 +91,10 @@ function ConfigurationPage() {
 
     if (
       Number.isNaN(correlationWindow) ||
-      correlationWindow < 1 ||
-      correlationWindow > 1440
+      correlationWindow < windowLimits.min ||
+      correlationWindow > windowLimits.max
     ) {
-      return 'Correlation window must be between 1 and 1440 minutes.'
+      return `Correlation window must be between ${windowLimits.min} and ${windowLimits.max} minutes.`
     }
 
     const criticalRiskThreshold = Number(
@@ -77,10 +103,10 @@ function ConfigurationPage() {
 
     if (
       Number.isNaN(criticalRiskThreshold) ||
-      criticalRiskThreshold < 0 ||
-      criticalRiskThreshold > 100
+      criticalRiskThreshold < criticalLimits.min ||
+      criticalRiskThreshold > criticalLimits.max
     ) {
-      return 'Critical risk threshold must be between 0 and 100.'
+      return `Critical risk threshold must be between ${criticalLimits.min} and ${criticalLimits.max}.`
     }
 
     const hotStorageDays = Number(
@@ -89,10 +115,10 @@ function ConfigurationPage() {
 
     if (
       Number.isNaN(hotStorageDays) ||
-      hotStorageDays < 1 ||
-      hotStorageDays > 3650
+      hotStorageDays < retentionDays.min ||
+      hotStorageDays > retentionDays.max
     ) {
-      return 'Hot storage retention must be between 1 and 3650 days.'
+      return `Hot storage retention must be between ${retentionDays.min} and ${retentionDays.max} days.`
     }
 
     const auditRetentionDays = Number(
@@ -101,10 +127,10 @@ function ConfigurationPage() {
 
     if (
       Number.isNaN(auditRetentionDays) ||
-      auditRetentionDays < 1 ||
-      auditRetentionDays > 3650
+      auditRetentionDays < retentionDays.min ||
+      auditRetentionDays > retentionDays.max
     ) {
-      return 'Audit retention must be between 1 and 3650 days.'
+      return `Audit retention must be between ${retentionDays.min} and ${retentionDays.max} days.`
     }
 
     if (auditRetentionDays < hotStorageDays) {
@@ -128,11 +154,11 @@ function ConfigurationPage() {
       return
     }
 
-    setSavedConfiguration(configuration)
+    storeConfiguration(configuration)
     setConfigurationState('Saved')
     setValidationError('')
     setPageMessage(
-      'Configuration saved for the current frontend session.',
+      'Configuration saved.',
     )
   }
 
@@ -152,17 +178,12 @@ function ConfigurationPage() {
     )
   }
 
-  function stateClass(state: ConfigurationState) {
-    if (state === 'Saved') {
-      return 'ok'
-    }
-
-    if (state === 'Error') {
-      return 'danger'
-    }
-
-    return 'blue'
-  }
+  // Bars: the critical score out of 100, and hot storage inside audit retention
+  const criticalValue = numberOf(configuration.criticalRiskThreshold)
+  const hotDays = numberOf(configuration.hotStorageDays)
+  const auditDays = numberOf(configuration.auditRetentionDays)
+  const retentionValid =
+    hotDays !== null && auditDays !== null && hotDays > 0 && auditDays >= hotDays
 
   return (
     <section
@@ -174,371 +195,338 @@ function ConfigurationPage() {
     >
       <div className="headline">
         <div>
-          <h1>Configuration Management</h1>
+          <h1>Configuration</h1>
 
           <p className="sub">
-            Edit general, detection, logging, retention, and
-            notification settings.
+            How AthenaSec detects, stores and notifies across the workspace.
           </p>
         </div>
 
-        <span
-          className={`pill ${stateClass(configurationState)}`}
-          id="configState"
-        >
-          {configurationState}
-        </span>
+        <div className="headline-actions">
+          <span
+            className={`pill ${statusTone(configurationState)}`}
+            id="configState"
+          >
+            {configurationState}
+          </span>
+
+          <button
+            className="btn danger"
+            type="button"
+            onClick={restoreDefaults}
+          >
+            Restore Defaults
+          </button>
+        </div>
       </div>
 
       {pageMessage && (
-        <div
-          className="notice"
-          role="status"
-          style={{ marginBottom: '18px' }}
-        >
+        <div className="notice" role="status">
           {pageMessage}
         </div>
       )}
 
       {validationError && (
-        <div
-          className="notice"
-          role="alert"
-          style={{ marginBottom: '18px' }}
-        >
+        <div className="notice" role="alert">
           <strong>Configuration error</strong>
 
-          <p
-            className="sub"
-            style={{ marginTop: '6px' }}
-          >
+          <p className="sub" style={{ marginTop: '6px' }}>
             {validationError}
           </p>
         </div>
       )}
 
-      <form onSubmit={saveConfiguration}>
-        <div className="grid two">
-          <div className="card">
-            <h2>General Settings</h2>
+      <form onSubmit={saveConfiguration} className="cfg-form" noValidate>
+        {hasUnsavedChanges && (
+          <div className="cfg-unsaved" role="status" id="configUnsaved">
+            <span className="cfg-unsaved-dot" aria-hidden="true" />
 
-            <label
-              className="form-label"
-              htmlFor="organization"
-            >
-              Organization
-            </label>
+            <span className="cfg-unsaved-text">
+              You have unsaved changes. Saving is recorded in the audit log.
+            </span>
 
-            <input
-              className="field-input"
-              id="organization"
-              name="organization"
-              value={configuration.organization}
-              onChange={handleConfigurationChange}
-              placeholder="AthenaSec SOC"
-            />
+            <button className="btn" type="button" onClick={cancelChanges}>
+              Discard
+            </button>
 
-            <label
-              className="form-label"
-              htmlFor="workspace"
-            >
-              Workspace
-            </label>
-
-            <select
-              className="select-input"
-              id="workspace"
-              name="workspace"
-              value={configuration.workspace}
-              onChange={handleConfigurationChange}
-            >
-              <option value="Production">Production</option>
-              <option value="Staging">Staging</option>
-              <option value="Development">Development</option>
-              <option value="Testing">Testing</option>
-            </select>
+            <button className="btn primary" type="submit">
+              Save configuration
+            </button>
           </div>
+        )}
 
-          <div className="card">
-            <h2>Detection Settings</h2>
+        <div className="cfg-grid">
+          <section className="card cfg-card" aria-labelledby="cfgWorkspaceTitle">
+            <h2 id="cfgWorkspaceTitle">Workspace</h2>
 
-            <label
-              className="form-label"
-              htmlFor="correlationWindowMinutes"
-            >
-              Correlation Window
-            </label>
+            <div className="cfg-field">
+              <label className="form-label" htmlFor="organization">
+                Organization name
+              </label>
 
-            <div
-              style={{
-                display: 'grid',
-                gridTemplateColumns: '1fr auto',
-                gap: '10px',
-                alignItems: 'center',
-              }}
-            >
               <input
                 className="field-input"
-                id="correlationWindowMinutes"
-                name="correlationWindowMinutes"
-                type="number"
-                min="1"
-                max="1440"
-                value={
-                  configuration.correlationWindowMinutes
+                id="organization"
+                name="organization"
+                value={configuration.organization}
+                onChange={handleConfigurationChange}
+                autoComplete="off"
+                placeholder="AthenaSec SOC…"
+              />
+            </div>
+
+            <div className="cfg-field">
+              <label className="form-label" htmlFor="workspace">
+                Environment
+              </label>
+
+              <select
+                className="select-input"
+                id="workspace"
+                name="workspace"
+                autoComplete="off"
+                value={configuration.workspace}
+                onChange={handleConfigurationChange}
+              >
+                {environmentOptions.map((option) => (
+                  <option value={option} key={option}>
+                    {option}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </section>
+
+          <section className="card cfg-card" aria-labelledby="cfgDetectionTitle">
+            <h2 id="cfgDetectionTitle">Detection</h2>
+
+            <div className="cfg-field">
+              <label className="form-label" htmlFor="correlationWindowMinutes">
+                Correlation window
+              </label>
+
+              <div className="cfg-number">
+                <input
+                  className="field-input"
+                  id="correlationWindowMinutes"
+                  name="correlationWindowMinutes"
+                  autoComplete="off"
+                  type="number"
+                  min={windowLimits.min}
+                  max={windowLimits.max}
+                  value={configuration.correlationWindowMinutes}
+                  onChange={handleConfigurationChange}
+                />
+
+                <span className="unit">minutes</span>
+              </div>
+
+              <p className="sub cfg-hint">
+                Allowed: {windowLimits.min} to {windowLimits.max}. Events from
+                the same source inside this window are grouped into one alert.
+              </p>
+            </div>
+
+            <div className="cfg-field">
+              <label className="form-label" htmlFor="criticalRiskThreshold">
+                Critical risk threshold
+              </label>
+
+              <div className="cfg-number">
+                <input
+                  className="field-input"
+                  id="criticalRiskThreshold"
+                  name="criticalRiskThreshold"
+                  autoComplete="off"
+                  type="number"
+                  min={criticalLimits.min}
+                  max={criticalLimits.max}
+                  value={configuration.criticalRiskThreshold}
+                  onChange={handleConfigurationChange}
+                />
+
+                <span className="unit">/ 100</span>
+              </div>
+
+              <div
+                className="cfg-bar cfg-threshold"
+                role="img"
+                aria-label={
+                  criticalValue === null
+                    ? 'Critical risk threshold not set'
+                    : `Critical risk threshold ${criticalValue} out of 100`
                 }
-                onChange={handleConfigurationChange}
-              />
+              >
+                <span
+                  className="cfg-threshold-fill"
+                  style={{
+                    width: `${Math.min(100, Math.max(0, criticalValue ?? 0))}%`,
+                  }}
+                />
+              </div>
 
-              <span className="pill blue">minutes</span>
+              <p className="sub cfg-hint">
+                Allowed: {criticalLimits.min} to {criticalLimits.max}. Alerts at
+                or above this score are treated as critical.
+              </p>
+            </div>
+          </section>
+
+          <section className="card cfg-card" aria-labelledby="cfgLoggingTitle">
+            <h2 id="cfgLoggingTitle">Logging and retention</h2>
+
+            <div className="cfg-pair">
+              <div className="cfg-field">
+                <label className="form-label" htmlFor="loggingDestination">
+                  Destination
+                </label>
+
+                <select
+                  className="select-input"
+                  id="loggingDestination"
+                  name="loggingDestination"
+                  autoComplete="off"
+                  value={configuration.loggingDestination}
+                  onChange={handleConfigurationChange}
+                >
+                  {destinationOptions.map((option) => (
+                    <option value={option} key={option}>
+                      {option}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="cfg-field">
+                <label className="form-label" htmlFor="loggingMode">
+                  Mode
+                </label>
+
+                <select
+                  className="select-input"
+                  id="loggingMode"
+                  name="loggingMode"
+                  autoComplete="off"
+                  value={configuration.loggingMode}
+                  onChange={handleConfigurationChange}
+                >
+                  {modeOptions.map((option) => (
+                    <option value={option} key={option}>
+                      {option}
+                    </option>
+                  ))}
+                </select>
+              </div>
             </div>
 
-            <label
-              className="form-label"
-              htmlFor="criticalRiskThreshold"
-            >
-              Critical Risk Threshold
-            </label>
-
-            <input
-              className="field-input"
-              id="criticalRiskThreshold"
-              name="criticalRiskThreshold"
-              type="number"
-              min="0"
-              max="100"
-              value={configuration.criticalRiskThreshold}
-              onChange={handleConfigurationChange}
-            />
-
-            <p className="sub">
-              Alerts at or above this score are treated as
-              critical.
+            <p className="sub cfg-hint">
+              This controls how AthenaSec sends audit and security events to
+              the configured destination.
             </p>
-          </div>
 
-          <div className="card">
-            <h2>Logging Settings</h2>
+            <div className="cfg-pair">
+              <div className="cfg-field">
+                <label className="form-label" htmlFor="hotStorageDays">
+                  Hot storage
+                </label>
 
-            <label
-              className="form-label"
-              htmlFor="loggingDestination"
-            >
-              Destination
-            </label>
+                <div className="cfg-number">
+                  <input
+                    className="field-input"
+                    id="hotStorageDays"
+                    name="hotStorageDays"
+                    autoComplete="off"
+                    type="number"
+                    min={retentionDays.min}
+                    max={retentionDays.max}
+                    value={configuration.hotStorageDays}
+                    onChange={handleConfigurationChange}
+                  />
 
-            <select
-              className="select-input"
-              id="loggingDestination"
-              name="loggingDestination"
-              value={configuration.loggingDestination}
-              onChange={handleConfigurationChange}
-            >
-              <option value="OpenSearch">OpenSearch</option>
-              <option value="Local File">Local File</option>
-              <option value="Syslog">Syslog</option>
-            </select>
+                  <span className="unit">days</span>
+                </div>
+              </div>
 
-            <label
-              className="form-label"
-              htmlFor="loggingMode"
-            >
-              Mode
-            </label>
+              <div className="cfg-field">
+                <label className="form-label" htmlFor="auditRetentionDays">
+                  Audit retention
+                </label>
 
-            <select
-              className="select-input"
-              id="loggingMode"
-              name="loggingMode"
-              value={configuration.loggingMode}
-              onChange={handleConfigurationChange}
-            >
-              <option value="Realtime">Realtime</option>
-              <option value="Batch">Batch</option>
-              <option value="Manual">Manual</option>
-            </select>
+                <div className="cfg-number">
+                  <input
+                    className="field-input"
+                    id="auditRetentionDays"
+                    name="auditRetentionDays"
+                    autoComplete="off"
+                    type="number"
+                    min={retentionDays.min}
+                    max={retentionDays.max}
+                    value={configuration.auditRetentionDays}
+                    onChange={handleConfigurationChange}
+                  />
 
-            <p className="sub">
-              This controls how AthenaSec sends audit and
-              security events to the configured destination.
+                  <span className="unit">days</span>
+                </div>
+              </div>
+            </div>
+
+            {retentionValid && hotDays !== null && auditDays !== null ? (
+              <div
+                className="cfg-bar cfg-retention"
+                role="img"
+                aria-label={`Hot storage ${hotDays} days, audit retention ${auditDays} days`}
+              >
+                <span className="cfg-retention-hot" style={{ flexGrow: hotDays }}>
+                  Hot, {hotDays} days
+                </span>
+
+                {auditDays > hotDays && (
+                  <span
+                    className="cfg-retention-audit"
+                    style={{ flexGrow: auditDays - hotDays }}
+                  >
+                    Audit retention, {auditDays} days
+                  </span>
+                )}
+              </div>
+            ) : (
+              <p className="sub cfg-hint" data-field="retention-bar-off">
+                Enter hot storage and audit retention days to see them side by side.
+              </p>
+            )}
+
+            <p className="sub cfg-hint">
+              Allowed: {retentionDays.min} to {retentionDays.max} days. Audit
+              retention must be equal to or longer than hot-storage retention.
             </p>
-          </div>
+          </section>
 
-          <div className="card">
-            <h2>Retention</h2>
-
-            <label
-              className="form-label"
-              htmlFor="hotStorageDays"
-            >
-              Hot Storage
-            </label>
+          <section className="card cfg-card" aria-labelledby="cfgNotifyTitle">
+            <h2 id="cfgNotifyTitle">Critical alert notifications</h2>
 
             <div
-              style={{
-                display: 'grid',
-                gridTemplateColumns: '1fr auto',
-                gap: '10px',
-                alignItems: 'center',
-              }}
+              className="cfg-choices"
+              role="group"
+              aria-label="Critical alert notifications"
             >
-              <input
-                className="field-input"
-                id="hotStorageDays"
-                name="hotStorageDays"
-                type="number"
-                min="1"
-                max="3650"
-                value={configuration.hotStorageDays}
-                onChange={handleConfigurationChange}
-              />
-
-              <span className="pill blue">days</span>
+              {notificationOptions.map((option) => (
+                <button
+                  key={option}
+                  type="button"
+                  className="cfg-choice"
+                  aria-pressed={configuration.criticalAlertNotification === option}
+                  onClick={() => setField('criticalAlertNotification', option)}
+                >
+                  {option}
+                </button>
+              ))}
             </div>
-
-            <label
-              className="form-label"
-              htmlFor="auditRetentionDays"
-            >
-              Audit Retention
-            </label>
-
-            <div
-              style={{
-                display: 'grid',
-                gridTemplateColumns: '1fr auto',
-                gap: '10px',
-                alignItems: 'center',
-              }}
-            >
-              <input
-                className="field-input"
-                id="auditRetentionDays"
-                name="auditRetentionDays"
-                type="number"
-                min="1"
-                max="3650"
-                value={configuration.auditRetentionDays}
-                onChange={handleConfigurationChange}
-              />
-
-              <span className="pill blue">days</span>
-            </div>
-
-            <p className="sub">
-              Audit retention must be equal to or longer than
-              hot-storage retention.
-            </p>
-          </div>
-
-          <div className="card">
-            <h2>Notifications</h2>
-
-            <label
-              className="form-label"
-              htmlFor="criticalAlertNotification"
-            >
-              Critical Alerts
-            </label>
-
-            <select
-              className="select-input"
-              id="criticalAlertNotification"
-              name="criticalAlertNotification"
-              value={
-                configuration.criticalAlertNotification
-              }
-              onChange={handleConfigurationChange}
-            >
-              <option value="Email + In-App">
-                Email + In-App
-              </option>
-
-              <option value="Email Only">
-                Email Only
-              </option>
-
-              <option value="In-App Only">
-                In-App Only
-              </option>
-
-              <option value="Disabled">
-                Disabled
-              </option>
-            </select>
 
             <div className="notice">
-              Notification delivery is currently simulated in
-              the frontend. No real email or external message is
-              sent.
+              Notifications are simulated in this demo. No email
+              or external message is sent.
             </div>
-          </div>
-
-          <div className="card">
-            <h2>Configuration Actions</h2>
-
-            <div className="kv">
-              <span>Current State</span>
-
-              <strong>
-                <span
-                  className={`pill ${stateClass(
-                    configurationState,
-                  )}`}
-                >
-                  {configurationState}
-                </span>
-              </strong>
-            </div>
-
-            <div className="kv">
-              <span>Unsaved Changes</span>
-
-              <strong>
-                {hasUnsavedChanges ? 'Yes' : 'No'}
-              </strong>
-            </div>
-
-            <div className="kv">
-              <span>Persistence</span>
-              <strong>Frontend session only</strong>
-            </div>
-
-            <div
-              className="actions-cell"
-              style={{
-                marginTop: '8px',
-                display: 'flex',
-                flexWrap: 'wrap',
-                gap: '8px',
-              }}
-            >
-              <button
-                className="btn primary"
-                type="submit"
-                disabled={!hasUnsavedChanges}
-              >
-                Save Configuration
-              </button>
-
-              <button
-                className="btn"
-                type="button"
-                disabled={!hasUnsavedChanges}
-                onClick={cancelChanges}
-              >
-                Cancel Changes
-              </button>
-
-              <button
-                className="btn danger"
-                type="button"
-                onClick={restoreDefaults}
-              >
-                Restore Defaults
-              </button>
-            </div>
-          </div>
+          </section>
         </div>
       </form>
     </section>

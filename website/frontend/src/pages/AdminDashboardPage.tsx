@@ -1,33 +1,98 @@
-import type { CSSProperties } from 'react'
-import type {
-  AdminDashboardPageProps,
-  IntegrationStatus,
-} from '../types/adminDashboardTypes'
+import { useState } from 'react'
+import { Link } from 'react-router-dom'
 
-import { integrations, recentActivity } from '../data/adminDashboardData'
+import TableScroll from '../components/TableScroll'
+import {
+  adminPosture,
+  attackActivity,
+  needsAdministrator,
+  recentAdminChanges,
+} from '../data/statusSummary'
+import { useAdminState } from '../hooks/useAdminState'
+import { useAssessments } from '../hooks/useAssessments'
+import { PHONE_QUERY, useMediaQuery } from '../hooks/useMediaQuery'
+import { useSocState } from '../hooks/useSocState'
+import type { ActivityColumn, ActivityState } from '../types/mitreTypes'
+import type { SearchNavigationState } from '../types/searchTypes'
+import { statusTone } from '../utils/statusTone'
 
-
-function integrationStatusClass(status: IntegrationStatus) {
-  if (status === 'Connected') {
-    return 'ok'
-  }
-
-  if (status === 'Warning') {
-    return 'warn'
-  }
-
-  return 'danger'
+// Words for each activity state, so the grid never relies on colour alone
+const ACTIVITY_LABELS: Record<ActivityState, string> = {
+  failed: 'Containment failed',
+  waiting: 'Waiting for approval',
+  open: 'Open',
+  handled: 'Handled',
+  quiet: 'Not seen',
 }
 
-function AdminDashboardPage({
-  onNavigate,
-}: AdminDashboardPageProps) {
-  const connectedIntegrations = integrations.filter(
-    (integration) => integration.status === 'Connected',
-  ).length
+const ACTIVITY_LEGEND: ActivityState[] = ['failed', 'waiting', 'open', 'handled', 'quiet']
 
-  const allServicesHealthy =
-    connectedIntegrations === integrations.length
+const DEFAULT_TECHNIQUE = 'T1110'
+
+// "Reconnaissance" is wider than a column at a laptop width, so it may break after "Recon" with a hyphen
+const tacticLabel = (name: string) => name.replace('Reconnaissance', 'Recon­naissance')
+
+function AdminDashboardPage() {
+  // Shared admin state: every figure follows changes made on the other admin pages
+  const adminState = useAdminState()
+  const { auditLogs } = adminState
+  // The alerts, what was done about them and what the agent decided: the same live state the analyst sees
+  const { alerts, executions, approvals } = useSocState()
+  const assessments = useAssessments()
+  const isPhone = useMediaQuery(PHONE_QUERY)
+
+  const posture = adminPosture(adminState)
+  const activity = attackActivity(alerts, executions, approvals, assessments)
+  const tasks = needsAdministrator(adminState)
+  const changes = recentAdminChanges(auditLogs)
+
+  const cells = activity.flatMap((column) => column.cells)
+  const [pickedId, setPickedId] = useState(DEFAULT_TECHNIQUE)
+  const picked = cells.find((cell) => cell.id === pickedId) ?? cells[0]
+  const pendingApproval = picked.alerts.find((alert) => alert.approvalId)
+
+  const seenTechniques = cells.filter((cell) => cell.state !== 'quiet').length
+  const seenTactics = activity.filter((column) => column.seenCount > 0).length
+  const waitingTechniques = cells.filter((cell) => cell.state === 'waiting' || cell.state === 'failed').length
+
+  const recordLink = (recordId: string): SearchNavigationState => ({ highlight: recordId })
+
+  // One tactic: its name and count, then a button per technique
+  function renderColumn(column: ActivityColumn, className: string) {
+    const headingId = `tactic-${column.tactic.replace(/\s+/g, '-')}`
+
+    return (
+      <div key={column.tactic} className={className} role="group" aria-labelledby={headingId}>
+        <p className={`mitre-tactic${column.seenCount > 0 ? ' covered' : ''}`} id={headingId}>
+          {tacticLabel(column.tactic)}{' '}
+          <span className="mitre-tactic-count">
+            {column.seenCount > 0 ? `${column.seenCount} seen` : 'None seen'}
+          </span>
+        </p>
+
+        {column.cells.map((cell) => (
+          <button
+            key={cell.id}
+            type="button"
+            className={`mitre-cell ${cell.state}`}
+            aria-pressed={cell.id === picked.id}
+            aria-label={`${cell.id} ${cell.name}: ${ACTIVITY_LABELS[cell.state]}${
+              cell.alerts.length > 0 ? `, ${cell.alerts.length} ${cell.alerts.length === 1 ? 'alert' : 'alerts'}` : ''
+            }`}
+            data-technique={cell.id}
+            onClick={() => setPickedId(cell.id)}
+          >
+            <span className="mitre-cell-id mono">{cell.id}</span>
+            <span className="mitre-cell-name">{cell.name}</span>
+            <span className="mitre-cell-state">
+              {ACTIVITY_LABELS[cell.state]}
+              {cell.alerts.length > 0 ? ` · ${cell.alerts.length}` : ''}
+            </span>
+          </button>
+        ))}
+      </div>
+    )
+  }
 
   return (
     <section
@@ -38,391 +103,141 @@ function AdminDashboardPage({
       <div className="headline">
         <div>
           <h1>Security Management</h1>
-
           <p className="sub">
-            Administrative dashboard for configuration, integrations,
-            detection rules, response policies, users, and audit logs.
+            How well AthenaSec is set up to detect and respond, and what changed today.
           </p>
         </div>
-
-        <span
-          className={`pill ${
-            allServicesHealthy ? 'ok' : 'warn'
-          }`}
-        >
-          {allServicesHealthy
-            ? 'All Services Healthy'
-            : 'Service Attention Required'}
-        </span>
       </div>
 
-      <div className="grid stats">
-        <button
-          className="stat"
-          type="button"
-          onClick={() => onNavigate('integrations')}
-          aria-label="Open integrations"
-        >
-          <strong>{connectedIntegrations}</strong>
-          <span>Integrations</span>
-          <small>Connected now</small>
-        </button>
+      <ul className="card posture admin-posture" aria-label="Platform posture">
+        {posture.map((item) => (
+          <li key={item.page} className={item.tone ? `posture-${item.tone}` : undefined}>
+            <Link to={`/app/${item.page}${item.view ? `?view=${item.view}` : ''}`} className="posture-link" data-posture={item.page}>
+              <strong>
+                {item.value}
+                {item.total && <span className="posture-total">{item.total}</span>}
+              </strong>
+              <span className="posture-label">{item.label}</span>
+              <span className="posture-note">{item.note}</span>
+            </Link>
+          </li>
+        ))}
+      </ul>
 
-        <button
-          className="stat"
-          type="button"
-          onClick={() => onNavigate('detection-rules')}
-          aria-label="Open detection rules"
-        >
-          <strong>5</strong>
-          <span>Detection Rules</span>
-          <small>3 updated today</small>
-        </button>
-
-        <button
-          className="stat"
-          type="button"
-          onClick={() => onNavigate('response-policies')}
-          aria-label="Open response policies"
-        >
-          <strong>4</strong>
-          <span>Response Policies</span>
-          <small>2 AI-managed</small>
-        </button>
-
-        <button
-          className="stat"
-          type="button"
-          onClick={() => onNavigate('audit-logs')}
-          aria-label="Open audit logs"
-        >
-          <strong>100%</strong>
-          <span>Audit Stored</span>
-          <small>OpenSearch synced</small>
-        </button>
-      </div>
-
-      <div className="grid three" style={{ marginTop: '18px' }}>
-        <button
-          className="card"
-          type="button"
-          onClick={() => onNavigate('configuration')}
-          style={{ textAlign: 'left' }}
-        >
-          <h2>Configuration</h2>
-
-          <p className="sub">
-            Edit general, detection, logging, retention, and
-            notification controls.
-          </p>
-
-          <span
-            className="pill blue"
-            style={{ marginTop: '14px' }}
-          >
-            Open Configuration
-          </span>
-        </button>
-
-        <button
-          className="card"
-          type="button"
-          onClick={() => onNavigate('detection-rules')}
-          style={{ textAlign: 'left' }}
-        >
-          <h2>Detection Rules</h2>
-
-          <p className="sub">
-            Add, edit, enable, disable, and delete SOC detection
-            logic.
-          </p>
-
-          <span
-            className="pill blue"
-            style={{ marginTop: '14px' }}
-          >
-            Manage Rules
-          </span>
-        </button>
-
-        <button
-          className="card"
-          type="button"
-          onClick={() => onNavigate('system-health')}
-          style={{ textAlign: 'left' }}
-        >
-          <h2>System Health</h2>
-
-          <p className="sub">
-            Review CPU, memory, storage, service health, and
-            processing totals.
-          </p>
-
-          <span
-            className="pill blue"
-            style={{ marginTop: '14px' }}
-          >
-            View Health
-          </span>
-        </button>
-      </div>
-
-      <div className="grid two" style={{ marginTop: '18px' }}>
-        <div className="card">
-          <div className="headline">
-            <div>
-              <h2>System Health Snapshot</h2>
-
-              <p className="sub">
-                Current static system-resource summary.
-              </p>
-            </div>
-
-            <span className="pill ok">Operational</span>
-          </div>
-
-          <div
-            className="grid"
-            style={{
-              gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
-              gap: '14px',
-            }}
-          >
-            <div className="health-stat">
-              <div
-                className="donut good"
-                style={
-                  {
-                    '--donut-pct': 42,
-                  } as CSSProperties
-                }
-              >
-                <div className="donut-label">42%</div>
-              </div>
-
-              <div className="health-info">
-                <strong
-                  style={{
-                    color: '#fff',
-                    fontSize: '14px',
-                  }}
-                >
-                  CPU
-                </strong>
-
-                <span className="health-tag good">Good</span>
-              </div>
-            </div>
-
-            <div className="health-stat">
-              <div
-                className="donut warn"
-                style={
-                  {
-                    '--donut-pct': 67,
-                  } as CSSProperties
-                }
-              >
-                <div className="donut-label">67%</div>
-              </div>
-
-              <div className="health-info">
-                <strong
-                  style={{
-                    color: '#fff',
-                    fontSize: '14px',
-                  }}
-                >
-                  Memory
-                </strong>
-
-                <span className="health-tag warn">Watch</span>
-              </div>
-            </div>
-
-            <div className="health-stat">
-              <div
-                className="donut good"
-                style={
-                  {
-                    '--donut-pct': 96,
-                  } as CSSProperties
-                }
-              >
-                <div className="donut-label">96%</div>
-              </div>
-
-              <div className="health-info">
-                <strong
-                  style={{
-                    color: '#fff',
-                    fontSize: '14px',
-                  }}
-                >
-                  Services
-                </strong>
-
-                <span className="health-tag good">Good</span>
-              </div>
-            </div>
-
-            <div className="health-stat">
-              <div
-                className="donut bad"
-                style={
-                  {
-                    '--donut-pct': 58,
-                  } as CSSProperties
-                }
-              >
-                <div className="donut-label">58%</div>
-              </div>
-
-              <div className="health-info">
-                <strong
-                  style={{
-                    color: '#fff',
-                    fontSize: '14px',
-                  }}
-                >
-                  Case Automation
-                </strong>
-
-                <span className="health-tag bad">
-                  Attention
-                </span>
-              </div>
-            </div>
-          </div>
-
-          <button
-            className="btn ghost small"
-            type="button"
-            onClick={() => onNavigate('system-health')}
-            style={{
-              justifyContent: 'center',
-              marginTop: '16px',
-              width: '100%',
-            }}
-          >
-            View Full System Health
-          </button>
-        </div>
-
-        <div className="card">
-          <div className="headline">
-            <div>
-              <h2>Integration Status</h2>
-
-              <p className="sub">
-                {connectedIntegrations} of {integrations.length}{' '}
-                integrations connected.
-              </p>
-            </div>
-
-            <span className="pill ok">
-              {connectedIntegrations} online
-            </span>
-          </div>
-
-          <div className="table-scroll">
-            <table>
-              <thead>
-                <tr>
-                  <th>Integration</th>
-                  <th>Last Check</th>
-                  <th>Status</th>
-                </tr>
-              </thead>
-
-              <tbody>
-                {integrations.map((integration) => (
-                  <tr key={integration.name}>
-                    <td>{integration.name}</td>
-                    <td>{integration.lastCheck}</td>
-
-                    <td>
-                      <span
-                        className={`pill ${integrationStatusClass(
-                          integration.status,
-                        )}`}
-                      >
-                        {integration.status}
-                      </span>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-
-          <button
-            className="btn ghost small"
-            type="button"
-            onClick={() => onNavigate('integrations')}
-            style={{
-              justifyContent: 'center',
-              marginTop: '14px',
-              width: '100%',
-            }}
-          >
-            Manage Integrations
-          </button>
-        </div>
-      </div>
-
-      <div className="card" style={{ marginTop: '18px' }}>
-        <div className="headline">
+      <section className="card key mitre-card" aria-labelledby="mitreTitle">
+        <div className="mitre-head">
           <div>
-            <h2>Recent Administrative Activity</h2>
-
+            <h2 id="mitreTitle">ATT&amp;CK activity and the agent&apos;s response</h2>
             <p className="sub">
-              Recent configuration, policy, integration, and user
-              management events.
+              {seenTechniques} {seenTechniques === 1 ? 'technique' : 'techniques'} seen in today&apos;s alerts across{' '}
+              {seenTactics} {seenTactics === 1 ? 'tactic' : 'tactics'};{' '}
+              {waitingTechniques === 0
+                ? 'none is waiting for a person.'
+                : `${waitingTechniques} ${waitingTechniques === 1 ? 'is' : 'are'} waiting for a person or failed.`}
             </p>
           </div>
-
-          <button
-            className="btn ghost small"
-            type="button"
-            onClick={() => onNavigate('audit-logs')}
-          >
-            View Audit Logs
-          </button>
+          <ul className="mitre-legend" aria-label="Legend">
+            {ACTIVITY_LEGEND.map((state) => (
+              <li key={state}>
+                <span className={`mitre-swatch ${state}`} aria-hidden="true" />
+                {ACTIVITY_LABELS[state]}
+              </li>
+            ))}
+          </ul>
         </div>
 
-        <div className="table-scroll">
-          <table>
-            <thead>
-              <tr>
-                <th>Event ID</th>
-                <th>Time</th>
-                <th>Admin</th>
-                <th>Action</th>
-                <th>Target</th>
-                <th>Result</th>
-              </tr>
-            </thead>
+        {isPhone ? (
+          // Phones: only the tactics with tracked techniques, stacked; the rest named below
+          <div className="mitre-list">
+            {activity
+              .filter((column) => column.cells.length > 0)
+              .map((column) => renderColumn(column, 'mitre-list-group'))}
+            <p className="mitre-untracked">
+              No techniques tracked yet:{' '}
+              {activity
+                .filter((column) => column.cells.length === 0)
+                .map((column) => column.tactic)
+                .join(', ')}
+              .
+            </p>
+          </div>
+        ) : (
+          <TableScroll label="MITRE ATT&CK activity">
+            <div className="mitre-grid">
+              {activity.map((column) => renderColumn(column, 'mitre-column'))}
+            </div>
+          </TableScroll>
+        )}
 
-            <tbody>
-              {recentActivity.map((activity) => (
-                <tr key={activity.id}>
-                  <td>{activity.id}</td>
-                  <td>{activity.time}</td>
-                  <td>{activity.admin}</td>
-                  <td>{activity.action}</td>
-                  <td>{activity.target}</td>
-
-                  <td>
-                    <span className="pill ok">
-                      {activity.result}
-                    </span>
-                  </td>
-                </tr>
+        <div className="mitre-pick" aria-live="polite" data-picked={picked.id}>
+          <span className="mitre-pick-id mono">{picked.id}</span>
+          <span className="mitre-pick-name">{picked.name}</span>
+          <span className={`pill ${statusTone(ACTIVITY_LABELS[picked.state])}`} data-field="pickState">
+            {ACTIVITY_LABELS[picked.state]}
+          </span>
+          {picked.alerts.length === 0 ? (
+            <span className="mitre-pick-detail">No alert has used this technique today.</span>
+          ) : (
+            <ul className="mitre-pick-alerts" data-field="pickAlerts">
+              {picked.alerts.map((alert) => (
+                <li key={alert.id} data-alert-id={alert.id}>
+                  <span className="mono">{alert.id}</span> {alert.title}, risk {alert.risk}. The agent&apos;s outcome:{' '}
+                  {alert.outcome}. {alert.response}.
+                </li>
               ))}
-            </tbody>
-          </table>
+            </ul>
+          )}
+          {pendingApproval?.approvalId && (
+            <Link className="text-link" to="/app/approvals" state={recordLink(pendingApproval.approvalId)}>
+              Open request {pendingApproval.approvalId}
+            </Link>
+          )}
         </div>
+      </section>
+
+      <div className="dash-lower">
+        <section className="card dash-queue admin-changes" aria-labelledby="changesTitle">
+          <div className="dash-card-head">
+            <h2 id="changesTitle">Recent administrative changes</h2>
+            <Link className="text-link" to="/app/audit-logs">Open audit log</Link>
+          </div>
+
+          <ol className="change-list">
+            {changes.map((change) => (
+              <li key={change.id} data-change-id={change.id}>
+                <span className="mono change-time">{change.time}</span>
+                <span className="change-text">
+                  <span className="change-action">{change.action}</span>{' '}
+                  <span className="change-target">{change.target}</span>
+                </span>
+                <span className="mono change-id">{change.id}</span>
+                <span className={`pill ${statusTone(change.result)}`}>{change.result}</span>
+              </li>
+            ))}
+          </ol>
+        </section>
+
+        <section className="card key dash-log admin-tasks" aria-labelledby="tasksTitle">
+          <h2 id="tasksTitle">Needs an administrator</h2>
+
+          {tasks.length === 0 ? (
+            <p className="dash-empty">Nothing needs an administrator right now.</p>
+          ) : (
+            <ul className="task-list">
+              {tasks.map((task) => (
+                <li key={task.id} className={`task-${task.tone}`} data-task-id={task.id}>
+                  <span className="task-dot" aria-hidden="true" />
+                  <span>
+                    {task.text}{' '}
+                    <Link className="task-link" aria-label={`${task.linkLabel}: ${task.text}`} to={`/app/${task.page}${task.view ? `?view=${task.view}` : ''}`} state={recordLink(task.recordId)}>
+                      {task.linkLabel}
+                    </Link>
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
       </div>
     </section>
   )

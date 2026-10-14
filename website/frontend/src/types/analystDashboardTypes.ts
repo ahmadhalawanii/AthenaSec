@@ -1,18 +1,26 @@
-export type AlertSeverity = 'Critical' | 'High' | 'Medium' | 'Low'
+import type { AlertRecord, AlertResponseState } from './alertsTypes'
+import type { StatusTone } from '../utils/statusTone'
 
-export type DashboardAlert = {
+// One cell of the posture strip under the attack map
+export type PostureItem = {
+  value: number
+  label: string
+  note: string
+  tone?: StatusTone
+}
+
+// A row in "Needs a decision"
+export type DecisionItem = {
+  alert: AlertRecord
+  state: AlertResponseState
+  detail: string
+}
+
+// A row in the automated response log
+export type ResponseLogItem = {
   id: string
-  type: string
-  endpoint: string
-  severity: AlertSeverity
-  risk: number
-  sourceIp: string
-  destinationIp: string
-  status: string
-  assignedAnalyst: string
   time: string
-  summary: string
-  reasoning: string
-  mitre: string
-  explanation: string
+  action: string
+  by: string
+  result: 'Done' | 'Failed'
 }

@@ -8,26 +8,10 @@ import type {
   ProfilePageProps,
   ProfileState,
   ProfileValues,
-  UserRole,
 } from '../types/profileTypes'
 
-import { timezoneOptions } from '../data/profileData'
-
-function profileStateClass(state: ProfileState) {
-  if (state === 'Saved') {
-    return 'ok'
-  }
-
-  if (state === 'Error') {
-    return 'danger'
-  }
-
-  return 'blue'
-}
-
-function roleClass(role: UserRole) {
-  return role === 'Administrator' ? 'warn' : 'blue'
-}
+import { DEFAULT_TIMEZONE, timezoneOptions } from '../data/profileData'
+import { statusTone } from '../utils/statusTone'
 
 function ProfilePage({
   userName = 'Current User',
@@ -42,7 +26,7 @@ function ProfilePage({
         ? 'Security Management'
         : 'Security Operations',
     phone: '+971 50 555 0100',
-    timezone: 'Asia/Dubai',
+    timezone: DEFAULT_TIMEZONE,
   }
 
   const [profile, setProfile] =
@@ -56,9 +40,7 @@ function ProfilePage({
 
   const [validationError, setValidationError] = useState('')
 
-  const [pageMessage, setPageMessage] = useState(
-    'Profile information loaded successfully.',
-  )
+  const [pageMessage, setPageMessage] = useState('')
 
   const hasUnsavedChanges = useMemo(() => {
     return (
@@ -143,7 +125,7 @@ function ProfilePage({
     setValidationError('')
 
     setPageMessage(
-      'Profile saved for the current frontend session.',
+      'Profile saved.',
     )
   }
 
@@ -190,14 +172,14 @@ function ProfilePage({
           }}
         >
           <span
-            className={`pill ${roleClass(role)}`}
+            className={`pill ${statusTone(role)}`}
             id="profileRole"
           >
             {role}
           </span>
 
           <span
-            className={`pill ${profileStateClass(
+            className={`pill ${statusTone(
               profileState,
             )}`}
           >
@@ -252,7 +234,7 @@ function ProfilePage({
               <span>Role</span>
 
               <strong>
-                <span className={`pill ${roleClass(role)}`}>
+                <span className={`pill ${statusTone(role)}`}>
                   {role}
                 </span>
               </strong>
@@ -311,9 +293,10 @@ function ProfilePage({
             className="field-input"
             id="profileName"
             name="displayName"
+            autoComplete="name"
             value={profile.displayName}
             onChange={handleProfileChange}
-            placeholder="Display name"
+            placeholder="Display name…"
           />
 
           <label
@@ -328,9 +311,11 @@ function ProfilePage({
             id="profileEmail"
             name="email"
             type="email"
+            autoComplete="email"
+            spellCheck={false}
             value={profile.email}
             onChange={handleProfileChange}
-            placeholder="user@athenasec.com"
+            placeholder="user@athenasec.com…"
           />
 
           <label
@@ -344,9 +329,10 @@ function ProfilePage({
             className="field-input"
             id="profileDepartment"
             name="department"
+            autoComplete="organization"
             value={profile.department}
             onChange={handleProfileChange}
-            placeholder="Security Operations"
+            placeholder="Security Operations…"
           />
 
           <label
@@ -360,9 +346,11 @@ function ProfilePage({
             className="field-input"
             id="profilePhone"
             name="phone"
+            type="tel"
+            autoComplete="tel"
             value={profile.phone}
             onChange={handleProfileChange}
-            placeholder="+971 50 555 0100"
+            placeholder="+971 50 555 0100…"
           />
 
           <label
@@ -376,6 +364,7 @@ function ProfilePage({
             className="select-input"
             id="profileTimezone"
             name="timezone"
+            autoComplete="off"
             value={profile.timezone}
             onChange={handleProfileChange}
           >
@@ -398,7 +387,7 @@ function ProfilePage({
 
           <div className="kv">
             <span>Persistence</span>
-            <strong>Frontend session only</strong>
+            <strong>Until you leave this page (demo)</strong>
           </div>
 
           <div
@@ -508,8 +497,8 @@ function ProfilePage({
           </div>
 
           <div className="notice">
-            These session and activity records are static frontend
-            examples until authentication and audit APIs are connected.
+            Session and activity records are sample data in this
+            demo.
           </div>
         </div>
       </div>

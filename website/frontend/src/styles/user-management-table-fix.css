@@ -1,12 +1,10 @@
 /*
   AthenaSec User Management Table Fix
   ====================================
-  Keeps all user-management action buttons visible:
-  - View
-  - Edit
-  - Reset Password
-  - Suspend / Activate
-  - Delete
+  Wide screens keep every user-management action visible as a
+  button: View, Edit, Reset Password, Suspend / Activate, Delete.
+  On phones (700px and below) View stays and the other four move
+  into a "⋯" overflow menu (OverflowMenu component).
 */
 
 /* Keep a stable table area during filtering and user updates. */
@@ -28,38 +26,19 @@
   table-layout: fixed;
 }
 
-/* User */
-.page[data-page="user-management"] th:nth-child(1),
-.page[data-page="user-management"] td:nth-child(1) {
-  width: 24%;
-}
-
-/* Role */
-.page[data-page="user-management"] th:nth-child(2),
-.page[data-page="user-management"] td:nth-child(2) {
-  width: 12%;
-}
-
-/* Status */
-.page[data-page="user-management"] th:nth-child(3),
-.page[data-page="user-management"] td:nth-child(3) {
-  width: 10%;
-}
+/*
+  Columns: 1 User, 2 Role, 3 Status, 4 MFA, 5 Department, 6 Actions
+  (pinned), 7 Last sign-in. Widths for each size are set below.
+*/
 
 /* Actions */
-.page[data-page="user-management"] th:nth-child(4),
-.page[data-page="user-management"] td:nth-child(4) {
+.page[data-page="user-management"] th:nth-child(6),
+.page[data-page="user-management"] td:nth-child(6) {
   width: 42%;
   min-width: 500px;
   overflow: visible;
   text-overflow: clip;
   white-space: nowrap;
-}
-
-/* Last Login */
-.page[data-page="user-management"] th:nth-child(5),
-.page[data-page="user-management"] td:nth-child(5) {
-  width: 12%;
 }
 
 /*
@@ -99,13 +78,13 @@
 .page[data-page="user-management"]
   .actions-cell
   .btn:nth-child(2) {
-  min-width: 58px;
+  min-width: 52px;
 }
 
 .page[data-page="user-management"]
   .actions-cell
   .btn:nth-child(3) {
-  min-width: 122px;
+  min-width: 100px;
 }
 
 .page[data-page="user-management"]
@@ -143,39 +122,169 @@
   transform: none;
 }
 
+/* The "⋯" menu is only for phones; see the 700px rules below. */
+.page[data-page="user-management"] .actions-cell .row-action-overflow {
+  display: none;
+}
+
 /*
-  Long user names and emails should be shortened visually
-  instead of expanding the table.
+  Long user names and emails wrap instead of being cut off, so the
+  full email address is always readable.
 */
 .page[data-page="user-management"] td:nth-child(1) {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow: visible;
+  text-overflow: clip;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+/* Department wraps inside its column instead of being cut off */
+.page[data-page="user-management"] td:nth-child(5) {
+  overflow: visible;
+  text-overflow: clip;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 
 /* Do not clip the action cell. */
-.page[data-page="user-management"] td:nth-child(4) {
+.page[data-page="user-management"] td:nth-child(6) {
   overflow: visible;
   text-overflow: clip;
 }
 
 /*
-  Narrow screens use horizontal scrolling. Buttons should not
-  be compressed, wrapped, or hidden.
+  Desktop widths. Short columns are fixed to their widest content:
+  the "Administrator" pill, the status and MFA words, the five action
+  buttons (408px plus cell padding) and "Today, 20:46". Department
+  wraps to two lines; User takes the rest. When the table would be
+  narrower than 1100px (the visible width at 1440px is about 1107px)
+  it scrolls sideways with Actions pinned, instead of squeezing the
+  buttons into a column too narrow for them.
+
+  The .table-scroll in these selectors is needed to outrank the
+  "min-width: 0; width: 100%" rule in athenasec.css. At 1180px and
+  below athenasec.css switches the table to content-sized columns.
 */
-@media (max-width: 1300px) {
-  .page[data-page="user-management"] table {
-    min-width: 1240px;
+@media (min-width: 1181px) {
+  .page[data-page="user-management"] .table-scroll table {
+    width: 100%;
+    min-width: 1100px;
     table-layout: fixed;
   }
 
+  .page[data-page="user-management"] .table-scroll th:nth-child(1),
+  .page[data-page="user-management"] .table-scroll td:nth-child(1) {
+    width: auto;
+  }
+
+  .page[data-page="user-management"] .table-scroll th:nth-child(2),
+  .page[data-page="user-management"] .table-scroll td:nth-child(2) {
+    width: 120px;
+  }
+
+  .page[data-page="user-management"] .table-scroll th:nth-child(3),
+  .page[data-page="user-management"] .table-scroll td:nth-child(3) {
+    width: 108px;
+  }
+
+  .page[data-page="user-management"] .table-scroll th:nth-child(4),
+  .page[data-page="user-management"] .table-scroll td:nth-child(4) {
+    width: 80px;
+  }
+
+  .page[data-page="user-management"] .table-scroll th:nth-child(5),
+  .page[data-page="user-management"] .table-scroll td:nth-child(5) {
+    width: 116px;
+  }
+
+  .page[data-page="user-management"] .table-scroll th:nth-child(6),
+  .page[data-page="user-management"] .table-scroll td:nth-child(6) {
+    width: 412px;
+  }
+
+  .page[data-page="user-management"] .table-scroll th:nth-child(7),
+  .page[data-page="user-management"] .table-scroll td:nth-child(7) {
+    width: 112px;
+  }
+
   .page[data-page="user-management"] .table-scroll {
-    overflow-x: auto;
+    container-type: inline-size;
+  }
+}
+
+/*
+  Between 924px and 1100px of visible width the 1100px table scrolls,
+  but Actions (not the last column) would end short of the right
+  edge, with a sliver of Last sign-in showing past it. In that band
+  the table grows so Actions ends beyond the edge and stays pinned
+  flush; Last sign-in is reached by scrolling. The extra 128px is
+  Last sign-in (112px) plus the scroll box padding and pin offset.
+*/
+@container (max-width: 1099.98px) {
+  .page[data-page="user-management"] .table-scroll table {
+    width: max(1100px, calc(100cqw + 128px));
   }
 }
 
 @media (max-width: 700px) {
   .page[data-page="user-management"] .table-scroll {
     min-height: 300px;
+  }
+
+  /*
+    On phones the pinned Actions column holds just View and the
+    "⋯" menu side by side, so rows stay one line of buttons tall.
+  */
+  .page[data-page="user-management"] .table-scroll table {
+    min-width: 0;
+    width: max-content;
+    table-layout: auto;
+  }
+
+  .page[data-page="user-management"] th:nth-child(n),
+  .page[data-page="user-management"] td:nth-child(n) {
+    width: auto;
+    min-width: 0;
+  }
+
+  /*
+    A fixed User column so the email wraps (at the " · " first)
+    rather than widening the table. Role, Status and Last Login
+    scroll sideways behind the pinned Actions column.
+  */
+  .page[data-page="user-management"] th:nth-child(1),
+  .page[data-page="user-management"] td:nth-child(1) {
+    width: 190px;
+    min-width: 190px;
+  }
+
+  .page[data-page="user-management"] .table-scroll td.actions-cell {
+    white-space: nowrap;
+  }
+
+  .page[data-page="user-management"] .table-scroll td.actions-cell .btn {
+    display: inline-flex;
+    width: auto;
+    min-width: 0;
+    min-height: 40px;
+    margin: 0;
+    vertical-align: middle;
+  }
+
+  .page[data-page="user-management"] .table-scroll td.actions-cell .btn + .btn {
+    margin: 0 0 0 6px;
+  }
+
+  .page[data-page="user-management"] .table-scroll td.actions-cell .btn:first-child {
+    min-width: 56px;
+  }
+
+  .page[data-page="user-management"] .table-scroll td.actions-cell .overflow-trigger {
+    min-width: 40px;
+  }
+
+  /* After the .btn rule above, which it would otherwise lose to. */
+  .page[data-page="user-management"] .table-scroll td.actions-cell .row-action-inline {
+    display: none;
   }
 }

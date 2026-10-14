@@ -1,17 +1,20 @@
 import type { HealthEvent, HealthMetric, ServiceRecord } from '../types/systemHealthTypes'
 
+import { formatUptime } from './servicePanel'
+
 export const initialMetrics: HealthMetric[] = [
   {
     id: 'cpu',
     name: 'CPU Usage',
-    value: 42,
-    description: 'Healthy load',
+    // CPU, memory and running services are worked out from the VM usage and the inventory (see serviceInventory.ts)
+    value: 38.4,
+    description: 'Low usage',
     level: 'Good',
   },
   {
     id: 'memory',
     name: 'Memory Usage',
-    value: 67,
+    value: 71.2,
     description: 'Elevated',
     level: 'Watch',
   },
@@ -32,8 +35,8 @@ export const initialMetrics: HealthMetric[] = [
   {
     id: 'services',
     name: 'Running Services',
-    value: 96,
-    description: 'Nearly all up',
+    value: 80,
+    description: 'Some degradation',
     level: 'Good',
   },
   {
@@ -59,25 +62,21 @@ export const initialMetrics: HealthMetric[] = [
   },
 ]
 
+const DAY = 86400
+
+/*
+  The one service inventory, in two labelled groups with no service
+  listed twice. The detection and AI pipeline is probed for response
+  time; the security stack on the VM is checked for availability only
+  (what the Service Panel reports, shown here from the same records).
+*/
 export const initialServices: ServiceRecord[] = [
-  {
-    id: 'SVC-001',
-    name: 'Wazuh Manager',
-    category: 'SIEM',
-    status: 'Online',
-    uptime: '99.98%',
-    latency: 42,
-    version: '4.12.0',
-    endpoint: 'wazuh-manager:55000',
-    lastCheck: '30 seconds ago',
-    description:
-      'Receives Linux endpoint telemetry, security events, authentication logs, and file-integrity alerts.',
-  },
   {
     id: 'SVC-002',
     name: 'OpenSearch',
     category: 'Storage',
-    status: 'Online',
+    group: 'pipeline',
+    status: 'Running',
     uptime: '99.95%',
     latency: 68,
     version: '2.19.1',
@@ -90,7 +89,8 @@ export const initialServices: ServiceRecord[] = [
     id: 'SVC-003',
     name: 'Suricata Sensor',
     category: 'Network IDS',
-    status: 'Online',
+    group: 'pipeline',
+    status: 'Running',
     uptime: '99.91%',
     latency: 34,
     version: '7.0.10',
@@ -103,7 +103,8 @@ export const initialServices: ServiceRecord[] = [
     id: 'SVC-004',
     name: 'LangGraph Workflow',
     category: 'AI Workflow',
-    status: 'Online',
+    group: 'pipeline',
+    status: 'Running',
     uptime: '99.72%',
     latency: 115,
     version: '0.6.2',
@@ -116,6 +117,7 @@ export const initialServices: ServiceRecord[] = [
     id: 'SVC-005',
     name: 'Ollama Runtime',
     category: 'AI Runtime',
+    group: 'pipeline',
     status: 'Degraded',
     uptime: '98.84%',
     latency: 486,
@@ -126,32 +128,121 @@ export const initialServices: ServiceRecord[] = [
       'Hosts the local language model used for summaries, reasoning, technical explanations, and analyst context.',
   },
   {
-    id: 'SVC-006',
-    name: 'TheHive',
-    category: 'Case Management',
-    status: 'Online',
-    uptime: '99.86%',
-    latency: 96,
-    version: '5.4.6',
-    endpoint: 'thehive:9000',
-    lastCheck: '1 minute ago',
+    id: 'SVC-001',
+    name: 'Wazuh Manager',
+    category: 'SIEM',
+    group: 'vm',
+    status: 'Running',
+    uptime: formatUptime(2 * DAY + 4 * 3600 + 6 * 60),
+    latency: null,
+    check: { key: 'manager', detail: 'Service active', uptimeSeconds: 2 * DAY + 4 * 3600 + 6 * 60, statusLabel: '' },
+    version: '4.12.0',
+    endpoint: 'wazuh-manager:55000',
+    lastCheck: 'Service Panel snapshot',
     description:
-      'Supports case creation and investigation tracking for validated security alerts.',
+      'Receives Linux endpoint telemetry, security events, authentication logs, and file-integrity alerts.',
+  },
+  {
+    id: 'SVC-008',
+    name: 'Wazuh Indexer',
+    category: 'SIEM storage',
+    group: 'vm',
+    status: 'Running',
+    uptime: formatUptime(2 * DAY + 4 * 3600 + 8 * 60),
+    latency: null,
+    check: { key: 'indexer', detail: 'Service active', uptimeSeconds: 2 * DAY + 4 * 3600 + 8 * 60, statusLabel: '' },
+    version: '4.12.0',
+    endpoint: 'wazuh-indexer:9200',
+    lastCheck: 'Service Panel snapshot',
+    description:
+      'Indexes the security events the Wazuh Manager collects, so the Wazuh Dashboard can search them.',
+  },
+  {
+    id: 'SVC-009',
+    name: 'Wazuh Dashboard',
+    category: 'SIEM console',
+    group: 'vm',
+    status: 'Starting',
+    uptime: '—',
+    latency: null,
+    check: { key: 'dashboard', detail: 'Service starting', uptimeSeconds: null, statusLabel: '' },
+    version: '4.12.0',
+    endpoint: 'wazuh-dashboard:443',
+    lastCheck: 'Service Panel snapshot',
+    description:
+      'The Wazuh web console. Until it finishes starting, the Wazuh console may not load.',
+  },
+  {
+    id: 'SVC-006',
+    name: 'MISP',
+    category: 'Threat intelligence',
+    group: 'vm',
+    status: 'Running',
+    uptime: '—',
+    latency: null,
+    check: {
+      key: 'misp',
+      detail: 'MISP login page responded; web availability only',
+      uptimeSeconds: null,
+      statusLabel: 'Available',
+    },
+    version: '2.5',
+    endpoint: 'misp:9445',
+    lastCheck: 'Service Panel snapshot',
+    description:
+      'Shares threat-intelligence indicators with AthenaSec. Only web availability is checked, not every worker or queue.',
   },
   {
     id: 'SVC-007',
     name: 'Cortex',
     category: 'Analyzer',
-    status: 'Online',
-    uptime: '99.67%',
-    latency: 122,
+    group: 'vm',
+    status: 'Running',
+    uptime: '—',
+    latency: null,
+    check: {
+      key: 'cortex',
+      detail: 'Cortex responded to /api/status. Availability only.',
+      uptimeSeconds: null,
+      statusLabel: '',
+    },
     version: '3.1.8',
-    endpoint: 'cortex:9001',
-    lastCheck: '1 minute ago',
+    endpoint: 'cortex:9444',
+    lastCheck: 'Service Panel snapshot',
     description:
       'Provides observable enrichment and analysis for IP addresses, domains, hashes, and endpoints.',
   },
+  {
+    id: 'SVC-010',
+    name: 'Docker Engine',
+    category: 'Container runtime',
+    group: 'vm',
+    status: 'Running',
+    uptime: formatUptime(2 * DAY + 4 * 3600 + 12 * 60),
+    latency: null,
+    check: {
+      key: 'docker',
+      detail: 'Service active. Hosts the MISP and Cortex containers.',
+      uptimeSeconds: 2 * DAY + 4 * 3600 + 12 * 60,
+      statusLabel: '',
+    },
+    version: '27.3',
+    endpoint: 'docker (container service)',
+    lastCheck: 'Service Panel snapshot',
+    description:
+      'Runs the MISP and Cortex containers on the VM.',
+  },
 ]
+
+// Expected response latency; services above it need attention (see HLT-011)
+export const LATENCY_TARGET_MS = 400
+
+// Figures shown under Processing Totals besides the live capacity bars
+export const processingTotals = {
+  eventsIndexedToday: '18,462',
+  averageProcessingTime: '1.8 seconds',
+  connectedHosts: '41 / 50',
+}
 
 export const healthEvents: HealthEvent[] = [
   {
