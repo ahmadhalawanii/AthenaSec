@@ -10,7 +10,7 @@ type AttackPathMapProps = {
 }
 
 // Map grid (1000 x 360) to percentages for the HTML layer
-const pctX = (x: number) => `${x / 10}%`
+const pctX = (x: number) => `${(1000 - x) / 10}%`
 const pctY = (y: number) => `${y / 3.6}%`
 
 function nodeLabel(node: MapNode, states: Map<string, string>) {
@@ -40,7 +40,7 @@ function AttackPathMap({ map, selectedId, onSelect, describedBy }: AttackPathMap
   return (
     <div className="path-map" role="group" aria-label="Attack path map" aria-describedby={describedBy}>
       <div className="path-zones" aria-hidden="true">
-        {PATH_ZONES.map((zone) => (
+        {[...PATH_ZONES].reverse().map((zone) => (
           <span key={zone}>{zone}</span>
         ))}
       </div>
@@ -63,16 +63,20 @@ function AttackPathMap({ map, selectedId, onSelect, describedBy }: AttackPathMap
                   edge.unreached ? 'unreached' : '',
                   path.alert.id === selectedId ? 'selected' : 'dimmed',
                 ].join(' ')}
-                x1={edge.from.x}
+                x1={1000 - edge.from.x}
                 y1={edge.from.y}
-                x2={edge.to.x}
+                x2={1000 - edge.to.x}
                 y2={edge.to.y}
               />
             )),
           )}
         </svg>
 
-        {map.nodes.map((node) => {
+        {[...map.nodes]
+          .sort((a, b) =>
+            PATH_ZONES.indexOf(b.zone) - PATH_ZONES.indexOf(a.zone) || a.y - b.y,
+          )
+          .map((node) => {
           const selected = node.alertIds.includes(selectedId)
           return (
             <button

@@ -83,7 +83,6 @@ const adminNav: NavEntry[] = [
     countLabel: ['service needs attention', 'services need attention'],
     countTone: 'warn',
   },
-  { to: '/app/settings', label: 'Settings', icon: 'settings' },
 ]
 
 function Sidebar({

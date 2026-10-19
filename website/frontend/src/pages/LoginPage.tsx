@@ -59,12 +59,12 @@ function LoginPage({ onSignIn }: LoginPageProps) {
           >
             <defs>
               <radialGradient id="radarGlow" cx="0.5" cy="0.5" r="0.5">
-                <stop offset="0" stopColor="#3A0F17" />
-                <stop offset="1" stopColor="#120607" stopOpacity="0" />
+                <stop offset="0" stopColor="#292339" />
+                <stop offset="1" stopColor="#10131D" stopOpacity="0" />
               </radialGradient>
               <linearGradient id="radarWedge" x1="0" y1="0" x2="1" y2="0">
-                <stop offset="0" stopColor="#E8344C" stopOpacity="0" />
-                <stop offset="1" stopColor="#E8344C" stopOpacity="0.45" />
+                <stop offset="0" stopColor="#986CF0" stopOpacity="0" />
+                <stop offset="1" stopColor="#986CF0" stopOpacity="0.45" />
               </linearGradient>
             </defs>
             <circle cx="200" cy="200" r="190" fill="url(#radarGlow)" />

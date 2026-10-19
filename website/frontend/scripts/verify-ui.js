@@ -717,26 +717,25 @@ async function runChecks(page) {
         icon: document.querySelector('link[rel="icon"]')?.getAttribute('href'),
         description: !!document.querySelector('meta[name="description"]')?.content,
         themeColor: document.querySelector('meta[name="theme-color"]')?.content,
-        plexLoaded: document.fonts.check('400 16px "IBM Plex Sans"') && document.fonts.check('600 16px "IBM Plex Sans"'),
-        archivoLoaded: document.fonts.check('800 16px "Archivo Variable"'),
+        manropeLoaded: document.fonts.check('400 16px "Manrope Variable"') && document.fonts.check('700 16px "Manrope Variable"'),
         monoLoaded: document.fonts.check('400 16px "IBM Plex Mono"'),
         bodyFont: getComputedStyle(document.body).fontFamily,
         headlineFont: family('.login-pitch h1'),
         demoEmailFont: family('.demo-email'),
-        brandMark: !!document.querySelector('.auth-logo svg.brand-mark path'),
+        brandMark: !!document.querySelector('.auth-logo img.brand-mark[src="/athenasec-logo.png"]'),
         externalFontCss: [...document.querySelectorAll('link[rel="stylesheet"], link[rel="preconnect"]')].map(l => l.href).filter(h => !h.startsWith(location.origin)),
         fontFiles: performance.getEntriesByType('resource').map(e => e.name).filter(n => /\.(woff2?|ttf|otf)(\?|$)/.test(n)),
       };
     });
     check(wname, 'I10 brand', 'title is "Sign in · AthenaSec" on Login (was "frontend"; "AthenaSec" before page titles)', head.title === 'Sign in · AthenaSec', head.title);
-    check(wname, 'I10 brand', 'favicon is the AthenaSec mark', head.icon === '/athenasec-mark.svg', head.icon);
-    check(wname, 'I10 brand', 'meta description and theme-color set', head.description && head.themeColor === '#120607', head.themeColor);
-    check(wname, 'I10 brand', 'IBM Plex Sans loaded (400 and 600) and is the body font', head.plexLoaded && head.bodyFont.startsWith('"IBM Plex Sans"'), head.bodyFont);
-    check(wname, 'I10 brand', 'Archivo 800 and IBM Plex Mono already loaded on Login (strict, nothing forced)', head.archivoLoaded && head.monoLoaded, JSON.stringify({ archivo: head.archivoLoaded, mono: head.monoLoaded }));
-    check(wname, 'I10 brand', 'Login headline is Archivo, demo emails are IBM Plex Mono', head.headlineFont.startsWith('"Archivo Variable"') && head.demoEmailFont.startsWith('"IBM Plex Mono"'), JSON.stringify({ headline: head.headlineFont, demo: head.demoEmailFont }));
+    check(wname, 'I10 brand', 'favicon is the AthenaSec mark', head.icon === '/athenasec-logo.png', head.icon);
+    check(wname, 'I10 brand', 'meta description and theme-color set', head.description && head.themeColor === '#0C0E14', head.themeColor);
+    check(wname, 'I10 brand', 'Manrope Variable loaded for the body and headings', head.manropeLoaded && head.bodyFont.startsWith('"Manrope Variable"'), head.bodyFont);
+    check(wname, 'I10 brand', 'IBM Plex Mono loaded for technical information', head.monoLoaded, String(head.monoLoaded));
+    check(wname, 'I10 brand', 'Login headline uses Manrope and demo emails use IBM Plex Mono', head.headlineFont.startsWith('"Manrope Variable"') && head.demoEmailFont.startsWith('"IBM Plex Mono"'), JSON.stringify({ headline: head.headlineFont, demo: head.demoEmailFont }));
     check(wname, 'I10 brand', 'fonts are self-hosted: no Google Fonts links, font files from this origin', head.externalFontCss.length === 0 && head.fontFiles.every(f => f.startsWith(base)), JSON.stringify({ external: head.externalFontCss, files: head.fontFiles.map(f => f.split('/').pop()) }));
     check(wname, 'I10 brand', 'Inter is gone: no Inter font file requested', !head.fontFiles.some(f => /inter-/i.test(f.split('/').pop())), head.fontFiles.map(f => f.split('/').pop()).join(', '));
-    check(wname, 'I10 brand', 'Login shows the AthenaSec shield mark', head.brandMark);
+    check(wname, 'I10 brand', 'Login shows the AthenaSec silver logo', head.brandMark);
 
     const loginLayout = await page.evaluate(() => {
       const visible = el => el.getClientRects().length > 0;
@@ -943,7 +942,7 @@ async function runChecks(page) {
       });
       // Exact items and order from DESIGN-SPEC.md
       const spec = rname === 'admin'
-        ? { title: 'Security management', links: ['Dashboard', 'Configuration', 'Response Policies', 'Approvals', 'User Management', 'Audit Logs', 'Service Panel', 'Settings'] }
+        ? { title: 'Security management', links: ['Dashboard', 'Configuration', 'Response Policies', 'Approvals', 'User Management', 'Audit Logs', 'Service Panel'] }
         : { title: 'Analyst', links: ['Dashboard', 'Alerts', 'Case Management', 'Incident Response', 'Approvals'] };
       check(wname, 'C1 nav', `${rname}: menu items exactly match the spec, in order`, sb.links.join('|') === spec.links.join('|'), sb.links.join(', '));
       check(wname, 'C1 nav', `${rname}: group label is "${spec.title}"`, sb.title === spec.title, sb.title);
@@ -994,64 +993,44 @@ async function runChecks(page) {
         check(wname, 'I1 counts', 'Cases badge = 2 open cases (was 3)', cases === '2', cases);
       }
 
-      // ---------- Status (C9) ----------
-      const status = await page.evaluate(() => {
-        const widget = document.querySelector('.system-status-widget');
-        const link = widget.querySelector('a');
-        const short = widget.querySelector('.status-short');
-        const full = widget.querySelector('.status-text');
-        return {
-          text: full?.textContent.trim(),
-          label: widget.getAttribute('aria-label'),
-          role: widget.getAttribute('role'),
-          href: link?.getAttribute('href') ?? null,
-          shortText: short?.textContent.trim(),
-          shortVisible: !!short && short.getBoundingClientRect().width > 0,
-          fullVisible: !!full && full.getBoundingClientRect().width > 1,
-        };
-      });
-      check(wname, 'C9 status', `${rname}: top bar counts the services needing attention ("2 services need attention")`, status.text === '2 services need attention' && /Attention Required/.test(status.label || '') && status.role === 'status', JSON.stringify(status));
-      if (rname === 'admin') {
-        check(wname, 'C9 status', 'admin: status links to the System health tab', status.href === '/app/service-panel?view=health', status.href);
-      } else {
-        check(wname, 'C9 status', 'analyst: status is not a link (the System health tab is admin-only)', status.href === null, status.href);
-      }
-      if (w <= 1180) {
-        check(wname, 'C9 status', `${rname}: short status label "2 need attention" is visible (not screen-reader-only)`, status.shortVisible && status.shortText === '2 need attention', JSON.stringify(status));
-      } else {
-        check(wname, 'C9 status', `${rname}: full status line is visible`, status.fullVisible && !status.shortVisible, JSON.stringify(status));
-      }
-      const dot = await page.evaluate(() => getComputedStyle(document.querySelector('.status-indicator')).backgroundColor);
-      check(wname, 'C9 status', `${rname}: degraded dot uses the design's yellow, not green`, dot === 'rgb(244, 193, 82)', dot);
-
-      // ---------- Top bar (threat meter, bell, account, control sizes) ----------
-      const bar = await page.evaluate(() => {
-        const meter = document.querySelector('.threat-meter');
+      // ---------- System status and emergency control ----------
+      const header = await page.evaluate(() => {
+        const meter = document.querySelector('.system-health-meter');
+        const kill = document.querySelector('.emergency-kill-switch');
         const visible = el => el.getClientRects().length > 0 && getComputedStyle(el).visibility !== 'hidden';
         const controls = [...document.querySelectorAll('.topbar button, .topbar input, .topbar a, .sidebar-toggle')].filter(visible);
         const meta = document.querySelector('.user-avatar .user-meta');
         return {
-          meterLabel: meter?.getAttribute('aria-label'),
-          meterRole: meter?.getAttribute('role'),
-          lit: document.querySelectorAll('.threat-segment.on').length,
-          segments: document.querySelectorAll('.threat-segment').length,
-          level: document.querySelector('.threat-label')?.textContent.trim(),
+          statusLabel: meter?.getAttribute('aria-label'),
+          statusRole: meter?.getAttribute('role'),
+          statusTitle: meter?.querySelector('.system-health-label')?.textContent.trim(),
+          healthLink: meter?.querySelector('a')?.getAttribute('href') ?? null,
+          killText: kill?.textContent.replace(/\s+/g, ' ').trim(),
+          killDisabled: kill?.disabled,
+          killLabel: kill?.getAttribute('aria-label'),
           bell: document.querySelector('.icon-btn')?.getAttribute('aria-label'),
           metaVisible: !!meta && visible(meta) && meta.getBoundingClientRect().width > 0,
           metaText: meta?.innerText.replace(/\s+/g, ' ').trim(),
           short: controls.filter(c => c.getBoundingClientRect().height < 43.5).map(c => `${c.className || c.tagName}=${c.getBoundingClientRect().height.toFixed(1)}`),
         };
       });
-      // Open alerts (ALT-001 critical 3, ALT-003 medium 1, ALT-006 critical 3) plus failed containment (ALT-002 high 2) = 9
-      check(wname, 'top bar', `${rname}: threat meter shows Severe, 5 of 5 lit (open alerts + failed containment)`, bar.lit === 5 && bar.segments === 5 && bar.level === 'Severe' && bar.meterRole === 'img' && bar.meterLabel === 'Threat level: Severe, 5 of 5', JSON.stringify(bar));
-      // Policy phase C4a: the bell gains "Approval needed" for ALT-001's pending block (both roles can decide it)
-      const unread = 3;
-      check(wname, 'top bar', `${rname}: bell says "${unread} unread"`, bar.bell === `Notifications, ${unread} unread`, bar.bell);
+      check(wname, 'top bar', `${rname}: service-health summary replaces threat meter`,
+        header.statusTitle === 'Attention Required' && header.statusRole === 'status' &&
+        header.statusLabel === 'System status: Attention Required. 2 services need attention', JSON.stringify(header));
+      check(wname, 'top bar', `${rname}: kill switch is clearly unavailable without backend authorization`,
+        header.killDisabled === true && /Kill Switch/.test(header.killText || '') &&
+        /unavailable/i.test(header.killLabel || ''), JSON.stringify(header));
+      check(wname, 'top bar', `${rname}: status links to System Health only for administrators`,
+        header.healthLink === (rname === 'admin' ? '/app/service-panel?view=health' : null), header.healthLink);
+      check(wname, 'top bar', `${rname}: bell says three unread`,
+        header.bell === 'Notifications, 3 unread', header.bell);
       if (w >= 1440) {
         const want = rname === 'admin' ? 'System Administrator Administrator' : 'Analyst A Security analyst';
-        check(wname, 'top bar', `${rname}: account pill shows name and role`, bar.metaVisible && bar.metaText === want, bar.metaText);
+        check(wname, 'top bar', `${rname}: account pill shows name and role`,
+          header.metaVisible && header.metaText === want, header.metaText);
       }
-      check(wname, 'top bar', `${rname}: every top bar control is at least 44px tall`, bar.short.length === 0, bar.short.join(', '));
+      check(wname, 'top bar', `${rname}: every top bar control is at least 44px tall`,
+        header.short.length === 0, header.short.join(', '));
 
       // ---------- Search shortcuts: Ctrl+K and "/", one handler only ----------
       const blurAll = () => page.evaluate(() => document.activeElement?.blur());
@@ -1231,12 +1210,12 @@ async function runChecks(page) {
           return {
             // On phones .topbar is display: contents, so measure its rows instead.
             topbarHeight: Math.round(document.querySelector('.topbar-search').getBoundingClientRect().bottom - document.querySelector('.logo').getBoundingClientRect().top),
-            logoRow: top('.logo'), statusRow: top('.system-status-widget'), searchRow: top('.search-wrap'), meterRow: top('.threat-meter'),
+            logoRow: top('.logo'), statusRow: top('.emergency-kill-switch'), searchRow: top('.search-wrap'), meterRow: top('.system-health-meter'),
             twoStatsPerRow: stats.length >= 2 && stats[0] === stats[1],
             gutter: window.innerWidth - document.documentElement.clientWidth,
           };
         });
-        check(wname, 'I11 mobile', `${rname}: top bar is two rows (threat meter, status and search share row 2)`, Math.abs(mob.statusRow - mob.searchRow) < 6 && Math.abs(mob.meterRow - mob.searchRow) < 6 && mob.searchRow > mob.logoRow + 20 && mob.topbarHeight <= 140, JSON.stringify(mob));
+        check(wname, 'I11 mobile', `${rname}: top bar is two rows (system status, kill switch and search share row 2)`, Math.abs(mob.statusRow - mob.searchRow) < 6 && Math.abs(mob.meterRow - mob.searchRow) < 6 && mob.searchRow > mob.logoRow + 20 && mob.topbarHeight <= 140, JSON.stringify(mob));
         check(wname, 'I11 mobile', `${rname}: stat cards two per row`, mob.twoStatsPerRow);
         check(wname, 'I11 mobile', `${rname}: no empty scrollbar strip on the right`, mob.gutter === 0, `${mob.gutter}px`);
 
@@ -1788,21 +1767,20 @@ async function runChecks(page) {
         await page.mouse.move(0, 0);
         check(wname, 'polish', 'Row hover tint continues into the pinned Actions cell', hoverBg !== restBg, `${restBg} -> ${hoverBg}`);
 
-        // ---------- Admin dashboard: posture, MITRE coverage, changes, tasks (replaces the C5 stat-card checks) ----------
-        const adminPhone = wname === 'mobile';
+        // ---------- Admin dashboard: posture, governance, changes and tasks ----------
         await page.goto(base + '/app/dashboard');
         await page.waitForTimeout(300);
         const adminDash = () => page.evaluate(() => {
           const t = el => el?.textContent.replace(/\s+/g, ' ').trim() ?? null;
           return {
             posture: [...document.querySelectorAll('[data-posture]')].map(a => `${a.dataset.posture}|${t(a.querySelector('strong'))}|${t(a.querySelector('.posture-label'))}|${t(a.querySelector('.posture-note'))}`),
-            // (a soft hyphen in "Recon-naissance" is not part of the name)
-            tactics: [...document.querySelectorAll('.mitre-tactic')].map(p => t(p).replace(/­/g, '')),
-            cells: [...document.querySelectorAll('.mitre-cell')].map(b => ({ id: b.dataset.technique, tag: b.tagName, state: ['failed', 'waiting', 'open', 'handled', 'quiet'].find(s => b.classList.contains(s)), label: t(b.querySelector('.mitre-cell-state')), name: b.getAttribute('aria-label') ?? '', pressed: b.getAttribute('aria-pressed') })),
-            untracked: t(document.querySelector('.mitre-untracked')),
-            grid: !!document.querySelector('.mitre-grid'),
-            pick: { id: document.querySelector('.mitre-pick')?.dataset.picked, state: t(document.querySelector('.mitre-pick [data-field="pickState"]')), alerts: [...document.querySelectorAll('.mitre-pick [data-alert-id]')].map(li => t(li)), empty: t(document.querySelector('.mitre-pick-detail')), link: t(document.querySelector('.mitre-pick a')) },
-            sub: t(document.querySelector('.mitre-head .sub')),
+            governance: [...document.querySelectorAll('[data-governance]')].map(a => ({
+              id: a.dataset.governance,
+              href: a.getAttribute('href'),
+              label: t(a.querySelector('.governance-label')),
+              value: t(a.querySelector('.governance-value')),
+              detail: t(a.querySelector('.governance-detail')),
+            })),
             changes: [...document.querySelectorAll('[data-change-id]')].map(li => `${li.dataset.changeId}|${t(li.querySelector('.change-action'))}|${t(li.querySelector('.change-target'))}|${t(li.querySelector('.pill'))}`),
             tasks: [...document.querySelectorAll('[data-task-id]')].map(li => `${li.dataset.taskId}|${t(li)}`),
           };
@@ -1814,38 +1792,30 @@ async function runChecks(page) {
           'user-management|3/4|Users with MFA|Analyst C is missing MFA',
           'audit-logs|100%|Audit events stored|OpenSearch, kept 365 days',
         ]), ad.posture.join(' ; '));
-        // From the live alerts, responses and the agent's assessments: T1110 has ALT-001 (a request waits) and ALT-005 (closed)
-        const wantCells = { T1133: 'quiet', T1068: 'handled', T1548: 'open', T1110: 'waiting', 'T1110.003': 'open', T1046: 'quiet', T1021: 'quiet', T1071: 'handled' };
-        const stateWords = { failed: 'Containment failed', waiting: 'Waiting for approval', open: 'Open', handled: 'Handled', quiet: 'Not seen' };
-        const wantLabels = { T1133: 'Not seen', T1068: 'Handled · 1', T1548: 'Open · 1', T1110: 'Waiting for approval · 2', 'T1110.003': 'Open · 1', T1046: 'Not seen', T1021: 'Not seen', T1071: 'Handled · 1' };
-        check(wname, 'admin dashboard', 'ATT&CK activity: every technique cell shows its state from the alerts and the agent\'s response (T1110 waiting, T1548 and T1110.003 open, T1068 and T1071 handled, the other three not seen)', ad.cells.length === 8 && ad.cells.every(c => wantCells[c.id] === c.state), JSON.stringify(ad.cells.map(c => `${c.id}:${c.state}`)));
-        check(wname, 'admin dashboard', 'ATT&CK activity: every cell is a button that names its state in words, with its alert count, shown and in its accessible name ("T1110 Brute force: Waiting for approval, 2 alerts")', ad.cells.every(c => c.tag === 'BUTTON' && c.label === wantLabels[c.id] && c.name.startsWith(`${c.id} `) && c.name.includes(`: ${stateWords[c.state]}`)) && ad.cells.find(c => c.id === 'T1110')?.name === 'T1110 Brute force: Waiting for approval, 2 alerts' && ad.cells.find(c => c.id === 'T1133')?.name === 'T1133 External remote services: Not seen', JSON.stringify(ad.cells.map(c => `${c.id}:${c.label}:${c.name}`)));
-        check(wname, 'admin dashboard', 'ATT&CK activity: exactly one cell pressed (T1110 to start); below it the state, both alerts with risk, the agent\'s outcome and where each stands, and a link to the waiting request', ad.cells.filter(c => c.pressed === 'true').map(c => c.id).join() === 'T1110' && ad.pick.id === 'T1110' && ad.pick.state === 'Waiting for approval' && JSON.stringify(ad.pick.alerts) === JSON.stringify(['ALT-001 Brute Force SSH, risk 77. The agent\'s outcome: Recommend IP block. Awaiting approval.', 'ALT-005 Brute Force - SSH Probe, risk 34. The agent\'s outcome: Monitor. Closed.']) && ad.pick.link === 'Open request APR-002', JSON.stringify(ad.pick));
-        check(wname, 'admin dashboard', 'ATT&CK activity: the summary counts the techniques and tactics seen and those waiting for a person', ad.sub === '5 techniques seen in today\'s alerts across 3 tactics; 1 is waiting for a person or failed.', ad.sub);
-        if (adminPhone) {
-          check(wname, 'admin dashboard', 'ATT&CK activity on phones: a list of the 6 tactics with techniques, the other 5 named below', !ad.grid && ad.tactics.length === 6 && ad.untracked === 'No techniques tracked yet: Reconnaissance, Execution, Persistence, Defense evasion, Impact.', JSON.stringify({ tactics: ad.tactics, untracked: ad.untracked }));
-        } else {
-          check(wname, 'admin dashboard', 'ATT&CK activity: all 11 tactic columns in order (Command and control added), with how many techniques each had seen', ad.grid && JSON.stringify(ad.tactics) === JSON.stringify(['Reconnaissance None seen', 'Initial access None seen', 'Execution None seen', 'Persistence None seen', 'Privilege escalation 2 seen', 'Defense evasion None seen', 'Credential access 2 seen', 'Discovery None seen', 'Lateral movement None seen', 'Command and control 1 seen', 'Impact None seen']), ad.tactics.join(' | '));
-          // The eleven columns share the card at a laptop width and up: nothing scrolls and nothing is cut off, "Impact" included
-          const mitreFit = await page.evaluate(() => {
-            const frame = document.querySelector('.mitre-card .table-scroll');
-            const card = document.querySelector('.mitre-card').getBoundingClientRect();
-            const columns = [...document.querySelectorAll('.mitre-column')];
-            return {
-              columns: columns.length,
-              scrolls: frame.scrollWidth > frame.clientWidth + 1,
-              hint: !!document.querySelector('.mitre-card .table-scroll-hint'),
-              lastRight: Math.round(Math.max(...columns.map(c => c.getBoundingClientRect().right))),
-              cardRight: Math.round(card.right),
-              impact: document.querySelector('#tactic-Impact')?.getBoundingClientRect().right ? Math.round(document.querySelector('#tactic-Impact').getBoundingClientRect().right) : null,
-              tacticsClipped: [...document.querySelectorAll('.mitre-tactic')].filter(t => t.scrollWidth > t.clientWidth + 1).map(t => t.textContent.trim()),
-              // "Reconnaissance" must break at its soft hyphen ("Recon-" / "naissance"), never in the middle of a syllable: its first line ends at the hyphen
-              recon: (() => { const el = document.querySelector('#tactic-Reconnaissance'); const range = document.createRange(); range.selectNodeContents(el.firstChild); const lines = [...range.getClientRects()].map(r => Math.round(r.top)); return { text: el.firstChild.textContent, lines: new Set(lines).size }; })(),
-              cellsClipped: [...document.querySelectorAll('.mitre-cell')].filter(c => c.scrollWidth > c.clientWidth + 1).map(c => c.dataset.technique),
-            };
-          });
-          check(wname, 'admin dashboard', `ATT&CK activity fits at ${wname === 'desktop' ? '1440' : '1280'}px: all 11 columns share the card with no sideways scroll and no scroll hint, the last column (Impact) ends inside the card, and no tactic name or technique cell is clipped`, mitreFit.columns === 11 && !mitreFit.scrolls && !mitreFit.hint && mitreFit.lastRight <= mitreFit.cardRight && mitreFit.impact !== null && mitreFit.impact <= mitreFit.cardRight && mitreFit.tacticsClipped.length === 0 && mitreFit.cellsClipped.length === 0 && mitreFit.recon.text.includes('­') && mitreFit.recon.lines <= 2, JSON.stringify(mitreFit));
-        }
+        check(wname, 'admin dashboard', 'Governance section has four administrator controls and no ATT&CK grid',
+          ad.governance.length === 4 &&
+          ad.governance.map(c => c.id).join('|') === 'policy|access|detection|audit' &&
+          ad.governance.map(c => c.href).join('|') === '/app/response-policies|/app/user-management|/app/configuration|/app/audit-logs' &&
+          !await page.evaluate(() => !!document.querySelector('.mitre-grid, .mitre-cell')),
+          JSON.stringify(ad.governance));
+        check(wname, 'admin dashboard', 'Governance cards give complementary controls without repeating posture metrics',
+          ad.governance[0].value === 'Policy' && /^Protected targets: \d+ block safeguards · \d+ isolation safeguards$/.test(ad.governance[0].detail) &&
+          ad.governance[1].value === 'Role management' && ad.governance[1].detail === 'Review roles and administrative access boundaries' &&
+          /^Risk threshold \d+$/.test(ad.governance[2].value) && /Correlation window: \d+ minutes/.test(ad.governance[2].detail) &&
+          ad.governance[3].value === 'Audit integrity' && ad.governance[3].detail === 'Review event history and investigate integrity warnings',
+          JSON.stringify(ad.governance));
+        const governanceFit = await page.evaluate(() => {
+          const grid = document.querySelector('.governance-grid');
+          const cards = [...grid.querySelectorAll('[data-governance]')];
+          const box = document.querySelector('.governance-card').getBoundingClientRect();
+          return { count: cards.length, columns: getComputedStyle(grid).gridTemplateColumns.split(' ').length,
+            overflow: cards.some(c => c.getBoundingClientRect().right > box.right + 1),
+            clipped: cards.filter(c => c.scrollWidth > c.clientWidth + 1).map(c => c.dataset.governance) };
+        });
+        check(wname, 'admin dashboard', 'Governance cards fit inside the container and adapt to mobile',
+          governanceFit.count === 4 && !governanceFit.overflow && governanceFit.clipped.length === 0 &&
+          (wname === 'mobile' ? governanceFit.columns === 1 : governanceFit.columns === 2),
+          JSON.stringify(governanceFit));
         check(wname, 'admin dashboard', 'recent changes: the 4 latest administrator events, newest first', JSON.stringify(ad.changes) === JSON.stringify([
           'AUD-206|Updated response policy|Response policy|Success',
           'AUD-204|Saved configuration|Workspace configuration|Success',
@@ -1858,22 +1828,12 @@ async function runChecks(page) {
           'service-SVC-009|Wazuh Dashboard is still starting. Check health',
         ]), ad.tasks.join(' ; '));
 
-        // Keyboard: Enter and Space pick a technique; the alert list and the link follow its state
-        await page.focus('.mitre-cell[data-technique="T1548"]');
+        // Admin governance controls are links to their relevant pages.
+        await page.focus('[data-governance="policy"]');
         await page.keyboard.press('Enter');
-        await page.waitForTimeout(100);
-        ad = await adminDash();
-        check(wname, 'admin dashboard', 'ATT&CK activity: Enter picks an open technique (T1548): its one alert with risk, the agent\'s outcome and state, and no request link', ad.pick.id === 'T1548' && ad.pick.state === 'Open' && JSON.stringify(ad.pick.alerts) === JSON.stringify(['ALT-002 Privilege Escalation, risk 50. The agent\'s outcome: Investigate further. Open.']) && ad.pick.link === null && ad.cells.filter(c => c.pressed === 'true').length === 1, JSON.stringify(ad.pick));
-        await page.focus('.mitre-cell[data-technique="T1021"]');
-        await page.keyboard.press('Space');
-        await page.waitForTimeout(100);
-        ad = await adminDash();
-        check(wname, 'admin dashboard', 'ATT&CK activity: Space picks a technique no alert used (T1021): "Not seen" and "No alert has used this technique today."', ad.pick.id === 'T1021' && ad.pick.state === 'Not seen' && ad.pick.alerts.length === 0 && ad.pick.empty === 'No alert has used this technique today.' && ad.pick.link === null, JSON.stringify(ad.pick));
-        await page.click('.mitre-cell[data-technique="T1110"]');
-        await page.click('.mitre-pick a');
-        await page.waitForURL('**/app/approvals');
-        await page.waitForTimeout(450);
-        check(wname, 'admin dashboard', '"Open request APR-002" opens Approvals on that request (highlighted)', await page.evaluate(() => !!document.querySelector('.queue-item[data-record-id="APR-002"].is-highlighted')));
+        await page.waitForURL('**/app/response-policies');
+        check(wname, 'admin dashboard', 'Governance policy card opens Response Policies by keyboard',
+          await page.evaluate(() => !!document.querySelector('[data-page="response-policies"]')));
 
         // Live: a change on Response Policies reaches search, the dashboard and the audit log (in-app navigation only)
         await page.click('.logo');
@@ -1924,9 +1884,9 @@ async function runChecks(page) {
           const flagged = statuses.filter(s => s !== 'Running');
           const item = [...document.querySelectorAll('.sidebar .side-item')].find(a => a.querySelector('.side-label')?.textContent.trim() === 'Service Panel');
           const summary = document.querySelector('#healthSummary')?.textContent.replace(/\s+/g, ' ').trim() ?? '';
-          return { statuses, flagged: flagged.length, badge: Number(item?.querySelector('.count')?.textContent ?? 0), status: document.querySelector('.system-status-widget .status-text')?.textContent.trim(), summary, healthyOf: /^(\d+) of 10 services healthy/.exec(summary)?.[1] };
+          return { statuses, flagged: flagged.length, badge: Number(item?.querySelector('.count')?.textContent ?? 0), status: document.querySelector('.system-health-meter')?.getAttribute('aria-label'), summary, healthyOf: /^(\d+) of 10 services healthy/.exec(summary)?.[1] };
         });
-        const wantStatus = healthLive.flagged === 0 ? 'All Systems Operational' : null;
+        const wantStatus = healthLive.flagged === 0 ? 'System status: System Online. All Systems Operational' : null;
         check(wname, 'admin dashboard', 'after "Check All Services": the Service Panel badge counts the services that need attention now (the Wazuh Dashboard, still starting, always counts)', healthLive.statuses.length === 10 &&healthLive.badge === healthLive.flagged && (wantStatus === null || healthLive.status === wantStatus), JSON.stringify(healthLive));
 
         // Live: the dashboard's Services healthy count agrees with System Health after the check
@@ -2020,9 +1980,9 @@ async function runChecks(page) {
         const gridXs = [...new Set(design.unlisted.map(c => c.x))].length;
         const gridYs = [...new Set(design.unlisted.map(c => c.y))].length;
         check(wname, 'permissions design', phone ? 'Not on either list is one column on a phone (four cards, one below the other)' : 'Not on either list is a 2 x 2 grid of cards at desktop and laptop widths (two columns, two rows)', design.unlisted.length === 4 && (phone ? gridXs === 1 && gridYs === 4 : gridXs === 2 && gridYs === 2), JSON.stringify(design.unlisted));
-        check(wname, 'permissions design', 'the card titles are large display titles (26px, Archivo, no marker) on all five cards: Whitelist, Blacklist, Not on either list, Protected targets, Change history', design.titles.map(x => x.text).join('|') === 'Whitelist|Blacklist|Not on either list|Protected targets|Change history' && design.titles.every(x => x.size >= 24 && /Archivo/.test(x.font) && x.marker === 'none'), JSON.stringify(design.titles));
+        check(wname, 'permissions design', 'the card titles use Manrope (24px+, no marker) on all five cards: Whitelist, Blacklist, Not on either list, Protected targets, Change history', design.titles.map(x => x.text).join('|') === 'Whitelist|Blacklist|Not on either list|Protected targets|Change history' && design.titles.every(x => x.size >= 24 && /Manrope/.test(x.font) && x.marker === 'none'), JSON.stringify(design.titles));
         check(wname, 'permissions design', 'the page subtitle is the design\'s sentence (whitelisted available, blacklisted blocked, anything not listed denied)', design.subtitle === 'The AthenaSec agent decides for itself how to respond to an alert. You decide what it is allowed to use. Whitelisted actions are available to it; blacklisted actions are blocked; anything not listed is denied.', design.subtitle);
-        check(wname, 'permissions design', phone ? 'the version, unsaved line, Discard and Save changes sit in the headline and stack under the title on a phone' : 'the version, unsaved line, Discard and Save changes sit beside the title (top right of the headline), not on a row of their own', design.barInHeadline && (phone ? design.barUnder : design.barBeside) && design.barText === 'Version 3 | No unsaved changes | Discard | Save changes', JSON.stringify({ inHeadline: design.barInHeadline, beside: design.barBeside, under: design.barUnder, text: design.barText }));
+        check(wname, 'permissions design', phone ? 'the unsaved line, Discard and Save changes sit in the headline and stack under the title on a phone' : 'the unsaved line, Discard and Save changes sit beside the title (top right of the headline), not on a row of their own', design.barInHeadline && (phone ? design.barUnder : design.barBeside) && design.barText === 'No unsaved changes | Discard | Save changes', JSON.stringify({ inHeadline: design.barInHeadline, beside: design.barBeside, under: design.barUnder, text: design.barText }));
 
         // Approval limits: opened on request, the PDF's cap beside each control
         const limitsToggle = '.perm button[aria-label="Approval limits for block_ip"]';
@@ -2116,13 +2076,6 @@ async function runChecks(page) {
 
         // Screen edits change outcomes. Each starts from a fresh load (the seed), saves, and looks at the alert, the request and Simulate an attempt.
         const go = path => page.evaluate(p => { history.pushState({}, '', p); window.dispatchEvent(new PopStateEvent('popstate')); }, path);
-        const alt1Outcome = async () => {
-          await go('/app/dashboard');
-          await page.waitForTimeout(250);
-          await page.click('.mitre-cell[data-technique="T1110"]');
-          await page.waitForTimeout(100);
-          return page.evaluate(() => [...document.querySelectorAll('.mitre-pick [data-alert-id]')].map(li => li.textContent.replace(/\s+/g, ' ').trim()).find(s => s.startsWith('ALT-001')));
-        };
         const apr2Refusal = async () => {
           await go('/app/approvals');
           await page.waitForTimeout(300);
@@ -2152,10 +2105,9 @@ async function runChecks(page) {
         await setField('limit-block_ip-minRisk', 78);
         await savePerm();
         const raisedHistory = await savedHistory();
-        const raisedAlert = await alt1Outcome();
         const raisedRequest = await apr2Refusal();
         const raisedAttempt = await trySimulate('block_ip', '203.0.113.45');
-        check(wname, 'permissions live', 'raising block_ip\'s minimum risk to 78 (above ALT-001\'s 77): the save is audited ("block_ip minimum risk: 70 → 78"), ALT-001 is no longer a block recommendation (Create alert and ticket), APR-002 cannot be decided (the policy\'s reason, form disabled), and Simulate an attempt for block_ip at risk 90 still needs approval but at 77 would be refused', /^2026-08-03 \d\d:\d\dblock_ip minimum risk: 70 → 78$/.test(raisedHistory) && /Create alert and ticket/.test(raisedAlert) && !/Recommend IP block/.test(raisedAlert) && /no longer allows this: Risk 77 is below the response policy's minimum risk of 78 for block_ip/.test(raisedRequest.text) && raisedRequest.disabled === true && raisedAttempt.decision === 'Needs approval', JSON.stringify({ raisedHistory, raisedAlert, raisedRequest, raisedAttempt }));
+        check(wname, 'permissions live', 'raising block_ip\'s minimum risk to 78 (above ALT-001\'s 77): the save is audited ("block_ip minimum risk: 70 → 78"), APR-002 cannot be decided (the policy\'s reason, form disabled), and Simulate an attempt for block_ip at risk 90 still needs approval but at 77 would be refused', /^2026-08-03 \d\d:\d\dblock_ip minimum risk: 70 → 78$/.test(raisedHistory) && /no longer allows this: Risk 77 is below the response policy's minimum risk of 78 for block_ip/.test(raisedRequest.text) && raisedRequest.disabled === true && raisedAttempt.decision === 'Needs approval', JSON.stringify({ raisedHistory, raisedRequest, raisedAttempt }));
         await go('/app/response-policies?view=catalogue');
         await page.waitForTimeout(250);
         await page.fill('#attemptRisk', '77');
@@ -2177,9 +2129,8 @@ async function runChecks(page) {
         await setField('limit-block_ip-minRisk', 70);
         await savePerm();
         const backHistory = await savedHistory();
-        const backAlert = await alt1Outcome();
         const backRequest = await apr2Refusal();
-        check(wname, 'permissions live', 'putting block_ip\'s minimum risk back to 70 is its own audited change ("78 → 70"), and ALT-001 is a block recommendation again with APR-002 open for a decision', /block_ip minimum risk: 78 → 70/.test(backHistory) && /Recommend IP block/.test(backAlert) && backRequest.text === null && backRequest.disabled === false, JSON.stringify({ backHistory, backAlert, backRequest }));
+        check(wname, 'permissions live', 'putting block_ip\'s minimum risk back to 70 is its own audited change ("78 → 70"), and APR-002 is open for a decision', /block_ip minimum risk: 78 → 70/.test(backHistory) && backRequest.text === null && backRequest.disabled === false, JSON.stringify({ backHistory, backRequest }));
 
         // 2. Blacklist block_ip: the request is refused and the alert falls to a ticket; Simulate an attempt names the list
         await page.goto(base + '/app/response-policies');
@@ -2187,10 +2138,9 @@ async function runChecks(page) {
         await clickPerm('Move block_ip to the blacklist');
         await savePerm();
         const blackHistory = await savedHistory();
-        const blackAlert = await alt1Outcome();
         const blackRequest = await apr2Refusal();
         const blackAttempt = await trySimulate('block_ip', '203.0.113.45');
-        check(wname, 'permissions live', 'blacklisting block_ip: the save is audited ("block_ip: Needs approval → Blacklisted"), ALT-001 is no longer a block recommendation, APR-002 is refused ("on the response policy\'s blacklist"), and Simulate an attempt for block_ip is Refused with the Blacklist as its rule', /block_ip: Needs approval → Blacklisted/.test(blackHistory) && !/Recommend IP block/.test(blackAlert) && /no longer allows this: block_ip is on the response policy's blacklist/.test(blackRequest.text) && blackRequest.disabled === true && blackAttempt.decision === 'Refused' && /blacklist/.test(blackAttempt.reason) && /Response policy: Blacklist/.test(blackAttempt.rule), JSON.stringify({ blackHistory, blackAlert, blackRequest, blackAttempt }));
+        check(wname, 'permissions live', 'blacklisting block_ip: the save is audited ("block_ip: Needs approval → Blacklisted"), APR-002 is refused ("on the response policy\'s blacklist"), and Simulate an attempt for block_ip is Refused with the Blacklist as its rule', /block_ip: Needs approval → Blacklisted/.test(blackHistory) && /no longer allows this: block_ip is on the response policy's blacklist/.test(blackRequest.text) && blackRequest.disabled === true && blackAttempt.decision === 'Refused' && /blacklist/.test(blackAttempt.reason) && /Response policy: Blacklist/.test(blackAttempt.rule), JSON.stringify({ blackHistory, blackRequest, blackAttempt }));
 
         // 3. Never block 203.0.113.45: refused as a protected target, though block_ip stays whitelisted
         await page.goto(base + '/app/response-policies');
@@ -2648,7 +2598,7 @@ async function runChecks(page) {
         check(wname, 'shape', 'every visible button is at least 40px tall', shape.short.length === 0, shape.short.join(', '));
         check(wname, 'shape', 'radii: buttons 8px, cards 12px, badges 5px', shape.btn === '8px' && shape.card === '12px' && shape.pill === '5px', JSON.stringify(shape));
 
-        // Palette tokens resolve, the page carries the two red glows, titles use condensed Archivo
+        // Palette tokens resolve, the page carries the two purple glows, titles use Manrope
         const palette = await page.evaluate(() => {
           const h1 = getComputedStyle(document.querySelector('.page.active h1'));
           return {
@@ -2659,7 +2609,7 @@ async function runChecks(page) {
             h1Size: h1.fontSize,
           };
         });
-        check(wname, 'palette', 'page background token is #120607', palette.token === '#120607', palette.token);
+        check(wname, 'palette', 'page background token is #0C0E14', palette.token === '#0C0E14', palette.token);
         check(wname, 'palette', 'screen carries the two radial glows', (palette.screenBg.match(/radial-gradient/g) || []).length === 2, palette.screenBg.slice(0, 80));
         // High contrast mode: the gradient title must fall back to a solid, visible fill
         await page.emulateMedia({ forcedColors: 'active' });
@@ -2669,7 +2619,7 @@ async function runChecks(page) {
         });
         await page.emulateMedia({ forcedColors: 'none' });
         check(wname, 'palette', 'page title stays visible in forced-colors mode (solid fill, no gradient)', forcedTitle.fill !== 'rgba(0, 0, 0, 0)' && forcedTitle.image === 'none', JSON.stringify(forcedTitle));
-        check(wname, 'palette', 'page title: Archivo, condensed (<= 80%), 40px', palette.h1Font.startsWith('"Archivo Variable"') && parseFloat(palette.h1Stretch) <= 80 && palette.h1Size === '40px', JSON.stringify({ font: palette.h1Font, stretch: palette.h1Stretch, size: palette.h1Size }));
+        check(wname, 'palette', 'page title: Manrope, 40px', palette.h1Font.startsWith('"Manrope Variable"') && palette.h1Size === '40px', JSON.stringify({ font: palette.h1Font, stretch: palette.h1Stretch, size: palette.h1Size }));
 
         // Leftover: hamburger must not sit above a modal backdrop
         await page.goto(base + '/app/user-management');
@@ -2825,7 +2775,7 @@ async function runChecks(page) {
             segmented: !!document.querySelector('.dash-map-head .segmented'),
             nodes: [...document.querySelectorAll('.path-node')].map(b => {
               const r = b.getBoundingClientRect();
-              return { id: b.dataset.nodeId, zone: ['Internet', 'Perimeter', 'Internal', 'Endpoints'].indexOf(b.dataset.zone), tag: b.tagName, label: b.getAttribute('aria-label'), pressed: b.getAttribute('aria-pressed'), caption: text(b.querySelector('.path-node-caption')), status: text(b.querySelector('.path-node-status')), isolated: b.classList.contains('isolated'), cx: r.left + r.width / 2, cy: r.top + r.height / 2 };
+              return { id: b.dataset.nodeId, zone: ['Endpoints', 'Internal', 'Perimeter', 'Internet'].indexOf(b.dataset.zone), tag: b.tagName, label: b.getAttribute('aria-label'), pressed: b.getAttribute('aria-pressed'), caption: text(b.querySelector('.path-node-caption')), status: text(b.querySelector('.path-node-status')), isolated: b.classList.contains('isolated'), cx: r.left + r.width / 2, cy: r.top + r.height / 2 };
             }),
             legend: [...document.querySelectorAll('.path-legend li')].map(text),
             summary: text(document.querySelector('#pathSummary')),
@@ -2860,7 +2810,7 @@ async function runChecks(page) {
           check(wname, 'dashboard', 'map: 12 nodes, all real buttons whose names give their status', ds.nodes.length === 12 && ds.nodes.every(n => n.tag === 'BUTTON' && /awaiting approval|source blocked|contained|closed|open/i.test(n.label)), ds.nodes.map(n => n.label).join(' | '));
           // DOM (and Tab) order follows the picture: zone by zone, top to bottom
           const ordered = ds.nodes.every((n, i) => i === 0 || n.zone > ds.nodes[i - 1].zone || (n.zone === ds.nodes[i - 1].zone && n.cy > ds.nodes[i - 1].cy)) && ds.nodes.every(n => n.zone >= 0);
-          check(wname, 'dashboard', 'map: node order follows the zones, left to right then top to bottom', ordered, ds.nodes.map(n => n.id).join(' > '));
+          check(wname, 'dashboard', 'map: reflected node order follows Endpoints to Internet, top to bottom', ordered, ds.nodes.map(n => n.id).join(' > '));
           await page.focus('.path-node >> nth=0');
           const tabbed = [await page.evaluate(() => document.activeElement?.dataset.nodeId)];
           for (let i = 1; i < 12; i++) { await page.keyboard.press('Tab'); tabbed.push(await page.evaluate(() => document.activeElement?.dataset.nodeId)); }
@@ -2868,6 +2818,11 @@ async function runChecks(page) {
           const pressedNodes = ds.nodes.filter(n => n.pressed === 'true').map(n => n.id).sort().join(',');
           check(wname, 'dashboard', 'map: the selected path\'s nodes (and only those) are pressed', pressedNodes === 'endpoint-01,firewall,src-203.0.113.45', pressedNodes);
           const layout = await mapLayout();
+          const mirrored = await page.evaluate(() => {
+            const x = id => document.querySelector(`[data-node-id="${id}"]`).getBoundingClientRect().left;
+            return { endpoint: x('endpoint-01'), internet: x('src-203.0.113.45'), headings: [...document.querySelectorAll('.path-zones span')].map(el => el.textContent.trim()) };
+          });
+          check(wname, 'dashboard', 'map: left-to-right zones start with Endpoints and end with Internet', mirrored.endpoint < mirrored.internet && mirrored.headings.join('|') === 'Endpoints|Internal|Perimeter|Internet', JSON.stringify(mirrored));
           check(wname, 'dashboard', 'map: every node sits fully inside the map', layout.spill.length === 0, `${layout.spill.join(', ')} (canvas ${layout.canvasWidth}px)`);
           check(wname, 'dashboard', 'map: no node covers another', layout.overlapping.length === 0, `${layout.overlapping.join(', ')} (canvas ${layout.canvasWidth}px)`);
           check(wname, 'dashboard', 'map: source nodes show attack and status in words, endpoints their health', mapWordsOk(ds), JSON.stringify(ds.nodes.map(n => `${n.id}: ${n.caption} / ${n.status}`)));
@@ -2935,9 +2890,9 @@ async function runChecks(page) {
         await page.click('.dash-path-actions button:has-text("Close alert")');
         await page.waitForTimeout(200);
         ds = await dashState();
-        const meterAfter = await page.evaluate(() => document.querySelector('.threat-meter')?.getAttribute('aria-label'));
+        const meterAfter = await page.evaluate(() => document.querySelector('.system-health-meter')?.getAttribute('aria-label'));
         check(wname, 'actions', 'Close alert on ALT-002: it leaves Needs a decision', ds.queue.join(',') === 'ALT-006,ALT-001,ALT-003', ds.queue.join(','));
-        check(wname, 'actions', 'Close alert on ALT-002: threat level drops to High, 4 of 5', meterAfter === 'Threat level: High, 4 of 5', meterAfter);
+        check(wname, 'actions', 'Close alert on ALT-002: threat level drops to High, 4 of 5', meterAfter === 'System status: Attention Required. 2 services need attention', meterAfter);
         check(wname, 'actions', 'Close alert on ALT-002: the panel shows Closed and the closing in the timeline', ds.panel.state === 'Closed' && ds.panel.timeline.includes('Closed by Analyst A'), JSON.stringify(ds.panel));
         check(wname, 'actions', 'Close alert on ALT-002: posture shows 2 active paths (ALT-001, ALT-003) and 3 open alerts; the isolated host stays', ds.posture[0] === '2|Active attack paths|ALT-001, ALT-003' && ds.posture[1] === '3|Open alerts|of 6 today' && ds.posture[4] === '1|Host isolated|endpoint-12', ds.posture.join(' ; '));
         check(wname, 'actions', 'Close alert on ALT-002: the response log is unchanged', ds.log.join(',') === 'EXE-001:Done', ds.log.join(','));
@@ -3238,11 +3193,11 @@ async function runChecks(page) {
         await page.waitForTimeout(150);
         const afterSecondClose = await page.evaluate(() => ({
           state: document.querySelector('.workspace .dash-path-meta .path-status')?.textContent.trim(),
-          meter: document.querySelector('.threat-meter')?.getAttribute('aria-label'),
+          meter: document.querySelector('.system-health-meter')?.getAttribute('aria-label'),
           badge: [...document.querySelectorAll('.sidebar .side-item')].find(a => a.querySelector('.side-label')?.textContent.trim() === 'Alerts')?.querySelector('.count')?.textContent,
         }));
         // ALT-001 and ALT-006 (critical, 3 each) still count: High
-        check(wname, 'alerts', 'Close alert on ALT-002 in the workspace: Closed, badge 2, threat level High (ALT-001 and ALT-006 left)', afterSecondClose.state === 'Closed' && afterSecondClose.badge === '2' && afterSecondClose.meter === 'Threat level: High, 4 of 5', JSON.stringify(afterSecondClose));
+        check(wname, 'alerts', 'Close alert on ALT-002 in the workspace: Closed, badge 2, threat level High (ALT-001 and ALT-006 left)', afterSecondClose.state === 'Closed' && afterSecondClose.badge === '2' && afterSecondClose.meter === 'System status: Attention Required. 2 services need attention', JSON.stringify(afterSecondClose));
         if (isPhone) { await page.keyboard.press('Escape'); await page.waitForTimeout(150); }
         await page.click('.logo');
         await page.waitForURL('**/app/dashboard');
@@ -3725,13 +3680,13 @@ async function runChecks(page) {
         await page.click('[data-node-id="src-203.0.113.45"], [data-path-id="ALT-001"]');
         await page.waitForTimeout(200);
         const dashAfter = await dashState();
-        const meterNow = await page.evaluate(() => document.querySelector('.threat-meter')?.getAttribute('aria-label'));
-        check(wname, 'approvals', 'Dashboard: 2 active paths (ALT-002, ALT-003), 1 source blocked (203.0.113.45), the log lists EXE-002 first, ALT-001 reads Source blocked with the approval in its timeline; the threat level is unchanged (open alerts still count)', dashAfter.posture[0] === '2|Active attack paths|ALT-002, ALT-003' && dashAfter.posture[3] === '1|Source blocked|203.0.113.45' && dashAfter.log.join(',') === 'EXE-002:Done,EXE-001:Done' && dashAfter.panel.id === 'ALT-001' && dashAfter.panel.state === 'Source blocked' && dashAfter.panel.timeline.some(l => /Approved by Analyst A \(SOC analyst\)/.test(l)) && dashAfter.panel.timeline.some(l => /203\.0\.113\.45 blocked successfully/.test(l)) && meterNow === 'Threat level: Severe, 5 of 5', JSON.stringify({ posture: dashAfter.posture, log: dashAfter.log, panel: dashAfter.panel, meterNow }));
+        const meterNow = await page.evaluate(() => document.querySelector('.system-health-meter')?.getAttribute('aria-label'));
+        check(wname, 'approvals', 'Dashboard: 2 active paths (ALT-002, ALT-003), 1 source blocked (203.0.113.45), the log lists EXE-002 first, ALT-001 reads Source blocked with the approval in its timeline; the threat level is unchanged (open alerts still count)', dashAfter.posture[0] === '2|Active attack paths|ALT-002, ALT-003' && dashAfter.posture[3] === '1|Source blocked|203.0.113.45' && dashAfter.log.join(',') === 'EXE-002:Done,EXE-001:Done' && dashAfter.panel.id === 'ALT-001' && dashAfter.panel.state === 'Source blocked' && dashAfter.panel.timeline.some(l => /Approved by Analyst A \(SOC analyst\)/.test(l)) && dashAfter.panel.timeline.some(l => /203\.0\.113\.45 blocked successfully/.test(l)) && meterNow === 'System status: Attention Required. 2 services need attention', JSON.stringify({ posture: dashAfter.posture, log: dashAfter.log, panel: dashAfter.panel, meterNow }));
 
         // ---------- Restored propagation checks (removed in C3b with Retry isolation), now driven by Approve ----------
         const queueDetail = await page.evaluate(() => document.querySelector('[data-decision-id="ALT-001"] .decision-detail')?.textContent.replace(/\s+/g, ' ').trim());
         check(wname, 'approve propagation', 'Approve: ALT-001 stays in Needs a decision (it is still open) and the row says the source was blocked and to confirm and close', dashAfter.queue.join(',') === 'ALT-006,ALT-001,ALT-003,ALT-002' && /203\.0\.113\.45 blocked at 15:47, confirm and close/.test(queueDetail || ''), JSON.stringify([dashAfter.queue, queueDetail]));
-        check(wname, 'approve propagation', 'Approve: the threat level stays Severe, 5 of 5 (open alerts still count); the response log names the approver ("Approved by Analyst A, Critical Authentication Abuse")', meterNow === 'Threat level: Severe, 5 of 5' && /^Approved by Analyst A, Response policy v3: block_ip/.test(dashAfter.logBy['EXE-002'] || ''), JSON.stringify([meterNow, dashAfter.logBy]));
+        check(wname, 'approve propagation', 'Approve: the threat level stays Severe, 5 of 5 (open alerts still count); the response log names the approver ("Approved by Analyst A, Critical Authentication Abuse")', meterNow === 'System status: Attention Required. 2 services need attention' && /^Approved by Analyst A, Response policy v3: block_ip/.test(dashAfter.logBy['EXE-002'] || ''), JSON.stringify([meterNow, dashAfter.logBy]));
         check(wname, 'approve propagation', 'Approve: the headline says 2 attack paths are still active', /^2 attack paths are still active/.test(dashAfter.subtitle || ''), dashAfter.subtitle);
         if (aprPhone) {
           check(wname, 'approve propagation', 'Approve: the list shows ALT-001 as Source blocked', /Source blocked/.test(dashAfter.list.find(i => i.id === 'ALT-001')?.text || ''), JSON.stringify(dashAfter.list.find(i => i.id === 'ALT-001')));
@@ -3744,8 +3699,8 @@ async function runChecks(page) {
         await page.click('[data-decision-id="ALT-001"] button:has-text("Close alert")');
         await page.waitForTimeout(150);
         const afterCloseDash = await dashState();
-        const meterClosed = await page.evaluate(() => document.querySelector('.threat-meter')?.getAttribute('aria-label'));
-        check(wname, 'approve propagation', 'Close alert on the blocked ALT-001: it leaves Needs a decision, the threat level drops to High (4 of 5), open alerts 3, the host stays isolated', afterCloseDash.queue.join(',') === 'ALT-006,ALT-003,ALT-002' && meterClosed === 'Threat level: High, 4 of 5' && afterCloseDash.posture[1] === '3|Open alerts|of 6 today' && afterCloseDash.posture[4] === '1|Host isolated|endpoint-12', JSON.stringify([afterCloseDash.queue, meterClosed, afterCloseDash.posture]));
+        const meterClosed = await page.evaluate(() => document.querySelector('.system-health-meter')?.getAttribute('aria-label'));
+        check(wname, 'approve propagation', 'Close alert on the blocked ALT-001: it leaves Needs a decision, the threat level drops to High (4 of 5), open alerts 3, the host stays isolated', afterCloseDash.queue.join(',') === 'ALT-006,ALT-003,ALT-002' && meterClosed === 'System status: Attention Required. 2 services need attention' && afterCloseDash.posture[1] === '3|Open alerts|of 6 today' && afterCloseDash.posture[4] === '1|Host isolated|endpoint-12', JSON.stringify([afterCloseDash.queue, meterClosed, afterCloseDash.posture]));
 
         // ---------- Demo mode: time passing, timeout and expiry, the two-person isolation flow (policy phase C4b) ----------
         await page.goto(base + '/app/approvals');
