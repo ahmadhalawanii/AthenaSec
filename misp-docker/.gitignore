@@ -1,4 +1,9 @@
-/configs/
+/configs/*
+!/configs/bootstrap.php
+!/configs/config.php.template
+!/configs/core.php
+!/configs/routes.php
+
 /files/
 /gnupg/
 /logs/
