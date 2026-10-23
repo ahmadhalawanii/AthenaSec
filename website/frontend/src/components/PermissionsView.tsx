@@ -304,9 +304,6 @@ function PermissionsView({ actionsSlot }: { actionsSlot: HTMLElement | null }) {
   // The unsaved line, Discard and Save are drawn beside the page title (the page's slot), not in this view
   const bar = (
     <>
-      <span className="perm-version" data-field="version">
-        Version {responsePolicy.version}
-      </span>
       <p className="perm-unsaved" role="status" id={statusId} data-field="unsaved">
         {dirty === 0 ? 'No unsaved changes' : `${dirty} unsaved ${dirty === 1 ? 'change' : 'changes'}`}
       </p>

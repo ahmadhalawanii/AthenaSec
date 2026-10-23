@@ -2,12 +2,8 @@ import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { BrowserRouter } from 'react-router-dom'
 
-// Fonts are bundled with the app, so they also work offline.
-// Archivo (titles, big numbers) uses the width axis for its condensed cut.
-import '@fontsource-variable/archivo/wdth.css'
-import '@fontsource/ibm-plex-sans/400.css'
-import '@fontsource/ibm-plex-sans/500.css'
-import '@fontsource/ibm-plex-sans/600.css'
+// Self-hosted Manrope for UI and headings; IBM Plex Mono for technical identifiers.
+import '@fontsource-variable/manrope/wght.css'
 import '@fontsource/ibm-plex-mono/400.css'
 import '@fontsource/ibm-plex-mono/500.css'
 
