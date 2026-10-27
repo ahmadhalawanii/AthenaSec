@@ -27,6 +27,39 @@ class UnavailableMISPClient:
         )
 
 
+def _tls_verify_from_env() -> bool | str:
+    ca_bundle = os.getenv(
+        "MISP_CA_BUNDLE",
+        "",
+    ).strip()
+
+    if ca_bundle:
+        if not os.path.isfile(
+            ca_bundle
+        ):
+            raise RuntimeError(
+                "MISP_CA_BUNDLE does not point "
+                "to a readable file."
+            )
+
+        return ca_bundle
+
+    raw = os.getenv(
+        "MISP_VERIFY_TLS",
+        "true",
+    ).strip().lower()
+
+    if raw in {"true", "1", "yes"}:
+        return True
+
+    if raw in {"false", "0", "no"}:
+        return False
+
+    raise RuntimeError(
+        "MISP_VERIFY_TLS must be true or false."
+    )
+
+
 def build_misp_client_from_env() -> HttpMISPClient:
     misp_url = os.getenv(
         "MISP_URL"
@@ -50,6 +83,7 @@ def build_misp_client_from_env() -> HttpMISPClient:
     return HttpMISPClient(
         base_url=misp_url,
         api_key=misp_api_key,
+        verify=_tls_verify_from_env(),
     )
 
 

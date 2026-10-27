@@ -23,6 +23,7 @@ class HttpMISPClient:
         base_url: str,
         api_key: str,
         http_client: httpx.Client | None = None,
+        verify: bool | str = True,
     ):
         self.base_url = base_url.rstrip("/")
         self.api_key = api_key
@@ -30,7 +31,8 @@ class HttpMISPClient:
             http_client
             if http_client is not None
             else httpx.Client(
-                timeout=30.0
+                timeout=30.0,
+                verify=verify,
             )
         )
 
