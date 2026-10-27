@@ -638,6 +638,16 @@ def test_graph_continues_when_misp_enrichment_fails():
 
     assert (
         "No MISP matches found."
+        not in received_context
+    )
+
+    assert (
+        "MISP enrichment unavailable"
+        in received_context
+    )
+
+    assert (
+        "not evidence of absence"
         in received_context
     )
 

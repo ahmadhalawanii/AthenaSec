@@ -100,7 +100,16 @@ def build_analysis_context(
         "misp_enrichment"
     )
 
-    if misp_enrichment is not None:
+    if state.get("misp_error"):
+        sections.append(
+            "MISP enrichment:\n"
+            "MISP enrichment unavailable: the lookup "
+            "failed, so threat-intelligence status is "
+            "unknown. This is not evidence of absence; "
+            "do not treat it as a clean result."
+        )
+
+    elif misp_enrichment is not None:
         misp_lines = [
             "MISP enrichment:",
         ]
