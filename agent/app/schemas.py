@@ -1186,6 +1186,7 @@ AuditEventType = Literal[
     "ml_classification_failed",
     "misp_enrichment_completed",
     "misp_enrichment_failed",
+    "investigation_dependency_failed",
     "policy_evaluated",
     "case_created",
     "autonomous_response_blocked",

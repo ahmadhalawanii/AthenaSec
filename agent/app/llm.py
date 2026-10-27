@@ -22,6 +22,14 @@ OLLAMA_MODEL = os.getenv(
 )
 
 
+OLLAMA_TIMEOUT_SECONDS = float(
+    os.getenv(
+        "OLLAMA_TIMEOUT_SECONDS",
+        "120",
+    )
+)
+
+
 SYSTEM_PROMPT = """
 You are AthenaSec, an AI cybersecurity investigation assistant.
 
@@ -137,6 +145,9 @@ def create_analysis_model():
         temperature=0,
         reasoning=False,
         keep_alive="30m",
+        client_kwargs={
+            "timeout": OLLAMA_TIMEOUT_SECONDS,
+        },
     )
 
     return model.with_structured_output(
@@ -229,6 +240,9 @@ def create_response_proposal_model():
         temperature=0,
         reasoning=False,
         keep_alive="30m",
+        client_kwargs={
+            "timeout": OLLAMA_TIMEOUT_SECONDS,
+        },
     )
 
     return model.with_structured_output(

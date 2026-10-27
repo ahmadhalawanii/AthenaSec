@@ -861,9 +861,44 @@ def create_app(
                 "ml_error"
             ] = ml_error
 
-        result = graph.invoke(
-            initial_state
-        )
+        try:
+            result = graph.invoke(
+                initial_state
+            )
+
+        except Exception as exc:
+            # Fail closed: no investigation, policy outcome or
+            # response is produced when a dependency (for example
+            # Ollama) fails, so nothing can reach Cortex.
+            try:
+                save_audit_event(
+                    alert_id=alert.alert_id,
+                    event_type=(
+                        "investigation_dependency_failed"
+                    ),
+                    message=(
+                        "Investigation aborted because "
+                        "a dependency failed."
+                    ),
+                    details={
+                        "error_type": (
+                            type(exc).__name__
+                        ),
+                        "incident_id": incident_id,
+                    },
+                )
+
+            except Exception:
+                pass
+
+            raise HTTPException(
+                status_code=503,
+                detail=(
+                    "Investigation unavailable: a "
+                    "required dependency failed. No "
+                    "response action was taken."
+                ),
+            ) from exc
 
         investigation = InvestigationResponse(
             alert_id=result["alert"].alert_id,
