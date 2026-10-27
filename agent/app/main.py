@@ -16,6 +16,12 @@ from app.llm import (
 from app.ml.runtime_config import (
     build_live_ml_classifier,
 )
+from app.ml.operational_events import (
+    operational_event_reason,
+)
+from app.services.operational_event_investigation import (
+    build_operational_event_investigation,
+)
 import app.services.cortex_config as cortex_config
 
 from app.graph.graph import (
@@ -2030,6 +2036,28 @@ def create_app(
                 status_code=400,
                 detail=str(exc),
             ) from exc
+
+        operational_reason = operational_event_reason(alert)
+
+        if operational_reason is not None:
+            investigation = build_operational_event_investigation(
+                alert=alert,
+                reason=operational_reason,
+            )
+            store.save(investigation)
+            save_audit_event(
+                alert_id=alert.alert_id,
+                event_type='investigation_created',
+                message='Wazuh operational event handled without ML.',
+                details={
+                    'operational_reason': operational_reason,
+                    'rule_id': alert.metadata.get('rule_id'),
+                    'decision_source': 'deterministic',
+                    'ml_inference_skipped': True,
+                    'response_allowed': False,
+                },
+            )
+            return investigation
 
         if configured_ml_classifier is None:
             return run_investigation(

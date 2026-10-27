@@ -558,3 +558,71 @@ def test_ml_node_reuses_preclassified_prediction():
         result["ml_prediction"]
         == prediction
     )
+
+def make_manager_startup_alert():
+    return {
+        "id": "1793112187.0",
+        "timestamp": "2026-10-27T12:00:00+00:00",
+        "rule": {
+            "id": "502",
+            "level": 3,
+            "description": "Wazuh server started.",
+            "groups": ["ossec"],
+        },
+        "decoder": {"name": "ossec"},
+        "agent": {"id": "000"},
+        "location": "wazuh-monitord",
+    }
+
+
+def test_manager_startup_is_handled_without_ml_or_graph():
+    client, graph, classifier, store, audit = make_runtime()
+
+    response = submit(client, make_manager_startup_alert())
+
+    assert response.status_code == 200
+    body = response.json()
+
+    assert classifier.calls == []
+    assert graph.calls == 0
+    assert body["ml_prediction"] is None
+    assert body["incident_id"] is None
+    assert body["risk_assessment"]["score"] == 0
+    assert body["response_plan"]["status"] == "no_action"
+    assert body["response_plan"]["actions"] == []
+    assert body["analysis"]["classification"] == "benign"
+    assert "deterministic" in body["analysis"]["summary"].lower()
+    assert store.get(body["alert_id"]) is not None
+
+    events = audit.list_by_alert_id(body["alert_id"])
+    assert any(
+        e.details.get("operational_reason")
+        == "wazuh_manager_startup"
+        for e in events
+    )
+
+
+def test_startup_with_security_indicator_still_uses_ml():
+    client, graph, classifier, _, _ = make_runtime()
+
+    payload = make_manager_startup_alert()
+    payload["data"] = {"srcip": "203.0.113.10"}
+
+    response = submit(client, payload)
+
+    assert response.status_code == 200
+    assert len(classifier.calls) == 1
+    assert graph.calls == 1
+
+
+def test_manager_startup_requires_authentication():
+    client, graph, classifier, _, _ = make_runtime()
+
+    response = client.post(
+        "/api/v1/integrations/wazuh/alerts",
+        json=make_manager_startup_alert(),
+    )
+
+    assert response.status_code == 401
+    assert classifier.calls == []
+    assert graph.calls == 0
