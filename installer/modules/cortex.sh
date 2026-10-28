@@ -351,7 +351,7 @@ start_stack() {
     log "Starting Cortex Elasticsearch..."
 
     compose up -d elasticsearch
-    wait_for_service_healthy elasticsearch 60 5
+    wait_for_service_healthy elasticsearch 180 5
 
     log "Starting Cortex..."
 
