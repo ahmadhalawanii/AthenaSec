@@ -40,7 +40,7 @@ from app.graph.routing import (
     route_after_analysis,
 )
 from app.graph.state import InvestigationState
-from app.llm import analyze_security_event
+from app.llm import analyze_security_event, analyze_security_event_with_evidence
 from app.schemas import (
     AlertAnalysis,
     AttackPrediction,
@@ -143,7 +143,12 @@ def build_investigation_graph(
     builder.add_node(
         "analyze_alert",
         make_analyze_alert_node(
-            analyzer
+            analyzer,
+            evidence_aware_analyzer=(
+                analyze_security_event_with_evidence
+                if analyzer is analyze_security_event
+                else None
+            ),
         ),
     )
 
