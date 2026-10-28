@@ -1,5 +1,0 @@
-node_modules/
-dist/
-.playwright-cli/
-verify-ui-output/
-.claude/settings.local.json
