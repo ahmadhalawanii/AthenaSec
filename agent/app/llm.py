@@ -1,11 +1,16 @@
 import os
 
+from typing import Literal
+from collections.abc import Sequence
+
+from pydantic import Field, create_model
 from dotenv import load_dotenv
 from langchain_ollama import ChatOllama
 
 from app.schemas import (
     AlertAnalysis,
     StructuredResponseProposal,
+    validate_evidence_reference,
 )
 
 load_dotenv()
@@ -161,6 +166,46 @@ def analyze_security_event(
             ),
         ]
     )
+
+def evidence_bound_analysis_schema(evidence_ids: Sequence[str]):
+    """Construct an LLM schema bound only to trusted evidence-record IDs."""
+    allowed = tuple(sorted(set(evidence_ids)))
+    if not allowed:
+        raise ValueError("No trusted evidence IDs available")
+    for evidence_id in allowed:
+        validate_evidence_reference(evidence_id)
+    AllowedID = Literal[allowed]
+    return create_model(
+        "EvidenceBoundAlertAnalysis",
+        __base__=AlertAnalysis,
+        evidence_refs=(
+            list[AllowedID],
+            Field(
+                min_length=1,
+                description="Select exact supplied evidence record IDs only; no extra text.",
+            ),
+        ),
+    )
+
+
+def analyze_security_event_with_evidence(
+    event: str, evidence_ids: Sequence[str]
+) -> AlertAnalysis:
+    """Reject any model output outside the runtime's exact evidence registry."""
+    schema = evidence_bound_analysis_schema(evidence_ids)
+    model = ChatOllama(
+        model=OLLAMA_MODEL,
+        base_url=OLLAMA_BASE_URL,
+        temperature=0,
+        reasoning=False,
+        keep_alive="30m",
+    ).with_structured_output(schema, method="json_schema")
+    analysis = model.invoke([
+        ("system", SYSTEM_PROMPT),
+        ("human", event),
+    ])
+    return AlertAnalysis.model_validate(analysis.model_dump())
+
 
 RESPONSE_PROPOSAL_SYSTEM_PROMPT = """
 You are AthenaSec's response-planning assistant.

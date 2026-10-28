@@ -408,6 +408,8 @@ def validate_grounded_entities(
 
 def make_analyze_alert_node(
     analyzer: Analyzer,
+    *,
+    evidence_aware_analyzer: Callable[[str, list[str]], AlertAnalysis] | None = None,
 ):
     def analyze_alert(
         state: InvestigationState,
@@ -421,9 +423,16 @@ def make_analyze_alert_node(
             state
         )
 
-        analysis = analyzer(
-            context
-        )
+        trusted_ids = [record.evidence_id for record in evidence_records]
+
+        def invoke_analyzer(prompt: str) -> AlertAnalysis:
+            if evidence_aware_analyzer is not None:
+                if not trusted_ids:
+                    raise ValueError("No trusted evidence IDs available")
+                return evidence_aware_analyzer(prompt, trusted_ids)
+            return analyzer(prompt)
+
+        analysis = invoke_analyzer(context)
 
         validate_evidence_references(
             analysis,
@@ -450,9 +459,7 @@ def make_analyze_alert_node(
                 "identifiers exactly."
             )
 
-            analysis = analyzer(
-                retry_context
-            )
+            analysis = invoke_analyzer(retry_context)
 
             validate_evidence_references(
                 analysis,

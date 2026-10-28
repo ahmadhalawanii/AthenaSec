@@ -10,10 +10,12 @@ def build_risk_context(
 
     metadata = alert.metadata
 
+    failed_attempts = metadata.get("failed_attempts")
+
     return RiskContext(
-        failed_attempts=metadata.get(
-            "failed_attempts",
-            0,
+        failed_attempts=(
+            0 if failed_attempts is None
+            else failed_attempts
         ),
         privileged_target=metadata.get(
             "privileged_target",
