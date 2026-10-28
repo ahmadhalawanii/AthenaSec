@@ -59,6 +59,7 @@ def evaluate_evidence_sufficiency(
             is not None
             and record.evidence_type
             != "alert"
+            and record.source != "alert"
         )
     }
 
