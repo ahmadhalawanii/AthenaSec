@@ -1,0 +1,16 @@
+#!/usr/bin/python3 -I
+"""Execute this launcher directly so its AppArmor profile can attach."""
+import os
+import sys
+
+try:
+    with open("/proc/self/attr/current", encoding="utf-8") as stream:
+        profile = stream.read().strip()
+except OSError:
+    profile = ""
+if not profile.startswith("athenasec-service-panel ("):
+    sys.exit("The Service Panel AppArmor profile did not attach. Launch with /usr/local/bin/athenasec-service-panel directly, not with python3 or bash. If this persists, share this message.")
+
+os.environ["GSK_RENDERER"] = "cairo"
+os.environ["LIBGL_ALWAYS_SOFTWARE"] = "1"
+os.execv("/usr/bin/python3", ["/usr/bin/python3", "-I", "/opt/athenasec/service-panel/bootstrap.py"])

@@ -1,0 +1,14 @@
+[Unit]
+Description=AthenaSec website (built, served on port 5180)
+After=network-online.target athenasec-backend.service
+Wants=network-online.target
+
+[Service]
+User=ahmed
+WorkingDirectory=/home/ahmed/AthenaSec/frontend
+ExecStart=/usr/bin/node node_modules/vite/bin/vite.js preview --host 0.0.0.0 --port 5180 --strictPort
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,41 @@
+window.panel, window.panel headerbar { background: #080809; color: #F4F4F5; }
+window.panel headerbar { border-bottom: 1px solid rgba(142, 38, 56, 0.45); box-shadow: none; }
+.brand { color: #ce7182; font-size: 13px; font-weight: 800; letter-spacing: 3px; }
+.title { font-size: 30px; font-weight: 800; }
+.subtitle { color: #A8A8AD; font-size: 15px; }
+.muted { color: #A8A8AD; font-size: 12px; }
+.summary { background: #121012; border: 1px solid rgba(142, 38, 56, 0.45); border-radius: 12px; padding: 18px 22px; }
+.count { font-size: 29px; font-weight: 700; }
+.service-card { background: #121012; border: 1px solid rgba(142, 38, 56, 0.45); border-radius: 14px; padding: 22px; }
+.service-icon { color: #bd5267; }
+.service-name { font-size: 18px; font-weight: 700; }
+.status { font-size: 14px; font-weight: 600; }
+.running { color: #36D98B; }
+.starting { color: #F4C86A; }
+.partial { color: #F4C86A; }
+.stopped, .unknown { color: #A8A8AD; }
+.unhealthy { color: #F17C8F; }
+.metadata { color: #B9B4B8; font-size: 12px; }
+.service-card separator { background: rgba(142, 38, 56, 0.45); min-height: 1px; }
+button.refresh { background: #6F1D2A; color: #F4F4F5; border: 1px solid #8E2638; border-radius: 9px; padding: 10px 22px; box-shadow: none; }
+button.refresh:hover { background: #8E2638; }
+button.refresh:disabled { background: #30151b; color: #A8A8AD; }
+.sidebar { background: #0B090A; border-right: 1px solid rgba(142, 38, 56, 0.45); padding: 24px 14px; }
+.sidebar-heading { color: #A8A8AD; font-size: 10px; font-weight: 700; letter-spacing: 2px; margin: 0 10px 16px; }
+button.nav-button { background: transparent; color: #A8A8AD; border: 1px solid transparent; border-radius: 9px; padding: 12px; box-shadow: none; }
+button.nav-button:hover { background: #161113; color: #F4F4F5; }
+button.nav-button.selected { background: #30151b; color: #F4F4F5; border-color: #6F1D2A; }
+.web-toolbar { background: #121012; padding: 12px 16px; border-bottom: 1px solid #6F1D2A; }
+.web-toolbar button { background: #21181c; color: #F4F4F5; border: 1px solid #6F1D2A; box-shadow: none; }
+.web-toolbar button:disabled { color: #777278; }
+.web-notice { background: #30151b; color: #E9CFD4; padding: 12px 20px; }
+progressbar progress { background: #8E2638; }
+
+/* v3: local mock login and always-visible machine usage. */
+.login-card { background: #121012; border: 1px solid #6F1D2A; border-radius: 14px; padding: 28px; }
+.login-card entry, .login-card passwordentry { background: #21181c; color: #F4F4F5; border-radius: 8px; min-height: 38px; }
+.login-error { color: #F17C8F; font-size: 13px; }
+.resource-usage { padding: 12px 8px; }
+.resource-usage .sidebar-heading { margin: 0 0 6px; }
+.resource-usage progressbar trough { background: #30151b; min-height: 6px; border-radius: 4px; }
+.resource-usage progressbar progress { min-height: 6px; border-radius: 4px; }

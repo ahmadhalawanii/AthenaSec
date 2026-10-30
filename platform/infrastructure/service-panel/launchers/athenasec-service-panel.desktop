@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=AthenaSec Service Panel
+Comment=Local AthenaSec service status
+Exec=/usr/local/bin/athenasec-service-panel
+Icon=/opt/athenasec/service-panel/assets/athenasec-service-panel.svg
+Terminal=false
+Categories=System;Monitor;
+StartupNotify=true
+StartupWMClass=org.athenasec.ServicePanel

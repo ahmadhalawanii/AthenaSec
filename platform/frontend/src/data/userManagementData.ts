@@ -1,0 +1,62 @@
+import type { UserFormState, UserRecord } from '../types/userManagementTypes'
+
+export const initialUsers: UserRecord[] = [
+  {
+    id: 'USR-001',
+    name: 'System Administrator',
+    email: 'admin@athenasec.com',
+    role: 'Administrator',
+    status: 'Active',
+    department: 'Security Management',
+    phone: '+971 50 555 0101',
+    mfaEnabled: true,
+    lastLogin: 'Today, 20:46',
+    createdAt: '2026-05-10',
+  },
+  {
+    id: 'USR-002',
+    name: 'Analyst A',
+    email: 'analyst@athenasec.com',
+    role: 'Analyst',
+    status: 'Active',
+    department: 'Security Operations',
+    phone: '+971 50 555 0102',
+    mfaEnabled: true,
+    lastLogin: 'Today, 20:31',
+    createdAt: '2026-05-12',
+  },
+  {
+    id: 'USR-003',
+    name: 'Analyst B',
+    email: 'analyst.b@athenasec.com',
+    role: 'Analyst',
+    status: 'Active',
+    department: 'Security Operations',
+    phone: '+971 50 555 0103',
+    mfaEnabled: true,
+    lastLogin: 'Today, 18:42',
+    createdAt: '2026-05-14',
+  },
+  {
+    id: 'USR-004',
+    name: 'Analyst C',
+    email: 'analyst.c@athenasec.com',
+    role: 'Analyst',
+    status: 'Suspended',
+    department: 'Threat Detection',
+    phone: '+971 50 555 0104',
+    mfaEnabled: false,
+    lastLogin: '3 days ago',
+    createdAt: '2026-05-18',
+  },
+]
+
+export const emptyUserForm: UserFormState = {
+  name: '',
+  email: '',
+  role: 'Analyst',
+  status: 'Active',
+  department: '',
+  phone: '',
+  mfaEnabled: true,
+}

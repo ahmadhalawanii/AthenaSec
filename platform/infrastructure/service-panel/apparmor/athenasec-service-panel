@@ -1,0 +1,8 @@
+# AthenaSec Service Panel: Ubuntu 24.04 user namespace compatibility.
+# This is an application namespace permission, not a full confinement policy.
+abi <abi/4.0>,
+include <tunables/global>
+
+profile athenasec-service-panel /usr/local/bin/athenasec-service-panel flags=(unconfined) {
+    userns,
+}

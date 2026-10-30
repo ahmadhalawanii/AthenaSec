@@ -1,0 +1,15 @@
+[Unit]
+Description=AthenaSec backend (FastAPI)
+After=network-online.target postgresql.service
+Wants=network-online.target
+
+[Service]
+User=ahmed
+WorkingDirectory=/home/ahmed/AthenaSec/backend
+EnvironmentFile=/home/ahmed/AthenaSec/backend/.env
+ExecStart=/home/ahmed/athvenv/bin/uvicorn app.main:create_app --factory --host 127.0.0.1 --port 8000
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
