@@ -1,59 +1,19 @@
-# Python
-__pycache__/
-*.py[cod]
-*.pyo
+/configs/*
+!/configs/bootstrap.php
+!/configs/config.php.template
+!/configs/core.php
+!/configs/routes.php
 
-# Virtual environments
-.venv/
-venv/
-backend/.venv/
-
-# Environment variables / secrets
+/files/
+/gnupg/
+/logs/
+/ssl/
+/custom/
 .env
-*.env
-!.env.example
-
-# IDE
-.vscode/
-.idea/
-
-# OS
+env.hcl
+rootca.crt
+cert.pem
+docker-compose.override.yml
 .DS_Store
-Thumbs.db
-
-# Python testing
-.pytest_cache/
-.coverage
-htmlcov/
-
-# Logs
-*.log
-
-# AthenaSec local database
-data/*.db
-data/*.db-journal
-data/*.db-shm
-data/*.db-wal
-
-# AthenaSec local/runtime database
-backend/data/*.db
-backend/data/*.db-journal
-backend/data/*.db-shm
-backend/data/*.db-wal
-
-# AthenaSec generated ML artifacts
-backend/data/models/
-
-# Generated ML replay/training outputs
-backend/data/training/behavior_replay_manifest*.jsonl
-backend/data/training/behavior_replay_manifest*_migration.json
-backend/data/training/full_120_observed_alerts.jsonl
-backend/data/training/replay_captures*.jsonl
-
-# Local development configuration
-backend/compose.local.yaml
-# Generated output
-node_modules/
-dist/
-.pytest_cache/
-test-output*.txt
+.AppleDouble
+.LSOverride
