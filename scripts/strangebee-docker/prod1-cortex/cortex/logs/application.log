@@ -8825,3 +8825,13 @@ Caused by: java.net.ConnectException: Connection refused
 2026-11-06 10:42:18,920 [INFO] from org.thp.cortex.services.AccessLogFilter in application-pekko.actor.default-dispatcher-9 - 172.18.0.4 GET /api/status took 0ms and returned 200 278 bytes
 2026-11-06 10:42:28,962 [INFO] from org.thp.cortex.services.AccessLogFilter in application-pekko.actor.default-dispatcher-9 - 172.18.0.4 GET /api/status took 0ms and returned 200 278 bytes
 2026-11-06 10:42:38,998 [INFO] from org.thp.cortex.services.AccessLogFilter in application-pekko.actor.default-dispatcher-8 - 172.18.0.4 GET /api/status took 1ms and returned 200 278 bytes
+2026-11-06 10:42:49,034 [INFO] from org.thp.cortex.services.AccessLogFilter in application-pekko.actor.default-dispatcher-12 - 172.18.0.4 GET /api/status took 1ms and returned 200 278 bytes
+2026-11-06 10:42:59,073 [INFO] from org.thp.cortex.services.AccessLogFilter in application-pekko.actor.default-dispatcher-9 - 172.18.0.4 GET /api/status took 1ms and returned 200 278 bytes
+2026-11-06 10:43:09,113 [INFO] from org.thp.cortex.services.AccessLogFilter in application-pekko.actor.default-dispatcher-13 - 172.18.0.4 GET /api/status took 1ms and returned 200 278 bytes
+2026-11-06 10:43:19,163 [INFO] from org.thp.cortex.services.AccessLogFilter in application-pekko.actor.default-dispatcher-8 - 172.18.0.4 GET /api/status took 1ms and returned 200 278 bytes
+2026-11-06 10:43:29,201 [INFO] from org.thp.cortex.services.AccessLogFilter in application-pekko.actor.default-dispatcher-8 - 172.18.0.4 GET /api/status took 0ms and returned 200 278 bytes
+2026-11-06 10:43:39,243 [INFO] from org.thp.cortex.services.AccessLogFilter in application-pekko.actor.default-dispatcher-9 - 172.18.0.4 GET /api/status took 1ms and returned 200 278 bytes
+2026-11-06 10:43:49,283 [INFO] from org.thp.cortex.services.AccessLogFilter in application-pekko.actor.default-dispatcher-12 - 172.18.0.4 GET /api/status took 0ms and returned 200 278 bytes
+2026-11-06 10:43:59,328 [INFO] from org.thp.cortex.services.AccessLogFilter in application-pekko.actor.default-dispatcher-9 - 172.18.0.4 GET /api/status took 1ms and returned 200 278 bytes
+2026-11-06 10:44:09,373 [INFO] from org.thp.cortex.services.AccessLogFilter in application-pekko.actor.default-dispatcher-12 - 172.18.0.4 GET /api/status took 1ms and returned 200 278 bytes
+2026-11-06 10:44:19,413 [INFO] from org.thp.cortex.services.AccessLogFilter in application-pekko.actor.default-dispatcher-8 - 172.18.0.4 GET /api/status took 1ms and returned 200 278 bytes
