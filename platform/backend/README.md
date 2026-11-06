@@ -1,6 +1,6 @@
 # Backend: the AthenaSec agent
 
-Python 3.14 · FastAPI · LangGraph · Ollama · SQLite or Postgres.
+Python 3.14 · FastAPI · LangGraph · Ollama · PostgreSQL (SQLite only for local tests).
 
 Receives Wazuh alerts, investigates them with a LangGraph pipeline, scores risk, checks the admin's response policy, asks a person to approve risky actions, runs approved actions through Cortex, then verifies them and undoes them when they expire.
 
@@ -24,7 +24,7 @@ Receives Wazuh alerts, investigates them with a LangGraph pipeline, scores risk,
 | `demos/` | Small end-to-end scripts. Run `python -m demos.demo_graph` from this folder. |
 | `docs/` | Design notes: backend plan, database plan, API ID mapping, test matrix. |
 | `tools/regroup_services.py` | The script that grouped `app/services/` (see "For teammates"). |
-| `Dockerfile`, `compose.yaml` | Run the backend and Postgres in Docker. |
+| `Dockerfile`, `compose.yaml` | Run the backend and PostgreSQL in Docker (persistent volume, schema applied on start). Moving an old SQLite container: `SERVER_RUNBOOK.md` section 7. |
 | `.env.example` | Settings template. Copy to `.env`; the API, `alembic` and the account command all read it. |
 
 ## Investigation pipeline (`app/graph/nodes/`)
@@ -52,7 +52,7 @@ If the evidence is not enough, the agent loops: `gather_evidence` → back to `a
 | `health/` | Checks each service is up and records outages. |
 | `runtime/` | Admin switches that apply at runtime, such as pausing the agent. |
 | `dashboard/` | Dashboard numbers and shared list paging. |
-| `storage/` | Picks the database (memory, SQLite, Postgres) and holds the main response-record store. |
+| `storage/` | Picks the database (memory, SQLite, Postgres), holds the main response-record store, and `sqlite_to_postgres.py`, the verified one-way copy from SQLite to PostgreSQL. |
 
 ## Merged from the team's `semi-main` branch (Daniel)
 

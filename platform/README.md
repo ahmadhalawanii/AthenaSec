@@ -2,6 +2,8 @@
 
 AI-assisted security operations platform for small organisations. Wazuh detects, the AthenaSec agent investigates and proposes a response, an analyst approves risky actions, and Cortex carries them out.
 
+**Running it on the team server:** see [SERVER_RUNBOOK.md](SERVER_RUNBOOK.md) — install, update from a new zip, services, Wazuh integration and troubleshooting.
+
 ## What is where
 
 ```

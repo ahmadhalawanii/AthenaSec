@@ -1,26 +1,88 @@
+# AthenaSec backend + PostgreSQL (system of record).
+#
+# Settings come from backend/.env (chmod 600, never committed). Compose reads it
+# twice: for the ${...} values below and, through env_file, as the container's
+# environment. Values under `environment:` win over .env.
+#
+# Required in .env:
+#   ATHENASEC_PG_PASSWORD        database password (hex, e.g. `openssl rand -hex 24`)
+#   ATHENASEC_WAZUH_INGEST_KEY   shared with the Wazuh integration (`openssl rand -hex 32`)
+#   ATHENASEC_TOTP_MASTER_KEY    64 hex characters, never change it later
+#
+# First start:   docker compose up -d --build
+# Logs:          docker compose logs -f athenasec-agent
+# The database lives in the named volume athenasec-pgdata and survives
+# `docker compose down`. Only `docker compose down -v` deletes it.
+
+name: athenasec
+
 services:
-  athenasec-agent:
+  postgres:
+    image: postgres:16.6-alpine
+    container_name: athenasec-postgres
+    environment:
+      POSTGRES_DB: athenasec
+      POSTGRES_USER: athenasec
+      POSTGRES_PASSWORD: ${ATHENASEC_PG_PASSWORD:?Set ATHENASEC_PG_PASSWORD in backend/.env}
+      POSTGRES_INITDB_ARGS: --auth-host=scram-sha-256
+      TZ: UTC
+    volumes:
+      - athenasec-pgdata:/var/lib/postgresql/data
+    # No published port: only the AthenaSec containers on this network can reach it.
+    networks: [athenasec]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U athenasec -d athenasec"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+
+  # One-shot: brings the schema to the newest Alembic revision, then exits.
+  migrate:
     build:
       context: .
       dockerfile: Dockerfile
-
-    container_name: athenasec-agent
-
-    ports:
-      - "8000:8000"
-
+    image: athenasec-backend:local
+    command: ["alembic", "upgrade", "head"]
     environment:
-      OLLAMA_BASE_URL: http://host.docker.internal:11434
+      ATHENASEC_PERSISTENCE_BACKEND: postgres
+      ATHENASEC_DATABASE_URL: postgresql://athenasec:${ATHENASEC_PG_PASSWORD}@postgres:5432/athenasec
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks: [athenasec]
+    restart: "no"
+
+  athenasec-agent:
+    image: athenasec-backend:local
+    container_name: athenasec-agent
+    env_file: .env
+    environment:
+      ATHENASEC_PERSISTENCE_BACKEND: postgres
+      ATHENASEC_DATABASE_URL: postgresql://athenasec:${ATHENASEC_PG_PASSWORD}@postgres:5432/athenasec
+      ATHENASEC_WAZUH_INGEST_KEY: ${ATHENASEC_WAZUH_INGEST_KEY:?Set ATHENASEC_WAZUH_INGEST_KEY in backend/.env}
+      OLLAMA_BASE_URL: ${ATHENASEC_DOCKER_OLLAMA_URL:-http://host.docker.internal:11434}
       OLLAMA_MODEL: ${OLLAMA_MODEL:-qwen3:4b}
-      # The app defaults to postgres when this is unset, which fails without
-      # ATHENASEC_DATABASE_URL. This file mounts ./data for SQLite, so say so.
-      # For PostgreSQL: set ATHENASEC_PERSISTENCE_BACKEND=postgres and
-      # ATHENASEC_DATABASE_URL in the shell or an env file.
-      ATHENASEC_PERSISTENCE_BACKEND: ${ATHENASEC_PERSISTENCE_BACKEND:-sqlite}
-      ATHENASEC_DATABASE_URL: ${ATHENASEC_DATABASE_URL:-}
-      ATHENASEC_DB_PATH: /app/data/athenasec.db
-
-    volumes:
-      - ./data:/app/data
-
+      # Cortex stays off: no action is executed, whatever .env says.
+      AUTONOMOUS_RESPONSE_ENABLED: "false"
+      ATHENASEC_RESPONSE_MODE: ${ATHENASEC_RESPONSE_MODE:-SHADOW}
+    # Wazuh on this host posts to http://127.0.0.1:${ATHENASEC_API_PORT}; not exposed to the network.
+    ports:
+      - "127.0.0.1:${ATHENASEC_API_PORT:-8000}:8000"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    # The old SQLite file in ./data is no longer mounted: PostgreSQL is the only store.
+    # The migration step mounts it read-only on its own (see SERVER_RUNBOOK.md).
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    networks: [athenasec]
     restart: unless-stopped
+
+networks:
+  athenasec:
+
+volumes:
+  athenasec-pgdata:
