@@ -24,6 +24,10 @@ from app.llm import (
     ModelUnavailable,
     propose_security_response,
 )
+from app.chat.api import register_chat_routes
+from app.chat.phrasing import build_phraser_from_env
+from app.chat.service import ChatSources
+from app.chat.store import InMemoryChatStore, build_chat_store_from_env
 from app.ml.runtime_config import (
     build_live_ml_classifier,
 )
@@ -374,6 +378,8 @@ def create_app(
     action_policy_store: Any = None,
     health_event_store: Any = None,
     health_probes: Any = None,
+    chat_store: Any = None,
+    chat_phraser: Any = None,
 ) -> FastAPI:
     app = FastAPI(
         title="AthenaSec Agent API",
@@ -562,6 +568,18 @@ def create_app(
         configured_case_workflow_store = (
             InMemoryCaseWorkflowStore()
         )
+
+    if chat_store is not None:
+        configured_chat_store = chat_store
+
+    elif (
+        default_investigation_store is not None
+        or default_audit_store is not None
+    ):
+        configured_chat_store = build_chat_store_from_env()
+
+    else:
+        configured_chat_store = InMemoryChatStore()
 
     if alert_workflow_store is not None:
         configured_alert_workflow_store = alert_workflow_store
@@ -2720,6 +2738,60 @@ def create_app(
 
         return case_view_for(lambda: render_case(record))
 
+    def chat_get_case(case_id):
+        record = configured_incident_response_store.get_incident_case(case_id)
+        return None if record is None else case_view_for(lambda: render_case(record))
+
+    def chat_list_cases():
+        return case_view_for(lambda: [
+            render_case(record)
+            for record in configured_incident_response_store.list_all_incident_cases()
+        ])
+
+    def chat_recent_audit(limit):
+        events = [
+            *configured_operator_audit_store.list_events(),
+            *[incident_event_view(record)
+              for record in configured_audit_store.list_incident_events()],
+        ]
+        events.sort(key=lambda event: (as_utc(event.occurred_at), event.event_id), reverse=True)
+        return events[:limit]
+
+    def chat_audit(principal, session_id, tools, data_status):
+        # Who asked and which tools ran; never the question text
+        role = getattr(principal, "role", None)
+        configured_operator_audit_store.append_event(
+            actor_id=principal.operator_id,
+            actor_role=role if role in ("Analyst", "Administrator") else "Analyst",
+            category="Copilot", action="chat.answer", target=session_id, result="Success",
+            event_type="chat_answer",
+            detail={"tools": list(tools), "data_status": data_status},
+        )
+
+    # Security Copilot: read-only; reuses this app's own sign-in and stores.
+    register_chat_routes(
+        app,
+        require_identity=require_approval_identity,
+        session_cookie_name=SESSION_COOKIE_NAME,
+        store=configured_chat_store,
+        sources=ChatSources(
+            list_alerts=lambda since: store.list_alerts(since=since),
+            get_alert=store.get,
+            list_cases=chat_list_cases,
+            get_case=chat_get_case,
+            runtime_status=build_runtime_status,
+            list_approvals=lambda status: (
+                configured_incident_response_store.list_approval_requests(status=status)),
+            get_approval=configured_incident_response_store.get_approval_request,
+            get_action=configured_incident_response_store.get_proposed_action,
+            get_policy_decision=configured_incident_response_store.get_policy_decision,
+            health=lambda: current_system_health(),
+            recent_audit=chat_recent_audit,
+        ),
+        phraser=chat_phraser if chat_phraser is not None else build_phraser_from_env(),
+        audit=chat_audit,
+    )
+
     # ----- Analyst actions from the website: close, reopen, assign, tick -----
 
     def require_browser_change(request: Request, csrf: str | None):
@@ -3558,15 +3630,7 @@ def create_app(
 
         return default_health_probes
 
-    @app.get("/api/v1/system/health", response_model=SystemHealth)
-    def system_health(
-        request: Request,
-        response: Response,
-        authorization: str | None = Header(default=None),
-    ) -> SystemHealth:
-        require_approval_identity(authorization, request=request)
-        response.headers["Cache-Control"] = "no-store"
-
+    def current_system_health():
         return build_system_health(
             probes=health_probes_in_use(),
             event_store=configured_health_event_store,
@@ -3581,6 +3645,17 @@ def create_app(
                 "ATHENASEC_EVIDENCE_PROVIDER", "mock"
             ).strip().lower(),
         )
+
+    @app.get("/api/v1/system/health", response_model=SystemHealth)
+    def system_health(
+        request: Request,
+        response: Response,
+        authorization: str | None = Header(default=None),
+    ) -> SystemHealth:
+        require_approval_identity(authorization, request=request)
+        response.headers["Cache-Control"] = "no-store"
+
+        return current_system_health()
 
     @app.get("/api/v1/system/events", response_model=HealthEventListResponse)
     def system_health_events(

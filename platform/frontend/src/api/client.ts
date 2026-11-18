@@ -36,6 +36,8 @@ export class ApiError extends Error {
 type RequestOptions = {
   method?: 'GET' | 'POST' | 'PUT' | 'DELETE'
   body?: unknown
+  // Slow calls (a chat answer reworded by Qwen) need longer than the default
+  timeoutMs?: number
 }
 
 export async function api<T>(path: string, options: RequestOptions = {}): Promise<T> {
@@ -51,7 +53,7 @@ export async function api<T>(path: string, options: RequestOptions = {}): Promis
   }
 
   const controller = new AbortController()
-  const timer = window.setTimeout(() => controller.abort(), TIMEOUT_MS)
+  const timer = window.setTimeout(() => controller.abort(), options.timeoutMs ?? TIMEOUT_MS)
   let response: Response
 
   try {

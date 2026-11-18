@@ -22,6 +22,7 @@ import AlertsPage from './pages/AlertsPage'
 import CasesPage from './pages/CasesPage'
 import IncidentResponsePage from './pages/IncidentResponsePage'
 import ApprovalsPage from './pages/ApprovalsPage'
+import CopilotPage from './pages/CopilotPage'
 import ConfigurationPage from './pages/ConfigurationPage'
 import ResponsePoliciesPage from './pages/ResponsePoliciesPage'
 import UserManagementPage from './pages/UserManagementPage'
@@ -422,6 +423,12 @@ function App() {
             <Route
               path="approvals"
               element={mode === 'live' ? <LiveApprovals /> : <ApprovalsPage />}
+            />
+
+            {/* Read-only assistant over stored records; it needs the live backend */}
+            <Route
+              path="copilot"
+              element={<CopilotPage role={role} live={mode === 'live'} />}
             />
 
             <Route

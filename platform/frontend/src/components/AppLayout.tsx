@@ -5,6 +5,7 @@ import { useMediaQuery } from '../hooks/useMediaQuery'
 import type { SearchNavigationState } from '../types/searchTypes'
 
 import AdminStateProvider from './AdminStateProvider'
+import CopilotLauncher from './CopilotLauncher'
 import LiveNotice from './LiveNotice'
 import Sidebar from './Sidebar'
 import SocStateProvider from './SocStateProvider'
@@ -185,6 +186,9 @@ function AppLayout({
               <LiveNotice />
             </div>
           </div>
+
+          {/* Floating Security Copilot, on every page */}
+          <CopilotLauncher role={role} inert={pageLocked} />
         </section>
       </SocStateProvider>
     </AdminStateProvider>
