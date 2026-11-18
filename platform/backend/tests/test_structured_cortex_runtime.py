@@ -273,10 +273,11 @@ def test_structured_runtime_is_none_without_unblock_responder(
         raising=False,
     )
 
-    assert (
+    with pytest.raises(
+        RuntimeError,
+        match="CORTEX_UNBLOCK_IP_RESPONDER_ID",
+    ):
         build_structured_cortex_runtime_from_env()
-        is None
-    )
 
 
 def test_partial_structured_runtime_configuration_is_rejected(

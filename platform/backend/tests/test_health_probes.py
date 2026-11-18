@@ -384,3 +384,34 @@ def test_the_network_guard_refuses_real_services_and_external_hosts():
 
     with pytest.raises(AssertionError, match="real network"):
         socket.create_connection(("127.0.0.1", 9))
+
+
+def test_misp_and_cortex_probes_use_their_tls_settings(monkeypatch):
+    import httpx as real_httpx
+
+    from app.services.health import health_probes as hp
+
+    seen = []
+
+    class FakeClient:
+        def __init__(self, verify=True):
+            seen.append(verify)
+
+        def request(self, method, url, **kwargs):
+            return real_httpx.Response(200, request=real_httpx.Request(method, url), json={"version": "x"})
+
+        get = lambda self, url, **kw: self.request("GET", url, **kw)
+
+    monkeypatch.setattr(hp.httpx, "Client", FakeClient)
+    monkeypatch.setenv("MISP_URL", "https://localhost:9445")
+    monkeypatch.setenv("MISP_API_KEY", "k")
+    monkeypatch.setenv("MISP_VERIFY_SSL", "false")
+    monkeypatch.setenv("CORTEX_URL", "https://localhost:9444")
+    monkeypatch.delenv("CORTEX_CA_BUNDLE", raising=False)
+    monkeypatch.delenv("CORTEX_VERIFY_SSL", raising=False)
+
+    probes = hp.default_probes()
+    probes["misp"]()
+    probes["cortex"]()
+
+    assert seen == [False, True]

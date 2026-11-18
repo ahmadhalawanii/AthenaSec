@@ -21,6 +21,8 @@ from urllib.parse import urlsplit
 import httpx
 import psycopg
 
+from app.services.http_tls import tls_verify
+
 PROBE_TIMEOUT_SECONDS = 3.0
 PROBE_DEADLINE_SECONDS = 6.0
 DEGRADED_LATENCY_MS = 1500
@@ -230,13 +232,31 @@ def probe_wazuh_indexer(*, client_factory=None, environ=None) -> ProbeResult:
 def default_probes(*, http_client=None, postgres_connect=None, wazuh_client_factory=None):
     """check_key -> zero-argument probe. Environment is read when a probe runs."""
 
-    client = http_client if http_client is not None else httpx.Client()
+    # MISP and Cortex use self-signed certificates on the AthenaSec server: probe them with
+    # the same TLS settings (<PREFIX>_CA_BUNDLE / <PREFIX>_VERIFY_SSL) their real clients use,
+    # so System Health agrees with what the agent actually sees.
+    def client_for(prefix=None):
+        if http_client is not None:
+            return lambda: http_client
+        cache = {}
+
+        def get():
+            verify = tls_verify(prefix) if prefix else True
+            key = repr(verify) if isinstance(verify, bool) else os.getenv(f"{prefix}_CA_BUNDLE")
+            if key not in cache:
+                cache.clear()
+                cache[key] = httpx.Client(verify=verify)
+            return cache[key]
+
+        return get
+
+    ollama_client, misp_client, cortex_client = client_for(), client_for("MISP"), client_for("CORTEX")
 
     return {
         "postgres": lambda: probe_postgres(connect=postgres_connect),
-        "ollama": lambda: probe_ollama(http_client=client),
-        "misp": lambda: probe_misp(http_client=client),
-        "cortex": lambda: probe_cortex(http_client=client),
+        "ollama": lambda: probe_ollama(http_client=ollama_client()),
+        "misp": lambda: probe_misp(http_client=misp_client()),
+        "cortex": lambda: probe_cortex(http_client=cortex_client()),
         "wazuh_indexer": lambda: probe_wazuh_indexer(client_factory=wazuh_client_factory),
     }
 

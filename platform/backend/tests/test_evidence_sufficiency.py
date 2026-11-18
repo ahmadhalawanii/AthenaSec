@@ -188,3 +188,36 @@ def test_benign_requires_no_investigation_evidence():
     assert result.required_evidence == []
 
     assert result.missing_evidence == []
+
+
+def test_external_network_evidence_satisfies_brute_force():
+    result = evaluate_evidence_sufficiency(
+        classification="brute_force",
+        evidence_records=[
+            evidence("E002", "authentication_history"),
+            evidence("E003", "source_network_context"),
+        ],
+    )
+    assert result.sufficient is True
+    assert result.missing_evidence == []
+
+
+def test_network_evidence_alone_cannot_verify_brute_force():
+    result = evaluate_evidence_sufficiency(
+        classification="brute_force",
+        evidence_records=[
+            evidence("E002", "source_network_context"),
+        ],
+    )
+    assert result.sufficient is False
+    assert "authentication_history" in result.missing_evidence
+
+
+def test_authentication_alone_still_cannot_verify_brute_force():
+    result = evaluate_evidence_sufficiency(
+        classification="brute_force",
+        evidence_records=[
+            evidence("E002", "authentication_history"),
+        ],
+    )
+    assert result.sufficient is False

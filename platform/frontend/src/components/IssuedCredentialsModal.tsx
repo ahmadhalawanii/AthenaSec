@@ -71,7 +71,15 @@ function IssuedCredentialsModal({ issued, onClose }: { issued: IssuedCredentials
             </div>
           )}
 
-          {issued.temporaryPassword && (
+          {issued.temporaryPassword && issued.newAccount && (
+            <p className="sub issued-step">
+              The first time they sign in with it, they choose their own password and then connect
+              their authenticator app by scanning a QR code made just for them. You never see
+              their two-factor secret.
+            </p>
+          )}
+
+          {issued.temporaryPassword && !issued.newAccount && (
             <p className="sub issued-step">
               They will be asked to choose their own password the first time they sign in with it.
             </p>
@@ -105,7 +113,7 @@ function IssuedCredentialsModal({ issued, onClose }: { issued: IssuedCredentials
             </>
           )}
 
-          {!issued.totpUri && issued.temporaryPassword && (
+          {!issued.totpUri && issued.temporaryPassword && !issued.newAccount && (
             <p className="sub issued-step">
               Their two-factor app keeps working. They have been signed out everywhere and sign in
               again with this password.

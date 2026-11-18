@@ -116,9 +116,11 @@ def test_wazuh_loop_requests_only_missing_evidence_until_sufficient():
         [
             "authentication_history",
             "source_endpoint_context",
+            "source_network_context",
         ],
         [
             "source_endpoint_context",
+            "source_network_context",
         ],
     ]
 

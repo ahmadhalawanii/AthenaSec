@@ -170,8 +170,13 @@ def _claims_successful_authentication(
             match.start()
         ]
 
-        if NEGATING_PREFIX_PATTERN.search(
-            prefix
+        if (
+            NEGATING_PREFIX_PATTERN.search(prefix)
+            or re.search(
+                r"\b(?:no|without|not)\s+(?:[a-z-]+\s+){0,4}$",
+                prefix,
+                re.IGNORECASE,
+            )
         ):
             continue
 
@@ -198,6 +203,48 @@ def _evidence_denies_successful_authentication(
             return True
 
     return False
+
+
+
+def _conflicting_authentication_counts(evidence_records):
+    """Detect incompatible positive and zero SSH-failure counts for one IP."""
+    positive = set()
+    zero = set()
+
+    for record in evidence_records:
+        if record.evidence_type not in {
+            "authentication_history",
+            "related_security_events",
+        }:
+            continue
+
+        text = record.content.lower()
+        ips = set(re.findall(
+            r"\bsource_ip\s*=\s*((?:\d{1,3}\.){3}\d{1,3})\b",
+            text,
+        ))
+
+        if not ips:
+            continue
+
+        has_positive = bool(re.search(
+            r"\b[1-9]\d*\s+(?:ssh\s+)?(?:password\s+)?"
+            r"fail(?:ures?|ed)\b",
+            text,
+        ))
+        has_zero = bool(re.search(
+            r"\b(?:zero|0)\s+(?:ssh\s+)?(?:password\s+)?"
+            r"fail(?:ures?|ed)\b",
+            text,
+        ))
+
+        if has_positive:
+            positive.update(ips)
+
+        if has_zero:
+            zero.update(ips)
+
+    return bool(positive & zero)
 
 
 def verify_analysis(
@@ -308,6 +355,12 @@ def verify_analysis(
                 "successful_authentication_"
                 "contradiction"
             ),
+        )
+
+    if _conflicting_authentication_counts(evidence_records):
+        _append_unique(
+            blocking_issues,
+            "contradictory_authentication_evidence",
         )
 
     alert_timestamp = (

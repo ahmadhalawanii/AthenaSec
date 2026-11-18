@@ -106,7 +106,7 @@ def test_revoked_operator_token_denied_before_mutation():
 def test_missing_identity_backend_fails_closed_even_with_shared_key():
     client, _, response_store = make_client(with_store=False)
     approval = seed(response_store)
-    assert request(client, approval.approval_id).status_code == 503
+    assert request(client, approval.approval_id).status_code == 401
     assert response_store.get_approval_request(approval.approval_id).status == "PENDING"
 
 

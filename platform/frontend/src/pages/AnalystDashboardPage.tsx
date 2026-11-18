@@ -27,6 +27,9 @@ type MapView = 'map' | 'list'
 
 const alertsLinkStateFor = (alertId: string): SearchNavigationState => ({ highlight: alertId })
 
+// Live mode can have hundreds of alerts; the dashboard shows the most urgent few
+const QUEUE_SHOWN = 5
+
 const MAP_VIEWS = [
   { value: 'map' as const, label: 'Map' },
   { value: 'list' as const, label: 'List' },
@@ -69,9 +72,9 @@ function AnalystDashboardPage() {
   const [selectedId, setSelectedId] = useState(() => mostUrgentPath(attackMap.paths, queue))
 
   /*
-    The attack-path map is drawn from mapped network paths (attackPathData.ts),
-    which only exist for the sample alerts. Live alerts have none yet, so the
-    dashboard lists the latest alerts instead of drawing a map.
+    The attack-path map is drawn from the brute-force and privilege-misuse
+    alerts (attackPathData.ts). When there are none, the dashboard lists the
+    latest alerts instead of drawing a map.
   */
   if (attackMap.paths.length === 0) {
     const latest = [...alerts].sort((a, b) => b.risk - a.risk).slice(0, 8)
@@ -304,7 +307,7 @@ function AnalystDashboardPage() {
             <p className="dash-empty">Nothing needs a decision right now.</p>
           ) : (
             <ul className="decision-list">
-              {queue.map((item) => (
+              {queue.slice(0, QUEUE_SHOWN).map((item) => (
                 <li key={item.alert.id} className="decision-item" data-decision-id={item.alert.id}>
                   <RiskRing score={item.alert.risk} size={38} />
                   <div className="decision-text">
@@ -316,7 +319,13 @@ function AnalystDashboardPage() {
                       <span className="mono">{item.alert.id}</span> {item.detail}
                     </p>
                     <p className="decision-detail">
-                      Assigned to <span className="decision-assigned">{item.alert.assignedAnalyst}</span>
+                      {item.alert.assignedAnalyst === 'Unassigned' ? (
+                        'Not assigned yet'
+                      ) : (
+                        <>
+                          Assigned to <span className="decision-assigned">{item.alert.assignedAnalyst}</span>
+                        </>
+                      )}
                     </p>
                   </div>
                   <div className="decision-actions">
@@ -325,6 +334,15 @@ function AnalystDashboardPage() {
                 </li>
               ))}
             </ul>
+          )}
+
+          {queue.length > QUEUE_SHOWN && (
+            <p className="dash-empty">
+              Showing the {QUEUE_SHOWN} most urgent of {queue.length}.{' '}
+              <Link className="text-link" to="/app/alerts">
+                See all in Alerts
+              </Link>
+            </p>
           )}
         </section>
 

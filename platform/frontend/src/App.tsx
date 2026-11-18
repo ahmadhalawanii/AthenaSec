@@ -14,6 +14,7 @@ import ResponseStateProvider from './components/ResponseStateProvider'
 import LoginPage from './pages/LoginPage'
 import MfaPage from './pages/MfaPage'
 import NewPasswordPage from './pages/NewPasswordPage'
+import MfaSetupPage from './pages/MfaSetupPage'
 
 import AnalystDashboardPage from './pages/AnalystDashboardPage'
 import AdminDashboardPage from './pages/AdminDashboardPage'
@@ -110,6 +111,8 @@ function App() {
 
   // Live mode: signed in with a temporary password, so a new one comes before the console
   const [mustChangePassword, setMustChangePassword] = useState(false)
+  // Live mode, new account: after the password, they connect their authenticator app
+  const [mfaSetupRequired, setMfaSetupRequired] = useState(false)
 
   // Demo sign-ins are remembered in the browser only when "Keep me signed in" was ticked
   const [rememberDemo, setRememberDemo] = useState(() => readStoredUser() !== null)
@@ -142,6 +145,7 @@ function App() {
         setCsrfToken(session.csrf_token)
         setCurrentUser(session.user)
         setMustChangePassword(Boolean(session.must_change_password))
+        setMfaSetupRequired(Boolean(session.mfa_setup_required))
         setMode('live')
       })
       .catch((error: unknown) => {
@@ -206,11 +210,22 @@ function App() {
     }
 
     try {
-      const { challenge } = await api<{ challenge: string }>('/auth/login', {
+      const result = await api<{ challenge: string } | ApiSession>('/auth/login', {
         method: 'POST',
         body: { email: normalizedEmail, password },
       })
 
+      // A new account has no authenticator app yet: straight to choosing a password and
+      // scanning a QR code, instead of asking for a code it cannot have
+      if ('csrf_token' in result) {
+        setCsrfToken(result.csrf_token)
+        setMustChangePassword(Boolean(result.must_change_password))
+        setMfaSetupRequired(Boolean(result.mfa_setup_required))
+        finishSignIn(result.user)
+        return null
+      }
+
+      const { challenge } = result
       setPendingUser({ email: normalizedEmail, challenge, remember })
       routerNavigate('/mfa')
       return null
@@ -260,6 +275,7 @@ function App() {
 
       setCsrfToken(session.csrf_token)
       setMustChangePassword(Boolean(session.must_change_password))
+      setMfaSetupRequired(Boolean(session.mfa_setup_required))
       finishSignIn(session.user)
       return null
     } catch (error) {
@@ -283,6 +299,7 @@ function App() {
     setCurrentUser(null)
     setPendingUser(null)
     setMustChangePassword(false)
+    setMfaSetupRequired(false)
 
     localStorage.removeItem(AUTH_STORAGE_KEY)
 
@@ -310,6 +327,20 @@ function App() {
         <NewPasswordPage
           name={currentUser.name}
           onDone={() => setMustChangePassword(false)}
+          onLogout={logout}
+        />
+      )
+    }
+
+    if (mfaSetupRequired) {
+      return (
+        <MfaSetupPage
+          name={currentUser.name}
+          email={currentUser.email}
+          onDone={(session) => {
+            setCurrentUser(session.user)
+            setMfaSetupRequired(false)
+          }}
           onLogout={logout}
         />
       )

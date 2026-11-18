@@ -41,6 +41,8 @@ class BrowserPrincipal:
     csrf_token: str
     # A temporary password is in use: only changing it (and signing out) is allowed
     must_change_password: bool = False
+    # No authenticator app yet (new account): only setting one up (and signing out) is allowed
+    mfa_setup_required: bool = False
 
     @property
     def operator_id(self) -> str:
@@ -195,35 +197,61 @@ class PostgresBrowserAuthStore:
             VALUES (%s,%s)
         """, (user_id, event_type))
 
-    def _secret(self, user_id: str, epoch: int = 0) -> bytes:
-        # epoch 0 is every account's original secret; a two-factor reset moves to the next one
-        message = b"athenasec-totp-v1:" + user_id.encode()
-        if epoch:
-            message += b":" + str(epoch).encode()
+    def _secret(self, user_id: str, epoch: int = 0, nonce: str | None = None) -> bytes:
+        if nonce:
+            # Every enrolment gets a fresh random nonce, so no two QR codes are ever the same
+            message = b"athenasec-totp-v2:" + user_id.encode() + b":" + nonce.encode()
+        else:
+            # Accounts enrolled before nonces: epoch 0 is the original secret, a reset moved on
+            message = b"athenasec-totp-v1:" + user_id.encode()
+            if epoch:
+                message += b":" + str(epoch).encode()
         return hmac.new(self._master_key, message, hashlib.sha256).digest()[:20]
 
-    def _totp_uri(self, user_id: str, email: str, epoch: int = 0) -> str:
-        key = base64.b32encode(self._secret(user_id, epoch)).decode("ascii").rstrip("=")
+    def _totp_uri(self, user_id: str, email: str, epoch: int = 0, nonce: str | None = None) -> str:
+        key = base64.b32encode(self._secret(user_id, epoch, nonce)).decode("ascii").rstrip("=")
         return "otpauth://totp/" + quote("AthenaSec:" + email, safe="") + "?secret=" + key + "&issuer=AthenaSec"
 
+    @staticmethod
+    def _new_nonce() -> str:
+        return secrets.token_hex(16)
+
+    def _start_session(self, connection, user_id: str, now: datetime, *, hours: float = 8) -> tuple[str, str]:
+        session = secrets.token_urlsafe(48)
+        csrf_token = secrets.token_urlsafe(32)
+        connection.execute("""
+            INSERT INTO athenasec_web_sessions
+            (session_digest,user_id,csrf_token,expires_at)
+            VALUES (%s,%s,%s,%s)
+        """, (_digest(session), user_id, csrf_token, now + timedelta(hours=hours)))
+        return session, csrf_token
+
     def provision_user(self, *, user_id: str, email: str, name: str, password: str,
-                       role: str, can_read: bool = False, can_approve: bool = False) -> str:
+                       role: str, can_read: bool = False, can_approve: bool = False,
+                       enrol_now: bool = True) -> str | None:
+        """Create an account. enrol_now (the command line): the authenticator secret is made
+        now and its otpauth:// link returned. Otherwise (the website) the owner sets up their
+        own authenticator on first sign-in and None is returned."""
         user_id, email, name = user_id.strip(), email.strip().casefold(), name.strip()
         if (not user_id or not re.fullmatch(r"[^\s@]+@[^\s@]+\.[^\s@]+", email)
                 or not name or role not in {"Analyst", "Administrator"}
                 or len(password) < 14 or len(password) > 1024):
             raise ValueError("Invalid account fields or password (minimum 14 characters)")
         salt = secrets.token_bytes(16)
+        nonce = self._new_nonce() if enrol_now else None
         with psycopg.connect(self.database_url) as connection:
-            connection.execute("""
-                INSERT INTO athenasec_web_users
-                (user_id,email,display_name,role,password_salt,password_digest,
-                 can_read_approvals,can_decide_approvals)
-                VALUES (%s,%s,%s,%s,%s,%s,%s,%s)
-            """, (user_id, email, name, role, salt, _password_hash(password, salt),
-                  can_read or can_approve, can_approve))
+            try:
+                connection.execute("""
+                    INSERT INTO athenasec_web_users
+                    (user_id,email,display_name,role,password_salt,password_digest,
+                     can_read_approvals,can_decide_approvals,mfa_enrolled,totp_nonce)
+                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                """, (user_id, email, name, role, salt, _password_hash(password, salt),
+                      can_read or can_approve, can_approve, enrol_now, nonce))
+            except psycopg.errors.UndefinedColumn as exc:
+                raise UsersSchemaNotReady("Run alembic upgrade head.") from exc
             self._event(connection, user_id, "user_created")
-        return self._totp_uri(user_id, email)
+        return self._totp_uri(user_id, email, nonce=nonce) if enrol_now else None
 
     def disable_user(self, user_id: str) -> None:
         with psycopg.connect(self.database_url) as connection:
@@ -238,15 +266,17 @@ class PostgresBrowserAuthStore:
                     phone: str = "", can_read: bool = True, can_approve: bool = True):
         """New account with a generated id and temporary password.
 
-        Returns (user, temporary_password, totp_uri). The password and the two-factor
-        setup key are shown to the administrator once; neither is stored in clear.
+        Returns (user, temporary_password, None). The password is shown to the
+        administrator once and not stored in clear. The new user chooses their own
+        password on first sign-in and then scans their own, newly made QR code.
         """
         user_id = "USR-" + secrets.token_hex(4).upper()
         password = _temporary_password()
 
         try:
             uri = self.provision_user(user_id=user_id, email=email, name=name, password=password,
-                                      role=role, can_read=can_read, can_approve=can_approve)
+                                      role=role, can_read=can_read, can_approve=can_approve,
+                                      enrol_now=False)
         except psycopg.errors.UniqueViolation as exc:
             raise UserConflict("Another account already uses this email address.") from exc
 
@@ -328,18 +358,20 @@ class PostgresBrowserAuthStore:
     def reset_mfa(self, user_id: str) -> str | None:
         """A new authenticator secret (lost phone, say). The old app stops working, the user
         is signed out everywhere, and the returned otpauth:// link enrols the new one."""
+        nonce = self._new_nonce()
         with psycopg.connect(self.database_url) as connection:
             row = connection.execute("""
                 UPDATE athenasec_web_users
-                SET totp_epoch=totp_epoch+1, last_totp_counter=-1, failures=0, locked_until=NULL
+                SET totp_epoch=totp_epoch+1, totp_nonce=%s, pending_totp_nonce=NULL,
+                    mfa_enrolled=TRUE, last_totp_counter=-1, failures=0, locked_until=NULL
                 WHERE user_id=%s RETURNING email, totp_epoch
-            """, (user_id,)).fetchone()
+            """, (nonce, user_id)).fetchone()
             if row:
                 connection.execute("UPDATE athenasec_web_sessions SET revoked=TRUE WHERE user_id=%s", (user_id,))
                 connection.execute("DELETE FROM athenasec_web_challenges WHERE user_id=%s", (user_id,))
                 self._event(connection, user_id, "mfa_reset")
 
-        return self._totp_uri(user_id, row[0], row[1]) if row else None
+        return self._totp_uri(user_id, row[0], row[1], nonce) if row else None
 
     def list_auth_events(self, user_id: str, *, limit: int = 10) -> list[tuple[str, datetime]]:
         """The account's own sign-in history, newest first: (event_type, recorded_at)."""
@@ -471,16 +503,16 @@ class PostgresBrowserAuthStore:
             user = connection.execute("""
                 SELECT email,display_name,role,active,can_read_approvals,
                        can_decide_approvals,last_totp_counter,locked_until,failures,
-                       totp_epoch,must_change_password
+                       totp_epoch,must_change_password,totp_nonce,mfa_enrolled
                 FROM athenasec_web_users WHERE user_id=%s FOR UPDATE
             """, (user_id,)).fetchone()
-            if (not user or not user[3] or now >= expires_at or attempts >= 5
+            if (not user or not user[3] or not user[12] or now >= expires_at or attempts >= 5
                     or (user[7] is not None and user[7] > now)):
                 connection.execute("DELETE FROM athenasec_web_challenges WHERE challenge_digest=%s", (_digest(challenge),))
                 self._event(connection, user_id, "mfa_rejected")
                 invalid = True
             else:
-                next_counter = _totp_counter(self._secret(user_id, user[9]), code, user[6], now)
+                next_counter = _totp_counter(self._secret(user_id, user[9], user[11]), code, user[6], now)
                 if next_counter is None:
                     connection.execute("""
                         UPDATE athenasec_web_challenges SET attempts=attempts+1
@@ -502,13 +534,7 @@ class PostgresBrowserAuthStore:
                         WHERE user_id=%s
                     """, (next_counter, user_id))
                     connection.execute("DELETE FROM athenasec_web_challenges WHERE user_id=%s", (user_id,))
-                    session = secrets.token_urlsafe(48)
-                    csrf_token = secrets.token_urlsafe(32)
-                    connection.execute("""
-                        INSERT INTO athenasec_web_sessions
-                        (session_digest,user_id,csrf_token,expires_at)
-                        VALUES (%s,%s,%s,%s)
-                    """, (_digest(session), user_id, csrf_token, now + timedelta(hours=8)))
+                    session, csrf_token = self._start_session(connection, user_id, now)
                     principal = BrowserPrincipal(user_id, user[0], user[1], user[2],
                                                  user[4], user[5], csrf_token, user[10])
                     self._event(connection, user_id, "mfa_verified_session_started")
@@ -523,13 +549,106 @@ class PostgresBrowserAuthStore:
             row = connection.execute("""
                 SELECT u.user_id,u.email,u.display_name,u.role,
                        u.can_read_approvals,u.can_decide_approvals,s.csrf_token,
-                       u.must_change_password
+                       u.must_change_password, NOT u.mfa_enrolled
                 FROM athenasec_web_sessions s
                 JOIN athenasec_web_users u ON s.user_id=u.user_id
                 WHERE s.session_digest=%s AND s.expires_at>CURRENT_TIMESTAMP
                   AND NOT s.revoked AND u.active
             """, (_digest(session),)).fetchone()
         return BrowserPrincipal(*row) if row else None
+
+    # ----- First sign-in: the user sets up their own authenticator app -----
+
+    SETUP_SESSION_MINUTES = 30
+
+    def start_setup_session(self, challenge: str) -> tuple[str, BrowserPrincipal] | None:
+        """After a correct password, an account with no authenticator yet gets a short
+        session that can only change the temporary password and set up two-factor.
+        Returns None for an account that already has an authenticator (it signs in with
+        a code as usual)."""
+        if len(challenge) < 30 or len(challenge) > 200:
+            return None
+        now = _now()
+        with psycopg.connect(self.database_url) as connection:
+            row = connection.execute("""
+                SELECT c.user_id, c.expires_at, u.email, u.display_name, u.role,
+                       u.can_read_approvals, u.can_decide_approvals, u.must_change_password
+                FROM athenasec_web_challenges c
+                JOIN athenasec_web_users u ON u.user_id = c.user_id
+                WHERE c.challenge_digest=%s AND u.active AND NOT u.mfa_enrolled
+                FOR UPDATE OF c
+            """, (_digest(challenge),)).fetchone()
+            if not row or now >= row[1]:
+                return None
+            user_id = row[0]
+            connection.execute("DELETE FROM athenasec_web_challenges WHERE user_id=%s", (user_id,))
+            session, csrf_token = self._start_session(
+                connection, user_id, now, hours=self.SETUP_SESSION_MINUTES / 60)
+            self._event(connection, user_id, "mfa_setup_session_started")
+        principal = BrowserPrincipal(user_id, row[2], row[3], row[4], row[5], row[6],
+                                     csrf_token, row[7], True)
+        return session, principal
+
+    def begin_mfa_setup(self, user_id: str) -> str:
+        """A brand-new authenticator secret for the account that is setting one up, as an
+        otpauth:// link for the QR code. Each call makes a new one; only the last one shown
+        can be confirmed, and none works until a code from it is confirmed."""
+        nonce = self._new_nonce()
+        with psycopg.connect(self.database_url) as connection:
+            row = connection.execute("""
+                UPDATE athenasec_web_users SET pending_totp_nonce=%s
+                WHERE user_id=%s AND active AND NOT mfa_enrolled RETURNING email
+            """, (nonce, user_id)).fetchone()
+            if not row:
+                raise InvalidCredentials("Two-factor sign-in is already set up for this account.")
+            self._event(connection, user_id, "mfa_setup_qr_issued")
+        return self._totp_uri(user_id, row[0], nonce=nonce)
+
+    def confirm_mfa_setup(self, user_id: str, code: str, old_session: str | None
+                          ) -> tuple[str, BrowserPrincipal]:
+        """The 6-digit code from the new authenticator proves it was scanned. The secret
+        becomes the account's, the setup session ends and a normal session starts."""
+        now = _now()
+        with psycopg.connect(self.database_url) as connection:
+            user = connection.execute("""
+                SELECT email, display_name, role, can_read_approvals, can_decide_approvals,
+                       pending_totp_nonce, failures, locked_until, must_change_password
+                FROM athenasec_web_users
+                WHERE user_id=%s AND active AND NOT mfa_enrolled FOR UPDATE
+            """, (user_id,)).fetchone()
+            locked = user is not None and user[7] is not None and user[7] > now
+            counter = None
+            if user and user[5] and not locked and not user[8]:
+                counter = _totp_counter(self._secret(user_id, nonce=user[5]), code, -1, now)
+            if counter is None:
+                if user:
+                    failures = user[6] + 1
+                    lockout = now + timedelta(minutes=15) if failures >= 5 else None
+                    connection.execute(
+                        "UPDATE athenasec_web_users SET failures=%s, locked_until=%s WHERE user_id=%s",
+                        (failures, lockout, user_id))
+                self._event(connection, user_id, "mfa_setup_rejected")
+                error = True
+            else:
+                error = False
+                connection.execute("""
+                    UPDATE athenasec_web_users
+                    SET totp_nonce=pending_totp_nonce, pending_totp_nonce=NULL, mfa_enrolled=TRUE,
+                        last_totp_counter=%s, failures=0, locked_until=NULL
+                    WHERE user_id=%s
+                """, (counter, user_id))
+                if old_session:
+                    connection.execute(
+                        "UPDATE athenasec_web_sessions SET revoked=TRUE WHERE session_digest=%s",
+                        (_digest(old_session),))
+                session, csrf_token = self._start_session(connection, user_id, now)
+                self._event(connection, user_id, "mfa_enrolled_session_started")
+        if error:
+            raise InvalidCredentials("That code does not match. Check the app shows AthenaSec "
+                                     "and type the current 6-digit code.")
+        principal = BrowserPrincipal(user_id, user[0], user[1], user[2], user[3], user[4],
+                                     csrf_token, False, False)
+        return session, principal
 
     def revoke_session(self, session: str) -> None:
         with psycopg.connect(self.database_url) as connection:

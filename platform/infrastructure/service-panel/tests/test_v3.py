@@ -129,7 +129,7 @@ class MispTests(unittest.TestCase):
             s._request(s.SERVICES[3], "/users/login", 131072)
             self.assertEqual(constructor.call_args.args, ("127.0.0.1", 9445))
             headers = conn.request.call_args.kwargs["headers"]
-            self.assertEqual(headers["Host"], "192.168.1.164:9445")
+            self.assertEqual(headers["Host"], "localhost:9445")
             self.assertNotIn("Authorization", headers)
             self.assertNotIn("Cookie", headers)
             conn.close.assert_called_once()

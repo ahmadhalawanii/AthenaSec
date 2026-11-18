@@ -127,7 +127,7 @@ def test_case_workflow_migration_cannot_be_downgraded():
 
 
 def test_database_url_is_required(monkeypatch):
-    monkeypatch.delenv("ATHENASEC_DATABASE_URL", raising=False)
+    monkeypatch.setenv("ATHENASEC_DATABASE_URL", "")
 
     with pytest.raises(SystemExit):
         command.upgrade(alembic_config(io.StringIO()), "base:head", sql=True)
@@ -230,5 +230,15 @@ def test_account_recovery_migration_only_adds_columns(monkeypatch):
 
     assert "ADD COLUMN IF NOT EXISTS must_change_password BOOLEAN NOT NULL DEFAULT FALSE" in sql
     assert "ADD COLUMN IF NOT EXISTS totp_epoch INTEGER NOT NULL DEFAULT 0" in sql
+    assert "UPDATE ATHENASEC_WEB_USERS" not in sql.upper()
+    assert "DROP" not in sql.upper()
+
+
+def test_mfa_setup_migration_only_adds_columns_and_keeps_existing_accounts_enrolled(monkeypatch):
+    sql = offline_sql(monkeypatch, "0010", "0011")
+
+    assert "ADD COLUMN IF NOT EXISTS mfa_enrolled BOOLEAN NOT NULL DEFAULT TRUE" in sql
+    assert "ADD COLUMN IF NOT EXISTS totp_nonce TEXT" in sql
+    assert "ADD COLUMN IF NOT EXISTS pending_totp_nonce TEXT" in sql
     assert "UPDATE ATHENASEC_WEB_USERS" not in sql.upper()
     assert "DROP" not in sql.upper()

@@ -16,6 +16,8 @@ export type ApiSession = {
   csrf_token: string
   // Signed in with a temporary password: a new one must be chosen first
   must_change_password?: boolean
+  // New account: they must connect their authenticator app (scan a QR code) next
+  mfa_setup_required?: boolean
 }
 
 export type ApiRiskBand = 'low' | 'medium' | 'high' | 'critical'

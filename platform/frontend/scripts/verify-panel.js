@@ -170,7 +170,7 @@ check('catalogue', 'six checks in the desktop panel\'s order, each with its unit
 check('catalogue', 'six states in order and four groups: wazuh, misp, cortex, docker', () =>
   panel.SERVICE_STATES.join() === 'running,partial,stopped,starting,unhealthy,unknown' && panel.OVERVIEW_GROUPS.map((g) => g.key).join() === 'wazuh,misp,cortex,docker' && panel.GROUP_COUNT === 4)
 check('catalogue', 'the three console origins are the fixed ones, in one constant', () =>
-  JSON.stringify(Object.entries(panel.CONSOLES).map(([k, v]) => [k, v.origin])) === JSON.stringify([['wazuh', 'https://192.168.1.164'], ['cortex', 'https://192.168.1.164:9444'], ['misp', 'https://192.168.1.164:9445']]))
+  JSON.stringify(Object.entries(panel.CONSOLES).map(([k, v]) => [k, v.origin])) === JSON.stringify([['wazuh', 'https://localhost'], ['cortex', 'https://localhost:9444'], ['misp', 'https://localhost:9445']]))
 check('catalogue', 'Docker Engine has no console; Wazuh, Cortex and MISP do', () => !('docker' in panel.CONSOLES) && Object.keys(panel.CONSOLES).length === 3)
 
 // ---------- Uptime wording ----------

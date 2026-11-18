@@ -81,6 +81,20 @@ def route_after_analysis(
         source == "wazuh"
         and assessment is not None
     ):
+        outstanding = {
+            item for item in analysis.requested_evidence
+            if item not in {
+                record.evidence_type
+                for record in state.get("evidence_records", [])
+            }
+        }
+
+        if (
+            analysis.needs_more_evidence
+            and outstanding
+        ):
+            return "gather_evidence"
+
         if assessment.sufficient:
             return "calculate_risk"
 

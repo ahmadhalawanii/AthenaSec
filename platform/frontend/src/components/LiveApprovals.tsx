@@ -102,7 +102,8 @@ function LiveApprovals() {
     }
 
     load()
-    const timer = window.setInterval(load, 30000)
+    // New requests show up on their own within about 10 seconds
+    const timer = window.setInterval(load, 10000)
 
     return () => {
       cancelled = true

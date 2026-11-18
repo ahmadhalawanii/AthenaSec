@@ -5,8 +5,8 @@ Wants=network-online.target
 
 [Service]
 User=ahmed
-WorkingDirectory=/home/ahmed/AthenaSec/backend
-EnvironmentFile=/home/ahmed/AthenaSec/backend/.env
+WorkingDirectory=/opt/athenasec/platform/backend
+EnvironmentFile=/opt/athenasec/platform/backend/.env
 ExecStart=/home/ahmed/athvenv/bin/uvicorn app.main:create_app --factory --host 127.0.0.1 --port 8000
 Restart=on-failure
 RestartSec=5

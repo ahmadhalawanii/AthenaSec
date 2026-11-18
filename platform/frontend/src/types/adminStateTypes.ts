@@ -82,8 +82,11 @@ export type IssuedCredentials = {
   user: UserRecord
   // null for a two-factor reset (the password stays)
   temporaryPassword: string | null
-  // otpauth:// link for the authenticator app (new accounts only)
+  // otpauth:// link for the authenticator app (a two-factor reset only; new accounts
+  // scan their own QR code on first sign-in)
   totpUri: string | null
+  // A brand-new account (not a reset)
+  newAccount?: boolean
 }
 
 // Each resolves to an error message, or null (or the credentials) when the backend saved it

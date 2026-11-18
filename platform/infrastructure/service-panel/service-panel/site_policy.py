@@ -2,9 +2,9 @@
 from urllib.parse import urlsplit
 
 SITES = {
-    "wazuh": ("Wazuh", "https://192.168.1.164"),
-    "cortex": ("Cortex", "https://192.168.1.164:9444"),
-    "misp": ("MISP", "https://192.168.1.164:9445"),
+    "wazuh": ("Wazuh", "https://localhost"),
+    "cortex": ("Cortex", "https://localhost:9444"),
+    "misp": ("MISP", "https://localhost:9445"),
 }
 
 

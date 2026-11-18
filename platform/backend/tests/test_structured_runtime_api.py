@@ -70,6 +70,35 @@ RAW_ALERT = {
 }
 
 
+
+class FakeEvidenceProvider:
+    """Controlled test evidence; never used by production."""
+
+    def __call__(self, alert, requests):
+        from app.schemas import EvidenceObservation
+
+        evidence = {
+            "authentication_history": (
+                "Independent Wazuh authentication history: "
+                "8 failed SSH attempts from 203.0.113.10."
+            ),
+            "source_endpoint_context": (
+                "Fixture-only enrolled source endpoint context "
+                "for 203.0.113.10."
+            ),
+        }
+
+        return [
+            EvidenceObservation(
+                source="wazuh",
+                evidence_type=request,
+                content=evidence[request],
+            )
+            for request in requests
+            if request in evidence
+        ]
+
+
 class FakeClassifier:
     def classify(
         self,
@@ -182,6 +211,7 @@ def make_runtime(
     response_mode="SUPERVISED",
 ):
     graph = build_investigation_graph(
+        evidence_provider=FakeEvidenceProvider(),
         analyzer=lambda context: (
             make_analysis()
         ),
@@ -432,7 +462,12 @@ def test_approved_action_enters_same_structured_runtime():
     assert rollback.calls == []
 
 
-def test_missing_verifier_fails_closed_before_cortex():
+def test_missing_verifier_fails_closed_before_cortex(monkeypatch):
+    # Prevent production Cortex auto-configuration in this isolated test.
+    monkeypatch.setattr(
+        "app.main.cortex_config.build_structured_cortex_runtime_from_env",
+        lambda: None,
+    )
     (
         client,
         response_store,

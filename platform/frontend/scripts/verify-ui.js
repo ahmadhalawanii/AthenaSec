@@ -1567,7 +1567,7 @@ async function runChecks(page) {
           };
         });
         check(wname, 'service panel', 'Open console on MISP selects the MISP tab via ?view=misp without adding history', spConsole.url === '?view=misp' && /^MISP/.test(spConsole.selected) && spConsole.hist === histBefore, JSON.stringify([spConsole.url, spConsole.selected, histBefore, spConsole.hist]));
-        check(wname, 'service panel', 'MISP console: fixed origin, new-tab link with noopener, no iframe, Back/Reload/Home disabled', spConsole.origin === 'https://192.168.1.164:9445' && spConsole.href === 'https://192.168.1.164:9445' && spConsole.target === '_blank' && spConsole.rel === 'noopener noreferrer' && spConsole.iframes === 0 && spConsole.disabled === 'Back:true|Reload:true|Home:true', JSON.stringify(spConsole));
+        check(wname, 'service panel', 'MISP console: fixed origin, new-tab link with noopener, no iframe, Back/Reload/Home disabled', spConsole.origin === 'https://localhost:9445' && spConsole.href === 'https://localhost:9445' && spConsole.target === '_blank' && spConsole.rel === 'noopener noreferrer' && spConsole.iframes === 0 && spConsole.disabled === 'Back:true|Reload:true|Home:true', JSON.stringify(spConsole));
         check(wname, 'service panel', 'console view explains the self-signed certificate; heading has no red marker', /Self-signed certificate/.test(spConsole.notice) && spConsole.h2 === 'MISP console' && spConsole.marker === 'none', `${spConsole.notice} / ${spConsole.marker}`);
         // Deep link and unknown view fall back
         await page.goto(base + '/app/service-panel?view=cortex');

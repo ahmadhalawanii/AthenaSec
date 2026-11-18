@@ -58,9 +58,9 @@ const WAZUH_PARTS: Array<{ key: CheckKey; name: string }> = [
 
 // The fixed console addresses: no editable URL, one place to change them
 export const CONSOLES: Record<ConsoleKey, ConsoleInfo> = {
-  wazuh: { name: 'Wazuh', origin: 'https://192.168.1.164' },
-  cortex: { name: 'Cortex', origin: 'https://192.168.1.164:9444' },
-  misp: { name: 'MISP', origin: 'https://192.168.1.164:9445' },
+  wazuh: { name: 'Wazuh', origin: 'https://localhost' },
+  cortex: { name: 'Cortex', origin: 'https://localhost:9444' },
+  misp: { name: 'MISP', origin: 'https://localhost:9445' },
 }
 
 // ===== Summary (port of summarize()) =====

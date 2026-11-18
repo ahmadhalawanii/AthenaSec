@@ -268,6 +268,10 @@ class BrowserMfaRequest(BaseModel):
     code: str = Field(min_length=6, max_length=6)
 
 
+class BrowserMfaSetupConfirmRequest(BaseModel):
+    code: str = Field(min_length=6, max_length=6)
+
+
 def _read_autonomous_response_enabled() -> bool:
     value = os.getenv(
         "AUTONOMOUS_RESPONSE_ENABLED",
@@ -317,6 +321,14 @@ PASSWORD_CHANGE_PATHS = frozenset({
     "/api/v1/auth/me",
     "/api/v1/auth/logout",
     "/api/v1/me/password",
+})
+
+# The only routes open to a new account that has not set up its authenticator app yet
+MFA_SETUP_PATHS = frozenset({
+    "/api/v1/auth/me",
+    "/api/v1/auth/logout",
+    "/api/v1/me/mfa/setup",
+    "/api/v1/me/mfa/confirm",
 })
 
 
@@ -2154,6 +2166,10 @@ def create_app(
         # A temporary password allows only choosing a new one (and signing out)
         if getattr(principal, "must_change_password", False) and request.url.path not in PASSWORD_CHANGE_PATHS:
             raise HTTPException(status_code=403, detail="Choose a new password before continuing.")
+        if (getattr(principal, "mfa_setup_required", False)
+                and not getattr(principal, "must_change_password", False)
+                and request.url.path not in MFA_SETUP_PATHS):
+            raise HTTPException(status_code=403, detail="Set up two-factor sign-in before continuing.")
         if csrf is not None and not secrets.compare_digest(
             csrf, principal.csrf_token
         ):
@@ -2202,6 +2218,13 @@ def create_app(
         except InvalidCredentials as exc:
             raise HTTPException(status_code=401, detail=str(exc)) from exc
         response.headers["Cache-Control"] = "no-store"
+        # A new account has no authenticator yet: a short setup session instead of a code step
+        start_setup = getattr(configured_browser_auth_store, "start_setup_session", None)
+        setup = start_setup(challenge) if start_setup else None
+        if setup:
+            session, principal = setup
+            set_session_cookie(response, session, max_age=30 * 60)
+            return signed_in(principal)
         return {"challenge": challenge}
 
     @app.post("/api/v1/auth/mfa")
@@ -2214,21 +2237,56 @@ def create_app(
             )
         except InvalidCredentials as exc:
             raise HTTPException(status_code=401, detail=str(exc)) from exc
+        set_session_cookie(response, session)
+        response.headers["Cache-Control"] = "no-store"
+        return signed_in(principal)
+
+    def set_session_cookie(response: Response, session: str, *, max_age: int = 8 * 3600) -> None:
         response.set_cookie(
             SESSION_COOKIE_NAME, session, httponly=True,
             secure=os.getenv("ATHENASEC_COOKIE_SECURE", "true").strip().lower()
                    not in {"false", "0", "no"},
-            samesite="strict", path="/", max_age=8 * 3600,
+            samesite="strict", path="/", max_age=max_age,
         )
-        response.headers["Cache-Control"] = "no-store"
-        return signed_in(principal)
 
     def signed_in(principal):
         return {
             "user": principal.public_user(),
             "csrf_token": principal.csrf_token,
             "must_change_password": bool(getattr(principal, "must_change_password", False)),
+            "mfa_setup_required": bool(getattr(principal, "mfa_setup_required", False)),
         }
+
+    @app.post("/api/v1/me/mfa/setup")
+    def begin_my_mfa_setup(request: Request, response: Response,
+                           x_athenasec_csrf: str | None = Header(default=None)):
+        principal = require_self(request, x_athenasec_csrf)
+        if not getattr(principal, "mfa_setup_required", False):
+            raise HTTPException(status_code=409, detail="Two-factor sign-in is already set up.")
+        try:
+            uri = configured_browser_auth_store.begin_mfa_setup(principal.operator_id)
+        except InvalidCredentials as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        response.headers["Cache-Control"] = "no-store"
+        return {"totp_uri": uri}
+
+    @app.post("/api/v1/me/mfa/confirm")
+    def confirm_my_mfa_setup(payload: BrowserMfaSetupConfirmRequest, request: Request,
+                             response: Response,
+                             x_athenasec_csrf: str | None = Header(default=None)):
+        principal = require_self(request, x_athenasec_csrf)
+        if not getattr(principal, "mfa_setup_required", False):
+            raise HTTPException(status_code=409, detail="Two-factor sign-in is already set up.")
+        try:
+            session, new_principal = configured_browser_auth_store.confirm_mfa_setup(
+                principal.operator_id, payload.code, request.cookies.get(SESSION_COOKIE_NAME))
+        except InvalidCredentials as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        set_session_cookie(response, session)
+        response.headers["Cache-Control"] = "no-store"
+        record_operator_event(new_principal, category="user", action="mfa_setup",
+                              target=new_principal.operator_id, event_type="mfa_enrolled", detail={})
+        return signed_in(new_principal)
 
     @app.get("/api/v1/auth/me")
     def browser_me(request: Request, response: Response):

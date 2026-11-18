@@ -48,42 +48,86 @@ DEFAULT_WAZUH_EVIDENCE: dict[
 }
 
 
+def _privilege_related_alert(alert: SecurityAlertInput) -> bool:
+    # Retrieval hint only, never a classifier or action authorization.
+    import re
+    text = str(getattr(alert, 'event_text', '') or '') + ' ' + str(getattr(alert, 'metadata', {}) or {})
+    return bool(re.search(
+        r'\b(?:sudo|gpasswd|groupadd|useradd|privilege|privileged|'
+        r'administrative|administrator|uid\s*=\s*0)\b',
+        text, re.IGNORECASE,
+    ))
+
+
+def _augment_privilege_requests(state: InvestigationState, requests: list[EvidenceRequest]) -> list[EvidenceRequest]:
+    # Unknown privilege-related alerts must not default to unrelated evidence alone.
+    alert = state['alert']
+    analysis = state['analysis']
+    if analysis.classification != 'unknown' or not _privilege_related_alert(alert):
+        return requests
+    already = {record.evidence_type for record in state.get('evidence_records', [])}
+    result: list[EvidenceRequest] = []
+    for requested in ['privilege_activity', *requests, 'related_security_events']:
+        if requested not in already and requested not in result:
+            result.append(requested)
+        if len(result) == 2:
+            break
+    return result
+
+
 def _resolve_evidence_requests(
     state: InvestigationState,
 ) -> list[EvidenceRequest]:
     analysis = state["analysis"]
     alert = state["alert"]
+    assessment = state.get("evidence_sufficiency")
 
-    assessment = state.get(
-        "evidence_sufficiency"
+    existing = {
+        record.evidence_type
+        for record in state.get("evidence_records", [])
+        if record.evidence_type is not None
+    }
+
+    requested = []
+
+    event_text = alert.event_text.lower()
+    privilege_terms = (
+        "sudo group",
+        "gpasswd",
+        "privilege",
+        "wheel group",
+        "administrative group",
     )
 
     if (
         alert.source == "wazuh"
-        and assessment is not None
+        and analysis.classification == "unknown"
+        and any(term in event_text for term in privilege_terms)
     ):
-        if assessment.sufficient:
-            return []
+        requested.append("privilege_activity")
 
-        if assessment.missing_evidence:
-            return list(
-                assessment.missing_evidence
+    if alert.source == "wazuh" and assessment is not None:
+        requested.extend(assessment.missing_evidence)
+        if (
+            analysis.classification == "brute_force"
+            and "source_endpoint_context" in assessment.missing_evidence
+        ):
+            requested.append("source_network_context")
+
+
+    requested.extend(analysis.requested_evidence)
+
+    if not requested and alert.source == "wazuh":
+        if assessment is None or not assessment.sufficient:
+            requested.extend(
+                DEFAULT_WAZUH_EVIDENCE.get(
+                    analysis.classification, []
+                )
             )
 
-    if analysis.requested_evidence:
-        return list(
-            analysis.requested_evidence
-        )
-
-    if alert.source != "wazuh":
-        return []
-
-    return list(
-        DEFAULT_WAZUH_EVIDENCE.get(
-            analysis.classification,
-            [],
-        )
-    )
+    return list(dict.fromkeys(
+        item for item in requested if item not in existing
+    ))
 
 
 def make_gather_evidence_node(

@@ -27,3 +27,18 @@ def operator_identity_for_tests(monkeypatch):
         "app.main.build_operator_identity_store_from_env",
         lambda: _TestOperatorIdentityStore(),
     )
+
+
+# AthenaSec TLS test isolation
+import pytest
+
+@pytest.fixture(autouse=True)
+def isolate_tls_configuration(request, monkeypatch):
+    if request.node.get_closest_marker("tls_live"):
+        return
+    if request.node.path.name in {
+        "test_http_tls.py",
+        "test_health_probes.py",
+    }:
+        monkeypatch.setenv("MISP_CA_BUNDLE", "")
+        monkeypatch.setenv("CORTEX_CA_BUNDLE", "")

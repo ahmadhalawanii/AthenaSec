@@ -287,13 +287,9 @@ def test_exact_action_can_be_approved_via_api():
         == "APPROVED"
     )
 
-    assert (
-        response_store
-        .list_incident_cases(
-            "INC-API-001"
-        )
-        == []
-    )
+    cases = response_store.list_incident_cases("INC-API-001")
+    assert len(cases) == 1
+    assert "AUTONOMOUS_RESPONSE_ENABLED" in cases[0].reason
 
     event_types = [
         record.event_type
@@ -307,6 +303,8 @@ def test_exact_action_can_be_approved_via_api():
         "approval_decided"
         in event_types
     )
+    assert "structured_cortex_execution_blocked" in event_types
+    assert "case_created" in event_types
 
 
 def test_rejected_action_creates_incident_case():
@@ -538,7 +536,7 @@ def test_unconfigured_approval_gate_fails_closed():
     _, _, approval = seed_approval(response_store)
     endpoint = f"/api/v1/approvals/{approval.approval_id}"
 
-    assert client.get(endpoint).status_code == 503
+    assert client.get(endpoint).status_code == 401
     assert client.post(
         endpoint + "/decision",
         json={
@@ -546,7 +544,7 @@ def test_unconfigured_approval_gate_fails_closed():
             "decided_by": "claimed-analyst",
             "reason": "Should not authorize.",
         },
-    ).status_code == 503
+    ).status_code == 401
     assert response_store.get_approval_request(
         approval.approval_id
     ).status == "PENDING"

@@ -64,6 +64,18 @@ def evaluate_evidence_sufficiency(
         )
     }
 
+    # External attackers may have no enrolled Wazuh endpoint.
+    # Require independent network corroboration instead.
+    if (
+        classification == "brute_force"
+        and "source_endpoint_context" not in observed_types
+        and "source_network_context" in observed_types
+    ):
+        required = [
+            "authentication_history",
+            "source_network_context",
+        ]
+
     satisfied = [
         evidence_type
         for evidence_type in required

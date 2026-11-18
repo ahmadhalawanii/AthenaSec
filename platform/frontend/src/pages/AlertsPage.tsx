@@ -1,6 +1,8 @@
 import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 
+import LiveInvestigationDetails from '../components/LiveInvestigationDetails'
+import { useLiveData } from '../api/liveDataContext'
 import ApprovalDetails from '../components/ApprovalDetails'
 import RequestAgain from '../components/RequestAgain'
 import ResponsiveDetail from '../components/ResponsiveDetail'
@@ -52,6 +54,7 @@ function AlertsPage() {
 
   // Risk, confidence and outcome per alert, from the policy formula
   const assessments = useAssessments()
+  const isLive = useLiveData().mode === 'live'
 
   const [view, setView] = useState<AlertView>('decision')
   const [searchQuery, setSearchQuery] = useState('')
@@ -389,10 +392,16 @@ function AlertsPage() {
                     <RiskAssessment assessment={assessments[selected.id]} />
                   )}
 
-                  <h3 className="workspace-subhead">AI assessment</h3>
-                  <p className="workspace-text">{selected.summary}</p>
-                  <p className="workspace-text">{selected.reasoning}</p>
-                  <p className="workspace-text">{selected.explanation}</p>
+                  {isLive ? (
+                    <LiveInvestigationDetails alertId={selected.id} section="overview" />
+                  ) : (
+                    <>
+                      <h3 className="workspace-subhead">AI assessment</h3>
+                      <p className="workspace-text">{selected.summary}</p>
+                      <p className="workspace-text">{selected.reasoning}</p>
+                      <p className="workspace-text">{selected.explanation}</p>
+                    </>
+                  )}
 
                   <h3 className="workspace-subhead">Timeline</h3>
                   <Timeline
@@ -403,17 +412,24 @@ function AlertsPage() {
               )}
 
               {tab === 'evidence' && (
-                <ul className="evidence-list">
-                  {(alertEvidence[selected.id] ?? []).map((item) => (
-                    <li key={item.text}>
-                      <span className={`evidence-tag ${item.source.toLowerCase()}`}>{item.source}</span>
-                      <span>{item.text}</span>
-                    </li>
-                  ))}
-                </ul>
+                isLive ? (
+                  <LiveInvestigationDetails alertId={selected.id} section="evidence" />
+                ) : (
+                  <ul className="evidence-list">
+                    {(alertEvidence[selected.id] ?? []).map((item) => (
+                      <li key={item.text}>
+                        <span className={`evidence-tag ${item.source.toLowerCase()}`}>{item.source}</span>
+                        <span>{item.text}</span>
+                      </li>
+                    ))}
+                  </ul>
+                )
               )}
 
               {tab === 'response' && (
+                isLive ? (
+                  <LiveInvestigationDetails alertId={selected.id} section="response" />
+                ) : (
                 <>
                   <h3 className="workspace-subhead first">Recommended next steps</h3>
                   <ol className="next-steps">
@@ -441,6 +457,7 @@ function AlertsPage() {
                         : 'No response policy ran for this alert.'}
                   </p>
                 </>
+                )
               )}
             </Tabs>
           </ResponsiveDetail>

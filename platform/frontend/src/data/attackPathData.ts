@@ -47,6 +47,95 @@ export const ATTACK_PATHS: AttackPath[] = [
   { alertId: 'ALT-006', nodes: ['src-203.0.113.9', 'firewall', 'endpoint-12'] },
 ]
 
+/*
+  Live mode: the sample layout above only fits the sample alerts, so the
+  map is laid out from the live alerts themselves. Each brute-force or
+  privilege-misuse alert becomes a path from its source (the attacking
+  IP, or a local account when the alert has none) to the endpoint it
+  hit; Internet sources pass through the Firewall. Other alerts
+  (configuration checks and the like) are not attacks and stay off the
+  map. The most urgent paths are shown: open ones first, highest risk.
+*/
+export const LIVE_MAP_LIMIT = 6
+
+const NOT_RECORDED = 'Not recorded'
+const MAP_TOP = 40
+const MAP_BOTTOM = 310
+const ZONE_X: Record<PathZone, number> = { Internet: 20, Perimeter: 400, Internal: 610, Endpoints: 980 }
+
+function isPrivateAddress(ip: string) {
+  return (
+    /^10\./.test(ip) ||
+    /^192\.168\./.test(ip) ||
+    /^172\.(1[6-9]|2\d|3[01])\./.test(ip) ||
+    /^127\./.test(ip) ||
+    ip === '::1' ||
+    /^f[cd]/i.test(ip)
+  )
+}
+
+export function buildLiveLayout(alerts: AlertRecord[]): { nodes: PathNode[]; paths: AttackPath[] } {
+  const candidates = alerts
+    .filter((alert) => alert.attackGroup !== 'Other' && alert.endpoint !== NOT_RECORDED)
+    .sort(
+      (first, second) =>
+        Number(second.status === 'Open') - Number(first.status === 'Open') || second.risk - first.risk,
+    )
+    .slice(0, LIVE_MAP_LIMIT)
+
+  const byId = new Map<string, Omit<PathNode, 'y'>>()
+  const paths: AttackPath[] = []
+
+  function add(id: string, label: string, role: string, zone: PathZone) {
+    if (!byId.has(id)) {
+      byId.set(id, { id, label, role, zone, x: ZONE_X[zone] })
+    }
+
+    return id
+  }
+
+  for (const alert of candidates) {
+    const hasIp = alert.sourceIp !== NOT_RECORDED
+    const internal = !hasIp || isPrivateAddress(alert.sourceIp)
+    const source = hasIp
+      ? add(`src-${alert.sourceIp}`, alert.sourceIp, internal ? 'Internal host' : 'Source', internal ? 'Internal' : 'Internet')
+      : add(`local-${alert.endpoint}`, 'Local account', 'Internal host', 'Internal')
+    const endpoint = add(`endpoint-${alert.endpoint}`, alert.endpoint, 'Endpoint', 'Endpoints')
+
+    paths.push(
+      internal
+        ? { alertId: alert.id, nodes: [source, endpoint] }
+        : {
+            alertId: alert.id,
+            nodes: [source, add('firewall', 'Firewall', 'Perimeter', 'Perimeter'), endpoint],
+            stoppedAt: 'firewall',
+          },
+    )
+  }
+
+  /*
+    Each path gets its own row, so sources in different columns never sit
+    side by side and run into each other. A node shared by several paths
+    (the Firewall, an endpoint hit more than once) sits in the middle of
+    the rows of the paths that use it.
+  */
+  const rowY = (index: number) =>
+    paths.length === 1
+      ? (MAP_TOP + MAP_BOTTOM) / 2
+      : MAP_TOP + (index * (MAP_BOTTOM - MAP_TOP)) / (paths.length - 1)
+
+  const nodes: PathNode[] = [...byId.values()].map((node) => {
+    const rows = paths
+      .map((path, index) => (path.nodes.includes(node.id) ? rowY(index) : null))
+      .filter((y): y is number => y !== null)
+    const y = rows.reduce((sum, value) => sum + value, 0) / rows.length
+
+    return { ...node, y: Math.round(y) }
+  })
+
+  return { nodes, paths }
+}
+
 const ZONE_ORDER: Record<PathZone, number> = {
   Internet: 0,
   Perimeter: 1,
@@ -116,9 +205,12 @@ export function buildAttackMap(
   executions: ExecutionRecord[],
   approvals: ApprovalRecord[],
 ): AttackMap {
-  const nodeById = new Map(PATH_NODES.map((node) => [node.id, node]))
+  // The sample alerts keep their hand-made layout; live alerts get one built from them
+  const isSample = ATTACK_PATHS.some((path) => alerts.some((alert) => alert.id === path.alertId))
+  const layout = isSample ? { nodes: PATH_NODES, paths: ATTACK_PATHS } : buildLiveLayout(alerts)
+  const nodeById = new Map(layout.nodes.map((node) => [node.id, node]))
 
-  const paths: MapPath[] = ATTACK_PATHS.flatMap((path) => {
+  const paths: MapPath[] = layout.paths.flatMap((path) => {
     const alert = alerts.find((item) => item.id === path.alertId)
 
     if (!alert) {
@@ -138,7 +230,7 @@ export function buildAttackMap(
         alert,
         status,
         statusLabel: alertResponseState(alert, executions, approvals),
-        route: `${alert.sourceIp} to ${alert.endpoint}`,
+        route: `${alert.sourceIp === NOT_RECORDED ? 'Local account' : alert.sourceIp} to ${alert.endpoint}`,
         nodeIds: path.nodes,
         edges: path.nodes.slice(1).map((toId, index) => ({
           from: nodeById.get(path.nodes[index])!,
@@ -149,7 +241,7 @@ export function buildAttackMap(
     ]
   })
 
-  const nodes: MapNode[] = PATH_NODES.map((node) => {
+  const nodes: MapNode[] = layout.nodes.map((node) => {
     const through = paths.filter((path) => path.nodeIds.includes(node.id))
     const status = through.reduce<PathStatus>(
       (worst, path) => (STATUS_RANK[path.status] > STATUS_RANK[worst] ? path.status : worst),
@@ -163,7 +255,11 @@ export function buildAttackMap(
     if (node.zone === 'Endpoints') {
       const isolated = through.some((path) => {
         const run = executionFor(path.alert, executions)
-        return path.status === 'contained' && run?.action === 'Isolate Host' && run.target === node.id
+        return (
+          path.status === 'contained' &&
+          run?.action === 'Isolate Host' &&
+          (run.target === node.id || run.target === node.label)
+        )
       })
       health = through.some((path) => path.status === 'active')
         ? 'At risk'
@@ -177,7 +273,9 @@ export function buildAttackMap(
       // part after " - " ("Brute Force - Password Spray" -> "Password
       // Spray"); the full name is in the node's accessible name.
       const attack = through[0].alert.attackType
-      caption = attack.includes(' - ') ? attack.split(' - ').slice(1).join(' - ') : attack
+      const short = attack.includes(' - ') ? attack.split(' - ').slice(1).join(' - ') : attack
+      // Live alerts are named after the Wazuh rule, which can be a whole sentence
+      caption = short.length > 28 ? `${short.slice(0, 27).trimEnd()}…` : short
       statusWord = through[0].statusLabel
     }
 

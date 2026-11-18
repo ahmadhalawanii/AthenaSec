@@ -70,7 +70,8 @@ class FakeAccounts:
         self.users[user_id] = self._user(user_id, email.casefold(), name, role,
                                          department=department, phone=phone)
         self.passwords[user_id] = "TempPassword-123456"
-        return self.users[user_id], "TempPassword-123456", "otpauth://totp/AthenaSec:x?secret=ABC"
+        # No QR code for the administrator: the new user sets up their own on first sign-in
+        return self.users[user_id], "TempPassword-123456", None
 
     def update_user(self, user_id, *, name, email, role, department, phone):
         if user_id not in self.users:
@@ -136,7 +137,7 @@ def test_create_returns_credentials_once_and_audits():
     assert response.status_code == 201
     body = response.json()
     assert body["user"]["email"] == "new@x.test" and body["user"]["department"] == "SOC"
-    assert body["temporary_password"] and body["totp_uri"].startswith("otpauth://")
+    assert body["temporary_password"] and body["totp_uri"] is None
     assert response.headers["Cache-Control"] == "no-store"
     event = h.events("user_created")[0]
     assert event.target == body["user"]["user_id"]
@@ -238,7 +239,7 @@ def test_postgres_store_administration_round_trip():
     user, password, uri = store.create_user(name="Round Trip", email=f"rt-{suffix}@x.test",
                                             role="Analyst", department="SOC", phone="1")
 
-    assert user.department == "SOC" and len(password) >= 14 and uri.startswith("otpauth://")
+    assert user.department == "SOC" and len(password) >= 14 and uri is None
     store.begin_login(user.email, password)  # the temporary password works
 
     with pytest.raises(UserConflict):
@@ -308,18 +309,42 @@ def test_postgres_temporary_password_and_two_factor_reset():
 
     store = PostgresBrowserAuthStore(os.environ["ATHENASEC_TEST_PG_URL"], bytes.fromhex("b2" * 32))
     user, password, uri = store.create_user(name="Temp", email=f"tmp-{uuid4().hex[:8]}@x.test", role="Analyst")
+    assert uri is None
     counter = int(time.time() // 30)
 
-    session, principal = store.complete_mfa(store.begin_login(user.email, password), _totp(secret_of(uri), counter))
-    assert principal.must_change_password is True
-    assert store.resolve_session(session).must_change_password is True
+    # First sign-in: password only, then a setup session limited to password + two-factor
+    challenge = store.begin_login(user.email, password)
+    with pytest.raises(InvalidCredentials):
+        store.complete_mfa(challenge, "000000")  # there is no authenticator to check yet
+    session, principal = store.start_setup_session(store.begin_login(user.email, password))
+    assert principal.must_change_password is True and principal.mfa_setup_required is True
+    assert store.resolve_session(session).mfa_setup_required is True
 
     store.change_password(user.user_id, password, "MyOwnPassword-12345")
     assert store.resolve_session(session).must_change_password is False
 
+    # Every QR code shown is new; only the last one can be confirmed
+    first_qr = store.begin_mfa_setup(user.user_id)
+    uri = store.begin_mfa_setup(user.user_id)
+    assert secret_of(first_qr) != secret_of(uri)
+    with pytest.raises(InvalidCredentials):
+        store.confirm_mfa_setup(user.user_id, _totp(secret_of(first_qr), counter), session)
+    full_session, enrolled = store.confirm_mfa_setup(user.user_id, _totp(secret_of(uri), counter), session)
+    assert enrolled.mfa_setup_required is False and enrolled.must_change_password is False
+    assert store.resolve_session(session) is None            # the setup session ended
+    assert store.resolve_session(full_session).mfa_setup_required is False
+    with pytest.raises(InvalidCredentials):
+        store.begin_mfa_setup(user.user_id)                  # cannot be replaced from a session
+    assert store.start_setup_session(store.begin_login(user.email, "MyOwnPassword-12345")) is None
+
+    # From now on: password + code from the app, as for every account
+    _, again = store.complete_mfa(store.begin_login(user.email, "MyOwnPassword-12345"),
+                                  _totp(secret_of(uri), counter + 1))
+    assert again.user_id == user.user_id
+
     new_uri = store.reset_mfa(user.user_id)
     assert secret_of(new_uri) != secret_of(uri)
-    assert store.resolve_session(session) is None  # signed out everywhere
+    assert store.resolve_session(full_session) is None  # signed out everywhere
     with pytest.raises(InvalidCredentials):
         store.complete_mfa(store.begin_login(user.email, "MyOwnPassword-12345"), _totp(secret_of(uri), counter + 1))
     _, again = store.complete_mfa(store.begin_login(user.email, "MyOwnPassword-12345"),
@@ -329,3 +354,101 @@ def test_postgres_temporary_password_and_two_factor_reset():
     store.reset_password(user.user_id)
     assert store.get_user(user.user_id) is not None
     store.delete_user(user.user_id)
+
+
+@pytest.mark.skipif(not os.getenv("ATHENASEC_TEST_PG_URL"), reason="ATHENASEC_TEST_PG_URL is not configured")
+def test_postgres_no_two_accounts_ever_get_the_same_qr_code():
+    from urllib.parse import parse_qs, urlparse
+
+    from app.services.auth.web_auth import PostgresBrowserAuthStore
+
+    store = PostgresBrowserAuthStore(os.environ["ATHENASEC_TEST_PG_URL"], bytes.fromhex("b3" * 32))
+    seen = set()
+    for _ in range(3):
+        # Same account id created, removed and created again: still a new secret each time
+        email = f"same-{uuid4().hex[:8]}@x.test"
+        uri = store.provision_user(user_id="USR-REUSED", email=email, name="Reused",
+                                   password="Provisioned-Password-1", role="Analyst")
+        seen.add(parse_qs(urlparse(uri).query)["secret"][0])
+        assert store.delete_user("USR-REUSED") is True
+    assert len(seen) == 3
+
+
+# ---- first sign-in: choose a password, then scan your own QR code -------------
+
+class SetupAccounts(FakeAccounts):
+    def __init__(self):
+        super().__init__()
+        self.principals["new"] = BrowserPrincipal("analyst-1", "analyst@x.test", "Ana Lyst", "Analyst",
+                                                 True, True, "csrf-new", mfa_setup_required=True)
+        self.principals["newtemp"] = BrowserPrincipal("analyst-1", "analyst@x.test", "Ana Lyst", "Analyst",
+                                                     True, True, "csrf-newtemp", must_change_password=True,
+                                                     mfa_setup_required=True)
+        self.issued = 0
+
+    def begin_login(self, email, password):
+        if password != "TempPassword-123456":
+            raise InvalidCredentials("Invalid email or password")
+        return "c" * 40
+
+    def start_setup_session(self, challenge):
+        return "newtemp", self.principals["newtemp"]
+
+    def begin_mfa_setup(self, user_id):
+        self.issued += 1
+        return f"otpauth://totp/AthenaSec:analyst%40x.test?secret=KEY{self.issued}&issuer=AthenaSec"
+
+    def confirm_mfa_setup(self, user_id, code, old_session):
+        if code != "123456":
+            raise InvalidCredentials("That code does not match.")
+        self.principals["full"] = BrowserPrincipal("analyst-1", "analyst@x.test", "Ana Lyst", "Analyst",
+                                                  True, True, "csrf-full")
+        return "full", self.principals["full"]
+
+
+def test_new_account_signs_in_with_password_then_must_set_up_two_factor():
+    h = Harness(session=None, accounts=SetupAccounts())
+
+    response = h.client.post("/api/v1/auth/login",
+                             json={"email": "analyst@x.test", "password": "TempPassword-123456"})
+    body = response.json()
+
+    assert "challenge" not in body
+    assert body["must_change_password"] is True and body["mfa_setup_required"] is True
+    cookie = response.headers["set-cookie"]
+    assert cookie.startswith(f"{SESSION_COOKIE_NAME}=newtemp") and "HttpOnly" in cookie
+    assert "Max-Age=1800" in cookie  # the setup session is short
+    # Password first: the QR code is not available yet
+    h.client.cookies.set(SESSION_COOKIE_NAME, "newtemp")
+    assert h.client.post("/api/v1/me/mfa/setup", headers={"X-AthenaSec-CSRF": "csrf-newtemp"}).status_code == 403
+
+
+def test_setup_session_reaches_only_the_qr_code_and_sign_out():
+    h = Harness(session="new", accounts=SetupAccounts())
+    csrf = {"X-AthenaSec-CSRF": "csrf-new"}
+
+    assert h.client.get("/api/v1/auth/me").json()["mfa_setup_required"] is True
+    assert h.client.get("/api/v1/alerts").status_code == 403
+    assert "two-factor" in h.client.get("/api/v1/me/profile").json()["detail"]
+    assert h.client.post("/api/v1/me/mfa/setup").status_code == 403  # CSRF required
+
+    first = h.client.post("/api/v1/me/mfa/setup", headers=csrf)
+    second = h.client.post("/api/v1/me/mfa/setup", headers=csrf)
+    assert first.status_code == 200 and first.headers["cache-control"] == "no-store"
+    assert first.json()["totp_uri"] != second.json()["totp_uri"]
+
+    assert h.client.post("/api/v1/me/mfa/confirm", json={"code": "000000"}, headers=csrf).status_code == 400
+    done = h.client.post("/api/v1/me/mfa/confirm", json={"code": "123456"}, headers=csrf)
+    assert done.status_code == 200 and done.json()["mfa_setup_required"] is False
+    assert done.json()["csrf_token"] == "csrf-full"
+    assert done.headers["set-cookie"].startswith(f"{SESSION_COOKIE_NAME}=full")
+    assert h.events("mfa_enrolled")[0].target == "analyst-1"
+    h.client.cookies.clear()
+    h.client.cookies.set(SESSION_COOKIE_NAME, "full")
+    assert h.client.get("/api/v1/me/profile").status_code == 200
+
+
+def test_enrolled_accounts_cannot_start_a_new_setup():
+    h = Harness(accounts=SetupAccounts())
+    assert h.client.post("/api/v1/me/mfa/setup", headers=CSRF).status_code == 409
+    assert Harness().client.get("/api/v1/auth/me").json()["mfa_setup_required"] is False

@@ -71,7 +71,7 @@ function NewPasswordPage({ name, onDone, onLogout }: NewPasswordPageProps) {
           </h2>
           <p className="auth-lead">
             Welcome, {name}. You signed in with a temporary password from an administrator.
-            Choose a new one to open the console.
+            Choose a new one to continue.
           </p>
 
           <form className="auth-form" onSubmit={handleSubmit}>

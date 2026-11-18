@@ -56,17 +56,17 @@ class NavigationTests(unittest.TestCase):
         for key, (_, origin) in SITES.items():
             for suffix in ("", "/", "/users/login", "/app/dashboards#/view/123", "/login?next=%2Fapp"):
                 self.assertTrue(allowed_uri(key, origin + suffix))
-        self.assertTrue(allowed_uri("wazuh", "https://192.168.1.164:443/app"))
+        self.assertTrue(allowed_uri("wazuh", "https://localhost:443/app"))
 
     def test_external_schemes_hosts_and_ports_are_blocked(self):
         cases = (
-            "http://192.168.1.164/", "https://192.168.1.164:0/", "https://192.168.1.164:9444/",
-            "https://192.168.1.164.evil.example/", "https://192.168.1.164@evil.example/",
-            "https://user:password@192.168.1.164/", "https://127.0.0.1/",
+            "http://localhost/", "https://localhost:0/", "https://localhost:9444/",
+            "https://localhost.evil.example/", "https://localhost@evil.example/",
+            "https://user:password@localhost/", "https://127.0.0.1/",
             "file:///etc/passwd", "javascript:alert(1)", "data:text/html,hi",
-            "mailto:test@example.com", "//192.168.1.164/", "about:blank",
-            " https://192.168.1.164/", "https://192.168.1.164/\n",
-            "https://192.168.1.164\\@evil.example/", "https://192.168.1.164:65536/",
+            "mailto:test@example.com", "//localhost/", "about:blank",
+            " https://localhost/", "https://localhost/\n",
+            "https://localhost\\@evil.example/", "https://localhost:65536/",
         )
         for uri in cases:
             with self.subTest(uri=uri):
@@ -78,9 +78,9 @@ class NavigationTests(unittest.TestCase):
                 self.assertEqual(allowed_uri(source, origin), source == target)
 
     def test_invalid_inputs_fail_closed(self):
-        for value in (None, "", "https://[", "https://192.168.1.164:abc/"):
+        for value in (None, "", "https://[", "https://localhost:abc/"):
             self.assertFalse(allowed_uri("wazuh", value))
-        self.assertFalse(allowed_uri("unknown", "https://192.168.1.164"))
+        self.assertFalse(allowed_uri("unknown", "https://localhost"))
 
 
 if __name__ == "__main__":

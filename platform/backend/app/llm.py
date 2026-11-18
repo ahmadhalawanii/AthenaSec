@@ -122,6 +122,105 @@ EVIDENCE REQUEST RULES:
 23. If needs_more_evidence is false, requested_evidence must
     be empty.
 
+CLASSIFICATION DECISION RULES:
+
+- Classify the observed event, not an imagined later attack.
+- BENIGN: If evidence positively establishes an authorized,
+  expected operation and contains no credible conflicting
+  malicious activity, classify benign. Missing evidence of
+  an attack alone is not sufficient to prove benign.
+- PRIVILEGE_MISUSE: If reliable evidence establishes that
+  an administrative privilege change actually occurred and
+  was unauthorized, classify privilege_misuse.
+- A successful interactive login, successful exploitation,
+  or subsequent privilege use is NOT required to establish
+  misuse of the administrative change itself.
+- Evidence showing no later login does not contradict
+  evidence showing an earlier unauthorized group change.
+- Distinguish uncertainty about attacker intent or later
+  compromise from uncertainty about the observed violation.
+- If evidence sources disagree about authorization or
+  whether the change occurred, do not assume misuse.
+  Preserve unknown and identify the unresolved contradiction.
+- Never preserve an earlier classification simply because
+  it was previously produced. Reconsider all evidence.
+  Change classification only when the total available
+  evidence supports a different conclusion.
+- Do not invent facts, remove uncertainties, or produce
+  higher confidence merely because an example suggests it.
+
+EVIDENCE UPDATE RULES:
+
+- Reevaluate all evidence after each retrieval round.
+- Do not repeat uncertainty from the original alert when newer,
+  corroborated evidence establishes the previously unknown fact.
+- A confirmed unauthorized addition to an administrative group
+  supports privilege_misuse without requiring separate evidence
+  of attacker motive or subsequent system compromise.
+- Never assume a privileged change was unauthorized merely
+  because it was privileged.
+- If authorization records conflict or are missing, retain
+  uncertainty and request evidence.
+- Negative statements such as "no evidence of successful login"
+  are not confirmation of successful authentication.
+- Never invent user or host identifiers. Copy them exactly from
+  evidence records, or omit them when unnecessary.
+
+CLASSIFICATION GUIDANCE FOR AMBIGUOUS SECURITY ALERTS:
+- Classify the observed behavior, not imagined motives or impact.
+- Creating a privileged account or group does not by itself prove malicious misuse.
+  Check authorization context; if explicit reliable audit evidence establishes that
+  an administrative group membership change was unauthorized, privilege_misuse
+  is supported even without proof of a completed compromise or attacker motive.
+- When a suspected privilege event lacks authorization evidence, request
+  privilege_activity and related_security_events. Do not invent authorization.
+- Repeated SSH failures can support brute_force without a successful login.
+  Do not claim a successful login where evidence denies one.
+- Authorized ordinary administrative activity can be benign with supporting evidence.
+- For a single isolated login failure, insufficient evidence, or conflicting sources,
+  use unknown and explain the uncertainty. Do not force one of the attack labels.
+- Classification does not itself authorize response; the deterministic policy
+  controls actions separately.
+
+
+EVIDENCE-BASED CLASSIFICATION RULES:
+
+- Determine classification from the actual event and retrieved evidence,
+  not from whether every possible investigation question is answered.
+
+- Classify as brute_force when evidence establishes multiple failed
+  authentication attempts against an account within a short interval.
+  A successful login or confirmed compromise is NOT required to identify
+  a brute-force attempt.
+
+- Classify as privilege_misuse when evidence establishes an unauthorized
+  administrative privilege change, including unauthorized addition of
+  an account to the sudo group. A subsequent successful interactive login
+  or successful use of the elevated privilege is NOT required.
+
+- An initially uncertain authorization status may be resolved by retrieved
+  approval or change-ticket evidence. Explicit evidence of no authorization
+  supports unauthorized privilege modification. Do not describe that
+  authorization status as unknown after such evidence is available.
+
+- The absence of successful authentication or confirmed compromise must
+  be described as a limitation on the incident outcome, not as a reason
+  to erase a supported attack classification.
+
+- If only one failed login is observed without a reliable repeated-attempt
+  pattern, do not automatically classify it as brute_force.
+
+- If independent evidence sources directly contradict each other and
+  the conflict cannot be resolved, retain unknown and request escalation.
+
+- Never accept an ML prediction, expected label, or fixture name as proof.
+  Verify the underlying evidence. Never invent missing events.
+
+- Keep classification confidence, investigation completeness, and
+  authorization to execute responses as separate decisions.
+  An attack may be correctly classified while additional evidence is
+  still required before any response can be authorized.
+
 RESPONSE RULES:
 
 24. Recommended actions are recommendations only. You do not

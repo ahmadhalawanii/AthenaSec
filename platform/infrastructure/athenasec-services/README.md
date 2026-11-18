@@ -1,7 +1,7 @@
 # AthenaSec services (Ubuntu server)
 
 Run AthenaSec without open terminals: systemd starts both at boot and restarts them after a crash.
-Both run as the user `ahmed` from `/home/ahmed/AthenaSec` (change `User=` and the paths for another account).
+Both run as the user `ahmed` from `/opt/athenasec/platform` (change `User=` and the paths for another account).
 
 | Service | What | Port |
 | --- | --- | --- |
@@ -11,8 +11,8 @@ Both run as the user `ahmed` from `/home/ahmed/AthenaSec` (change `User=` and th
 Install:
 
 ```bash
-cd ~/AthenaSec/frontend && npm run build
-sudo cp ~/AthenaSec/infrastructure/athenasec-services/*.service /etc/systemd/system/
+cd /opt/athenasec/platform/frontend && npm run build
+sudo cp /opt/athenasec/platform/infrastructure/athenasec-services/*.service /etc/systemd/system/
 sudo systemctl daemon-reload
 sudo systemctl enable --now athenasec-backend athenasec-web
 ```

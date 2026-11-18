@@ -26,8 +26,17 @@ import {
   pages after every action.
 */
 
+// Live mode can have hundreds of alerts: name the first few, then count the rest
+const NAMES_SHOWN = 3
+
 function joinNames(names: string[]) {
-  return names.length === 0 ? 'None' : names.join(', ')
+  if (names.length === 0) {
+    return 'None'
+  }
+
+  const shown = names.slice(0, NAMES_SHOWN).join(', ')
+
+  return names.length > NAMES_SHOWN ? `${shown} and ${names.length - NAMES_SHOWN} more` : shown
 }
 
 export function buildPosture(
@@ -36,11 +45,14 @@ export function buildPosture(
   cases: CaseRecord[],
   approvals: ApprovalRecord[],
 ): PostureItem[] {
-  // Still attacking: needs a person, and nothing has blocked or contained it
-  const active = alerts.filter((alert) =>
-    ['Open', 'Awaiting approval', 'Containment failed'].includes(
-      alertResponseState(alert, executions, approvals),
-    ),
+  // Still attacking: needs a person, and nothing has blocked or contained it.
+  // Only attacks count; configuration findings (attackGroup Other) are not attack paths.
+  const active = alerts.filter(
+    (alert) =>
+      alert.attackGroup !== 'Other' &&
+      ['Open', 'Awaiting approval', 'Containment failed'].includes(
+        alertResponseState(alert, executions, approvals),
+      ),
   )
   const open = alerts.filter((alert) => alert.status === 'Open')
   const criticalOpen = alerts.filter(
@@ -105,7 +117,8 @@ export function buildDecisionQueue(
       const run = executionFor(alert, executions)
       const pending = pendingApprovalFor(alert.id, approvals)
 
-      let detail = `Open, assigned to ${alert.assignedAnalyst}`
+      let detail =
+        alert.assignedAnalyst === 'Unassigned' ? 'Open' : `Open, assigned to ${alert.assignedAnalyst}`
 
       if (state === 'Containment failed' && run) {
         detail = `${run.action} on ${run.target} failed at ${run.endTime}, needs a new approval`

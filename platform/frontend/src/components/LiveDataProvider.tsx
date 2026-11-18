@@ -13,7 +13,8 @@ type LiveDataProviderProps = {
 }
 
 const IDLE = { items: null, error: null }
-const REFRESH_MS = 30000
+// New alerts show up on their own, without reloading the page or losing your place
+const REFRESH_MS = 10000
 
 // Loads one list; a failure only blanks that list and records why
 async function load<T>(request: () => Promise<T[]>): Promise<LiveList<T>> {
@@ -47,9 +48,16 @@ function LiveDataProvider({ mode, role, children }: LiveDataProviderProps) {
     }
 
     let cancelled = false
+    let running = false
     const isAdmin = role === 'Administrator'
 
     async function run() {
+      // One refresh at a time; a slow backend must not pile requests up
+      if (running) {
+        return
+      }
+
+      running = true
       setState((current) => ({ ...current, loading: true }))
 
       const [alerts, cases, services, responses, users, audit, integrity] = await Promise.all([
@@ -62,6 +70,8 @@ function LiveDataProvider({ mode, role, children }: LiveDataProviderProps) {
         isAdmin ? load(() => apiList<ApiAuditEvent>('/audit').then((items) => items.map(toAuditRecord))) : Promise.resolve(IDLE),
         isAdmin ? api<ApiChainVerification>('/audit/verify').catch(() => null) : Promise.resolve(null),
       ])
+
+      running = false
 
       if (cancelled) {
         return
@@ -85,12 +95,21 @@ function LiveDataProvider({ mode, role, children }: LiveDataProviderProps) {
       })
     }
 
-    run()
-    const timer = window.setInterval(run, REFRESH_MS)
+    // Refresh on a timer while the tab is in view, and at once when you come back to it
+    function refreshIfVisible() {
+      if (document.visibilityState === 'visible') {
+        void run()
+      }
+    }
+
+    void run()
+    const timer = window.setInterval(refreshIfVisible, REFRESH_MS)
+    document.addEventListener('visibilitychange', refreshIfVisible)
 
     return () => {
       cancelled = true
       window.clearInterval(timer)
+      document.removeEventListener('visibilitychange', refreshIfVisible)
     }
   }, [active, role, tick])
 

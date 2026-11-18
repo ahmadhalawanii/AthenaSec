@@ -7833,3 +7833,60 @@ h3 {
   border-radius: 12px;
   background: #fff
 }
+
+/* Live mode: a new account connects its authenticator app (MfaSetupPage) */
+.mfa-setup-steps {
+  margin: 18px 0 0;
+  padding-left: 20px;
+  display: grid;
+  gap: 8px;
+  font-size: 14px;
+  line-height: 1.5
+}
+
+.mfa-setup-qr {
+  margin: 18px 0 6px;
+  min-height: 220px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--color-text-muted, #a7a3b8);
+  font-size: 13px
+}
+
+.mfa-setup-qr img {
+  border-radius: 12px;
+  background: #fff;
+  padding: 6px
+}
+
+.mfa-setup-key {
+  text-align: center;
+  font-size: 13px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px
+}
+
+.mfa-setup-key code {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 14px;
+  padding: 6px 10px;
+  border-radius: 10px;
+  background: rgba(152, 108, 240, 0.1);
+  word-break: break-all
+}
+
+.mfa-setup-note {
+  margin-top: 14px;
+  font-size: 12px
+}
+
+.mfa-setup-actions {
+  margin-top: 12px;
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap
+}

@@ -247,6 +247,7 @@ function AdminStateProvider({ user, children }: AdminStateProviderProps) {
               user: toUserRecord(issued.user),
               temporaryPassword: issued.temporary_password,
               totpUri: issued.totp_uri,
+              newAccount: true,
             },
           }
         } catch (error) {

@@ -24,7 +24,7 @@ Receives Wazuh alerts, investigates them with a LangGraph pipeline, scores risk,
 | `demos/` | Small end-to-end scripts. Run `python -m demos.demo_graph` from this folder. |
 | `docs/` | Design notes: backend plan, database plan, API ID mapping, test matrix. |
 | `tools/regroup_services.py` | The script that grouped `app/services/` (see "For teammates"). |
-| `Dockerfile`, `compose.yaml` | Run the backend and PostgreSQL in Docker (persistent volume, schema applied on start). Moving an old SQLite container: `SERVER_RUNBOOK.md` section 7. |
+| `Dockerfile`, `compose.yaml` | Run the backend and PostgreSQL in Docker (persistent volume, schema applied on start). Moving an old SQLite container: `SERVER_RUNBOOK.md` section 8. |
 | `.env.example` | Settings template. Copy to `.env`; the API, `alembic` and the account command all read it. |
 
 ## Investigation pipeline (`app/graph/nodes/`)

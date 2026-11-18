@@ -75,7 +75,39 @@ def verify_investigation_analysis(
         )
     )
 
+    # _ATHENASEC_CONFLICT_ADJUDICATION_V1
+    # Preserve Qwen's original label in the earlier analysis trace.
+    # Contradictory source evidence triggers deterministic abstention.
+    final_analysis = state["analysis"]
+    if "contradictory_authentication_evidence" in verification.blocking_issues:
+        relevant = [
+            record.evidence_id
+            for record in state.get("evidence_records", [])
+            if record.evidence_type in {
+                "authentication_history", "related_security_events"
+            }
+        ]
+        final_analysis = final_analysis.model_copy(update={
+            "classification": "unknown",
+            "confidence": 0.0,
+            "summary": (
+                "Conflicting authentication records prevent a reliable "
+                "attack classification; analyst review is required."
+            ),
+            "evidence_refs": list(dict.fromkeys(
+                [*final_analysis.evidence_refs, *relevant]
+            )),
+            "uncertainties": [
+                *final_analysis.uncertainties,
+                "Same source IP has conflicting authentication failure counts.",
+            ],
+            "recommended_response_actions": [],
+            "needs_more_evidence": False,
+            "requested_evidence": [],
+        })
+
     return {
+        "analysis": final_analysis,
         "analysis_verification": (
             verification
         ),

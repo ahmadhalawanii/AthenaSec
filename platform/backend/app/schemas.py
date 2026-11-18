@@ -73,6 +73,7 @@ AssetCriticality = Literal[
 
 
 EvidenceRequest = Literal[
+    "source_network_context",
     "authentication_history",
     "source_endpoint_context",
     "privilege_activity",
@@ -80,6 +81,7 @@ EvidenceRequest = Literal[
 ]
 
 EvidenceType = Literal[
+    "source_network_context",
     "alert",
     "authentication_history",
     "source_endpoint_context",

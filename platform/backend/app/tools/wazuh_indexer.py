@@ -1,3 +1,4 @@
+import re
 from datetime import datetime, timedelta, timezone
 import base64
 import json
@@ -273,6 +274,23 @@ def build_wazuh_query(
             ]
         )
 
+    if request == "source_network_context":
+        if not source_ip:
+            return None
+
+        return _base_query([
+            time_filter,
+            {"term": {"data.srcip": source_ip}},
+            {"terms": {
+                "rule.groups": [
+                    "firewall",
+                    "ids",
+                    "suricata",
+                    "network",
+                ]
+            }},
+        ])
+
     if request == "source_endpoint_context":
         # The triggering Wazuh alert's agent is typically the monitored
         # TARGET, not the attacker's SOURCE endpoint. Only telemetry from
@@ -484,6 +502,85 @@ def format_wazuh_hit(
     )
 
 
+def _verified_source_network_hit(
+    alert: SecurityAlertInput,
+    hit: dict[str, Any],
+) -> bool:
+    from ipaddress import ip_address
+
+    document = hit.get("_source")
+    if not isinstance(document, dict):
+        return False
+
+    hit_id = str(hit.get("_id") or "").strip()
+    if not hit_id:
+        return False
+
+    # The triggering alert cannot corroborate itself.
+    trigger_id = str(alert.alert_id)
+    if hit_id == trigger_id or hit_id == trigger_id.removeprefix("wazuh:"):
+        return False
+
+    data = document.get("data")
+    rule = document.get("rule")
+    if not isinstance(data, dict) or not isinstance(rule, dict):
+        return False
+
+    try:
+        expected_ip = ip_address(
+            str(
+                alert.metadata.get("source_ip")
+                or alert.metadata.get("srcip")
+                or ""
+            ).strip()
+        )
+        observed_ip = ip_address(
+            str(data.get("srcip") or "").strip()
+        )
+    except ValueError:
+        return False
+
+    if expected_ip != observed_ip:
+        return False
+
+    groups = rule.get("groups")
+    if not isinstance(groups, list):
+        return False
+
+    network_groups = {
+        "firewall", "ids", "suricata", "network",
+    }
+    if not network_groups.intersection(
+        str(group).strip().casefold() for group in groups
+    ):
+        return False
+
+    # Require an independently timestamped event in the alert window.
+    try:
+        def parse_timestamp(value):
+            value = str(value).strip()
+            if value.endswith("Z"):
+                value = value[:-1] + "+00:00"
+            if re.search(r"[+-][0-9]{4}$", value):
+                value = value[:-5] + value[-5:-2] + ":" + value[-2:]
+            parsed = datetime.fromisoformat(value)
+            if parsed.tzinfo is None:
+                return None
+            return parsed.astimezone(timezone.utc)
+
+        trigger_time = parse_timestamp(alert.metadata.get("timestamp"))
+        event_time = parse_timestamp(document.get("timestamp"))
+        if trigger_time is None or event_time is None:
+            return False
+
+        if abs((event_time - trigger_time).total_seconds()) > 1800:
+            return False
+    except (ValueError, TypeError):
+        return False
+
+    return True
+
+
 def _verified_source_endpoint_hit(
     alert: SecurityAlertInput,
     hit: dict[str, Any],
@@ -619,6 +716,12 @@ class WazuhEvidenceProvider:
             )
 
             for hit in hits:
+                if (
+                    request == "source_network_context"
+                    and not _verified_source_network_hit(alert, hit)
+                ):
+                    continue
+
                 if (
                     request == "source_endpoint_context"
                     and not _verified_source_endpoint_hit(alert, hit)
