@@ -42,7 +42,7 @@ type KnowledgePageProps = {
 }
 
 /*
-  Administrators decide which documents the Security Copilot may quote. A document is a draft
+  Administrators decide which documents Athena may quote. A document is a draft
   until approved; text that tries to instruct the assistant is quarantined and cannot be approved.
 */
 function KnowledgePage({ live }: KnowledgePageProps) {
@@ -150,7 +150,7 @@ function KnowledgePage({ live }: KnowledgePageProps) {
         <div>
           <h1>Knowledge base</h1>
           <p className="sub">
-            Documents the Security Copilot may quote. Only approved documents are used, and each one
+            Documents Athena may quote. Only approved documents are used, and each one
             lists who may read it.
           </p>
         </div>
@@ -238,7 +238,7 @@ function KnowledgePage({ live }: KnowledgePageProps) {
                           onClick={() =>
                             void act(async () => {
                               await approveKnowledgeDocument(doc.doc_id)
-                              return `"${doc.title}" is approved. The Copilot may now quote it.`
+                              return `"${doc.title}" is approved. Athena may now quote it.`
                             })
                           }
                         >
@@ -251,7 +251,7 @@ function KnowledgePage({ live }: KnowledgePageProps) {
                           className="btn small"
                           disabled={busy}
                           onClick={() => {
-                            if (window.confirm(`Revoke "${doc.title}"? The Copilot stops quoting it at once.`)) {
+                            if (window.confirm(`Revoke "${doc.title}"? Athena stops quoting it at once.`)) {
                               void act(async () => {
                                 await revokeKnowledgeDocument(doc.doc_id)
                                 return `"${doc.title}" was revoked.`
@@ -280,14 +280,14 @@ function KnowledgePage({ live }: KnowledgePageProps) {
       <div className="card">
         <h2>Feedback on answers</h2>
         <p className="sub">
-          What people reported about a Copilot answer, with the answer itself. The question they
+          What people reported about an Athena answer, with the answer itself. The question they
           asked is not shown.
         </p>
 
         {feedback && feedback.length === 0 && <p className="sub">No feedback yet.</p>}
 
         {feedback && feedback.length > 0 && (
-          <TableScroll label="Feedback on Copilot answers">
+          <TableScroll label="Feedback on Athena answers">
             <table>
               <thead>
                 <tr>

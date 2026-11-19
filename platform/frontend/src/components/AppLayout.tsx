@@ -187,7 +187,7 @@ function AppLayout({
             </div>
           </div>
 
-          {/* Floating Security Copilot, on every page */}
+          {/* Floating Athena chat, on every page */}
           <CopilotLauncher role={role} inert={pageLocked} />
         </section>
       </SocStateProvider>

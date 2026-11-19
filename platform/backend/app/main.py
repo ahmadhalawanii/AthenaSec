@@ -2780,11 +2780,11 @@ def create_app(
         configured_operator_audit_store.append_event(
             actor_id=principal.operator_id,
             actor_role=role if role in ("Analyst", "Administrator") else "Analyst",
-            category="Copilot", action=action, target=target, result="Success",
+            category="Athena", action=action, target=target, result="Success",
             event_type=action.replace(".", "_"), detail=detail,
         )
 
-    # Security Copilot: read-only; reuses this app's own sign-in and stores.
+    # Athena (the chat assistant): read-only; reuses this app's own sign-in and stores.
     register_chat_routes(
         app,
         require_identity=require_approval_identity,

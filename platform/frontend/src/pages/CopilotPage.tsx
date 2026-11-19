@@ -8,10 +8,10 @@ type CopilotPageProps = {
 
 function CopilotPage({ role, live }: CopilotPageProps) {
   return (
-    <section className="page active" data-page="copilot" data-page-name="Security Copilot">
+    <section className="page active" data-page="copilot" data-page-name="Athena">
       <div className="headline">
         <div>
-          <h1>Security Copilot</h1>
+          <h1>Athena</h1>
           <p className="sub">
             Ask about alerts, cases and what AthenaSec has done. It reads stored records and
             cannot block, approve or change anything.

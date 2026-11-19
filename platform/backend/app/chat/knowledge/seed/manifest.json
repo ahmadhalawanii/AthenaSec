@@ -5,5 +5,5 @@
   {"slug": "benign-alert-triage", "title": "Benign alert triage", "file": "benign-alert-triage.md", "allowed_roles": ["Analyst", "Administrator"]},
   {"slug": "risk-scores-and-policy", "title": "Risk scores, classifications and response policy", "file": "risk-scores-and-policy.md", "allowed_roles": ["Analyst", "Administrator"]},
   {"slug": "approvals-and-response-modes", "title": "Approvals and response modes", "file": "approvals-and-response-modes.md", "allowed_roles": ["Analyst", "Administrator"]},
-  {"slug": "managing-the-knowledge-base", "title": "Managing the Copilot knowledge base", "file": "managing-the-knowledge-base.md", "allowed_roles": ["Administrator"]}
+  {"slug": "managing-the-knowledge-base", "title": "Managing Athena's knowledge base", "file": "managing-the-knowledge-base.md", "allowed_roles": ["Administrator"]}
 ]

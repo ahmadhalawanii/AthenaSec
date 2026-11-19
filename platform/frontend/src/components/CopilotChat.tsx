@@ -161,7 +161,7 @@ type CopilotChatProps = {
 }
 
 /*
-  The conversation itself, used by the Security Copilot page and by the popup on every page.
+  The conversation itself, used by the Athena page and by the popup on every page.
   It reads stored records only; the backend never lets the chat act.
 */
 function CopilotChat({ role, live, compact = false, focusSignal = 0 }: CopilotChatProps) {
@@ -352,7 +352,7 @@ function CopilotChat({ role, live, compact = false, focusSignal = 0 }: CopilotCh
 
       {!live && (
         <p className="copilot-note" role="status">
-          The Copilot needs the live AthenaSec backend. This is demo data, so it is turned off.
+          Athena needs the live AthenaSec backend. This is demo data, so it is turned off.
         </p>
       )}
 
@@ -402,7 +402,7 @@ function CopilotChat({ role, live, compact = false, focusSignal = 0 }: CopilotCh
 
           return (
             <div key={turn.id} className="copilot-turn copilot-bot">
-              <span className="copilot-who">Security Copilot</span>
+              <span className="copilot-who">Athena</span>
               <p>{reply.answer}</p>
 
               {reply.known_limitations.length > 0 && (
@@ -490,7 +490,7 @@ function CopilotChat({ role, live, compact = false, focusSignal = 0 }: CopilotCh
 
       <form className="copilot-form" onSubmit={submit}>
         <label htmlFor={compact ? 'copilot-input-popup' : 'copilot-input'} className="visually-hidden">
-          Ask the Security Copilot
+          Ask Athena
         </label>
         <textarea
           id={compact ? 'copilot-input-popup' : 'copilot-input'}

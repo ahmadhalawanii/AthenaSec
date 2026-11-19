@@ -17,7 +17,7 @@ const PAGE_NAMES: Record<string, string> = {
   '/app/cases': 'Case Management',
   '/app/incident': 'Incident Response',
   '/app/approvals': 'Approvals',
-  '/app/copilot': 'Security Copilot',
+  '/app/copilot': 'Athena',
   '/app/knowledge': 'Knowledge base',
   '/app/configuration': 'Configuration',
   '/app/response-policies': 'Response Policies',

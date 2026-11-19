@@ -12,9 +12,9 @@ type CopilotLauncherProps = {
 }
 
 /*
-  A floating button on every page that opens the Security Copilot in a panel. The panel stays
+  A floating button on every page that opens Athena, the chat assistant, in a panel. The panel stays
   mounted once opened (just hidden), so the conversation survives closing it and moving between
-  pages. It is not modal: the page behind stays usable. On the Copilot page itself it is hidden,
+  pages. It is not modal: the page behind stays usable. On the Athena page itself it is hidden,
   since the page already is the chat.
 */
 function CopilotLauncher({ role, inert }: CopilotLauncherProps) {
@@ -64,11 +64,11 @@ function CopilotLauncher({ role, inert }: CopilotLauncherProps) {
           id="copilot-panel"
           className="copilot-panel"
           role="dialog"
-          aria-label="Security Copilot"
+          aria-label="Athena"
           hidden={!open}
         >
           <div className="copilot-panel-head">
-            <strong>Security Copilot</strong>
+            <strong>Athena</strong>
             <button
               type="button"
               className="btn small ghost"
@@ -93,7 +93,7 @@ function CopilotLauncher({ role, inert }: CopilotLauncherProps) {
         aria-controls="copilot-panel"
         onClick={toggle}
       >
-        {open ? 'Close Copilot' : 'Ask Copilot'}
+        {open ? 'Close Athena' : 'Ask Athena'}
       </button>
     </div>
   )

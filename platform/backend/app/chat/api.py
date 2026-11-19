@@ -1,4 +1,4 @@
-"""Routes for the Security Copilot. Reuses the app's own authentication; adds no new access."""
+"""Routes for Athena, the chat assistant. Reuses the app's own authentication; adds no new access."""
 
 import re
 import secrets

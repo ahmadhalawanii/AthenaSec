@@ -1,4 +1,4 @@
-/* Security Copilot (backend/app/chat). Read-only: it explains stored records and cannot act. */
+/* Athena, the chat assistant (backend/app/chat). Read-only: it explains stored records and cannot act. */
 import { api } from './client'
 
 export type Presentation = 'simple' | 'technical'

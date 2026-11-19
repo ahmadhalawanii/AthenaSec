@@ -250,7 +250,7 @@ def test_document_changes_are_audited_without_the_document_text():
                     key=lambda e: e.seq)
 
     assert [e.action for e in events] == ["knowledge.ingest", "knowledge.approve", "knowledge.revoke"]
-    assert all(e.category == "Copilot" and e.target == doc["doc_id"] and e.actor_id == "u-1"
+    assert all(e.category == "Athena" and e.target == doc["doc_id"] and e.actor_id == "u-1"
                for e in events)
     assert events[0].detail["slug"] == "brute-force-response" and events[0].detail["status"] == "draft"
     assert all("Evidence to check" not in str(e.detail) for e in events)

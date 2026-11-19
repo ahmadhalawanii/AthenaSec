@@ -1,4 +1,4 @@
-# Managing the Copilot knowledge base
+# Managing Athena's knowledge base
 
 ## How documents become answers
 A document is added as a draft. Documents that look like they contain instructions for the assistant are quarantined and cannot be approved. An administrator reviews a draft and approves it, and only approved documents are used in answers. Approving a new version replaces the older approved version.

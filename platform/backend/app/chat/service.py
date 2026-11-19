@@ -1,4 +1,4 @@
-"""Security Copilot, Batch 1: a read-only assistant over stored AthenaSec records.
+"""Athena, Batch 1: a read-only chat assistant over stored AthenaSec records.
 
 Every fact in an answer comes from a source callable (alerts, cases, runtime status), never
 from a model. A phraser (Qwen) may reword the answer afterwards; it cannot add records, and

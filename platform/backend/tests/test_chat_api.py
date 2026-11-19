@@ -531,7 +531,7 @@ def test_each_answer_is_audited_without_the_question_text():
     say(client, "any urgent problems? my password is hunter2")
     [event] = audit.list_events()
 
-    assert (event.category, event.action, event.actor_id) == ("Copilot", "chat.answer", "analyst-009")
+    assert (event.category, event.action, event.actor_id) == ("Athena", "chat.answer", "analyst-009")
     assert event.target.startswith("CHAT-")
     assert event.detail == {"tools": ["soc_snapshot"], "data_status": "stored"}
     assert "hunter2" not in str(event.detail) and "urgent" not in str(event.detail)

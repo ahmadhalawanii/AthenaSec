@@ -1,8 +1,11 @@
-# Security Copilot
+# Athena (the chat assistant)
 
-A read-only chat assistant over what AthenaSec has already recorded. It explains alerts, cases,
+Athena is a read-only chat assistant over what AthenaSec has already recorded. It explains alerts, cases,
 approvals and system status in plain language, quotes approved guidance documents, and shows
 where each answer came from. It cannot block, approve, isolate or run anything.
+
+(In the code, the file names and the address `/app/copilot` it is still called Copilot; only
+what people see says Athena.)
 
 ## What it answers
 
@@ -69,7 +72,7 @@ tables. Back up first (`pg_dump`, see `platform/SERVER_RUNBOOK.md`).
 
 ## Audit
 
-Each answer writes one operator audit event: category `Copilot`, action `chat.answer`, with the
+Each answer writes one operator audit event: category `Athena`, action `chat.answer`, with the
 tools used and the data status. **The question and answer text are not stored in the audit
 event.** If the audit write fails, the read-only answer is still returned. Adding, approving and revoking documents are audited the same way
 (`knowledge.ingest`, `knowledge.approve`, `knowledge.revoke`).

@@ -1,6 +1,6 @@
-"""Security Copilot demo: a local backend with FAKE data and a fake sign-in.
+"""Athena demo: a local backend with FAKE data and a fake sign-in.
 
-For trying the Copilot chat in a browser, and for nothing else. Every alert, case, approval,
+For trying Athena, the chat assistant, in a browser, and for nothing else. Every alert, case, approval,
 service status and audit event is made up, and anyone who can reach this server is signed in
 without a password. It refuses to start if a database is configured, and it listens on
 127.0.0.1 only. Never run it on a shared machine or expose it.
@@ -14,7 +14,7 @@ Then in platform/frontend:
     npm run dev
 
 Open http://localhost:8000/demo/login/analyst (or /demo/login/admin). That sets the fake
-session and sends you to the Copilot page on the Vite dev server (http://localhost:5173).
+session and sends you to the Athena page on the Vite dev server (http://localhost:5173).
 
 Fixture dates are in March 2026, so the chat's "last 24 hours" clock is pinned to them.
 """
@@ -113,7 +113,7 @@ def demo_login(who: str):
 
 
 if __name__ == "__main__":
-    print(f"\nCopilot demo (FAKE data, no real sign-in) on http://127.0.0.1:{PORT}", flush=True)
+    print(f"\nAthena demo (FAKE data, no real sign-in) on http://127.0.0.1:{PORT}", flush=True)
     print(f"  Analyst:       http://127.0.0.1:{PORT}/demo/login/analyst", flush=True)
     print(f"  Administrator: http://127.0.0.1:{PORT}/demo/login/admin", flush=True)
     print("  Start the website with `npm run dev` in platform/frontend first.\n", flush=True)

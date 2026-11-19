@@ -58,7 +58,7 @@ const analystNav: NavEntry[] = [
     countLabel: ['request waiting for you', 'requests waiting for you'],
     countTone: 'warn',
   },
-  { to: '/app/copilot', label: 'Security Copilot', icon: 'copilot' },
+  { to: '/app/copilot', label: 'Athena', icon: 'copilot' },
 ]
 
 const adminNav: NavEntry[] = [
@@ -73,7 +73,7 @@ const adminNav: NavEntry[] = [
     countLabel: ['request waiting for you', 'requests waiting for you'],
     countTone: 'warn',
   },
-  { to: '/app/copilot', label: 'Security Copilot', icon: 'copilot' },
+  { to: '/app/copilot', label: 'Athena', icon: 'copilot' },
   { to: '/app/knowledge', label: 'Knowledge base', icon: 'knowledge' },
   { to: '/app/user-management', label: 'User Management', icon: 'users' },
   { to: '/app/audit-logs', label: 'Audit Logs', icon: 'audit' },
