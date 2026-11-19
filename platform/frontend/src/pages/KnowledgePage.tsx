@@ -6,8 +6,10 @@ import {
   approveKnowledgeDocument,
   getKnowledgeSource,
   importKnowledgeSeed,
+  listChatFeedback,
   listKnowledgeDocuments,
   revokeKnowledgeDocument,
+  type ChatFeedbackItem,
   type KnowledgeDocument,
   type KnowledgeStatus,
 } from '../api/chatApi'
@@ -48,6 +50,7 @@ function KnowledgePage({ live }: KnowledgePageProps) {
   const [message, setMessage] = useState('')
   const [failed, setFailed] = useState(false)
   const [busy, setBusy] = useState(false)
+  const [feedback, setFeedback] = useState<ChatFeedbackItem[] | null>(null)
   const [shown, setShown] = useState<{ id: string; text: string } | null>(null)
 
   const [slug, setSlug] = useState('')
@@ -72,6 +75,14 @@ function KnowledgePage({ live }: KnowledgePageProps) {
     }
 
     let cancelled = false
+
+    listChatFeedback()
+      .then((result) => {
+        if (!cancelled) {
+          setFeedback(result.items)
+        }
+      })
+      .catch(() => undefined)
 
     listKnowledgeDocuments()
       .then((result) => {
@@ -263,6 +274,45 @@ function KnowledgePage({ live }: KnowledgePageProps) {
           <pre className="copilot-doc" aria-label="Document text">
             {shown.text}
           </pre>
+        )}
+      </div>
+
+      <div className="card">
+        <h2>Feedback on answers</h2>
+        <p className="sub">
+          What people reported about a Copilot answer, with the answer itself. The question they
+          asked is not shown.
+        </p>
+
+        {feedback && feedback.length === 0 && <p className="sub">No feedback yet.</p>}
+
+        {feedback && feedback.length > 0 && (
+          <TableScroll label="Feedback on Copilot answers">
+            <table>
+              <thead>
+                <tr>
+                  <th scope="col">When</th>
+                  <th scope="col">From</th>
+                  <th scope="col">Problem</th>
+                  <th scope="col">Note</th>
+                  <th scope="col">The answer reported</th>
+                </tr>
+              </thead>
+              <tbody>
+                {feedback.map((item) => (
+                  <tr key={item.feedback_id}>
+                    <td>{when(item.created_at)}</td>
+                    <td>{item.owner_id}</td>
+                    <td>
+                      <span className="pill neutral">{item.category.replace('_', ' ')}</span>
+                    </td>
+                    <td>{item.note ?? '-'}</td>
+                    <td>{item.answer.length > 160 ? `${item.answer.slice(0, 160)}…` : item.answer}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </TableScroll>
         )}
       </div>
 

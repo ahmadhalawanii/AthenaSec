@@ -4,10 +4,13 @@ import { Link } from 'react-router-dom'
 import { ApiError } from '../api/client'
 import {
   createChatSession,
+  getChatSession,
   getKnowledgeSource,
+  listChatSessions,
   sendChatFeedback,
   sendChatMessage,
   type ChatAnswer,
+  type ChatSessionSummary,
   type FeedbackCategory,
   type Presentation,
 } from '../api/chatApi'
@@ -166,6 +169,8 @@ function CopilotChat({ role, live, compact = false, focusSignal = 0 }: CopilotCh
   const [draft, setDraft] = useState('')
   const [presentation, setPresentation] = useState<Presentation>('simple')
   const [pending, setPending] = useState(false)
+  const [history, setHistory] = useState<ChatSessionSummary[] | null>(null)
+  const [showHistory, setShowHistory] = useState(false)
   const sessionId = useRef<string | null>(null)
   const nextId = useRef(1)
   const bottom = useRef<HTMLDivElement>(null)
@@ -230,6 +235,59 @@ function CopilotChat({ role, live, compact = false, focusSignal = 0 }: CopilotCh
   function newConversation() {
     sessionId.current = null
     setTurns([])
+    setShowHistory(false)
+  }
+
+  async function toggleHistory() {
+    if (showHistory) {
+      setShowHistory(false)
+      return
+    }
+
+    setShowHistory(true)
+
+    try {
+      setHistory((await listChatSessions()).items)
+    } catch {
+      setHistory([])
+    }
+  }
+
+  // Load an earlier conversation and carry on in it
+  async function resume(id: string) {
+    try {
+      const saved = await getChatSession(id)
+
+      sessionId.current = id
+      setTurns(
+        saved.messages.map((message): Turn =>
+          message.role === 'user'
+            ? { id: nextId.current++, role: 'user', text: message.content }
+            : {
+                id: nextId.current++,
+                role: 'assistant',
+                reply: {
+                  message_id: message.message_id,
+                  answer: message.content,
+                  answer_type: message.answer_type ?? 'operational',
+                  data_status: message.data_status ?? 'stored',
+                  checked_at: message.checked_at ?? message.created_at,
+                  evidence_refs: message.evidence_refs,
+                  known_limitations: message.known_limitations,
+                  suggested_followups: message.suggested_followups,
+                  technical: null,
+                },
+              },
+        ),
+      )
+      setShowHistory(false)
+    } catch {
+      setTurns((current) => [
+        ...current,
+        { id: nextId.current++, role: 'error', text: 'That conversation could not be opened.' },
+      ])
+      setShowHistory(false)
+    }
   }
 
   return (
@@ -249,15 +307,48 @@ function CopilotChat({ role, live, compact = false, focusSignal = 0 }: CopilotCh
           ))}
         </div>
 
-        <button
-          type="button"
-          className="btn small"
-          onClick={newConversation}
-          disabled={pending || turns.length === 0}
-        >
-          New conversation
-        </button>
+        <div className="copilot-view">
+          <button
+            type="button"
+            className="btn small"
+            aria-expanded={showHistory}
+            onClick={() => void toggleHistory()}
+            disabled={!live || pending}
+          >
+            History
+          </button>
+          <button
+            type="button"
+            className="btn small"
+            onClick={newConversation}
+            disabled={pending || turns.length === 0}
+          >
+            New conversation
+          </button>
+        </div>
       </div>
+
+      {showHistory && (
+        <div className="copilot-history" role="region" aria-label="Earlier conversations">
+          {history === null && <p className="copilot-meta">Loading…</p>}
+          {history !== null && history.length === 0 && (
+            <p className="copilot-meta">No earlier conversations yet.</p>
+          )}
+          {history?.map((item) => (
+            <button
+              key={item.session_id}
+              type="button"
+              className="btn small ghost"
+              onClick={() => void resume(item.session_id)}
+            >
+              <span className="copilot-meta">
+                {new Date(item.created_at).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })}
+              </span>{' '}
+              {item.preview || '(no questions yet)'}
+            </button>
+          ))}
+        </div>
+      )}
 
       {!live && (
         <p className="copilot-note" role="status">

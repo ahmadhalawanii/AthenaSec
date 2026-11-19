@@ -66,3 +66,17 @@ def test_feedback_is_stored_and_the_database_rejects_a_bad_category(store, owner
 def test_a_message_must_belong_to_a_real_session(store):
     with pytest.raises(psycopg.errors.ForeignKeyViolation):
         store.append_message("CHAT-does-not-exist", "user", "hello")
+
+
+def test_session_previews_and_feedback_review_on_postgres(store, owner):
+    session_id = store.create_session(owner, "simple")["session_id"]
+    store.append_message(session_id, "user", "any urgent problems? " + "please " * 30)
+    answer = store.append_message(session_id, "assistant", "the answer")
+    saved = store.add_feedback(answer["message_id"], owner, "incorrect", "wrong source")
+
+    [session] = store.list_sessions(owner)
+    assert session["preview"].startswith("any urgent problems?") and len(session["preview"]) <= 81
+
+    mine = [f for f in store.list_feedback() if f["feedback_id"] == saved["feedback_id"]]
+    assert mine and mine[0]["answer"] == "the answer" and mine[0]["session_id"] == session_id
+    assert mine[0]["category"] == "incorrect" and mine[0]["note"] == "wrong source"

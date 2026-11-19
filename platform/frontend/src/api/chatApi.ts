@@ -96,3 +96,45 @@ export const revokeKnowledgeDocument = (docId: string) =>
 
 export const importKnowledgeSeed = () =>
   api<{ created: KnowledgeDocument[] }>('/chat/knowledge/seed', { method: 'POST', body: {} })
+
+// ---- History and feedback review ----
+
+export type ChatSessionSummary = {
+  session_id: string
+  created_at: string
+  presentation: Presentation
+  preview: string
+}
+
+export type SavedMessage = {
+  message_id: string
+  role: 'user' | 'assistant'
+  content: string
+  created_at: string
+  evidence_refs: ChatEvidenceRef[]
+  data_status: ChatAnswer['data_status'] | null
+  answer_type: ChatAnswer['answer_type'] | null
+  checked_at: string | null
+  known_limitations: string[]
+  suggested_followups: string[]
+}
+
+export const listChatSessions = () => api<{ items: ChatSessionSummary[] }>('/chat/sessions')
+
+export const getChatSession = (sessionId: string) =>
+  api<{ session_id: string; presentation: Presentation; messages: SavedMessage[] }>(
+    `/chat/sessions/${encodeURIComponent(sessionId)}`,
+  )
+
+export type ChatFeedbackItem = {
+  feedback_id: string
+  message_id: string
+  owner_id: string
+  category: FeedbackCategory
+  note: string | null
+  created_at: string
+  answer: string
+}
+
+// Administrators only: what people reported, and the answer they reported (never the question)
+export const listChatFeedback = () => api<{ items: ChatFeedbackItem[] }>('/chat/feedback')

@@ -141,6 +141,11 @@ def register_chat_routes(
                 "created_at": m["created_at"], "tools": m["meta"].get("tools", []),
                 "evidence_refs": m["meta"].get("evidence_refs", []),
                 "data_status": m["meta"].get("data_status"),
+                # What the page needs to show a saved answer again
+                "answer_type": m["meta"].get("answer_type"),
+                "checked_at": m["meta"].get("checked_at"),
+                "known_limitations": m["meta"].get("known_limitations", []),
+                "suggested_followups": m["meta"].get("suggested_followups", []),
             }
             for m in store.list_messages(session_id)
         ]
@@ -170,6 +175,8 @@ def register_chat_routes(
         message = store.append_message(session_id, "assistant", result["answer"], {
             "tools": result["tools"], "evidence_refs": result["evidence_refs"],
             "data_status": result["data_status"], "answer_type": result["answer_type"],
+            "checked_at": result["checked_at"], "known_limitations": result["known_limitations"],
+            "suggested_followups": result["suggested_followups"],
         })
         record(principal, "chat.answer", session_id,
                {"tools": list(result["tools"]), "data_status": result["data_status"]})
@@ -236,6 +243,11 @@ def register_chat_routes(
                    {"slug": doc["slug"], "version": doc["version"], "status": doc["status"]})
 
         return {"created": created}
+
+    @app.get("/api/v1/chat/feedback")
+    def list_chat_feedback(principal=Depends(reader)):
+        admin_only(principal)  # the question text is never part of this: only the answer reported
+        return {"items": store.list_feedback()}
 
     @app.post("/api/v1/chat/feedback", status_code=201)
     def send_chat_feedback(payload: FeedbackRequest, principal=Depends(writer)):
