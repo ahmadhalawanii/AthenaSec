@@ -4,6 +4,7 @@ import { Link } from 'react-router-dom'
 import { ApiError } from '../api/client'
 import {
   createChatSession,
+  getKnowledgeSource,
   sendChatFeedback,
   sendChatMessage,
   type ChatAnswer,
@@ -45,6 +46,32 @@ function checkedTime(iso: string) {
   return Number.isNaN(when.getTime())
     ? iso
     : when.toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })
+}
+
+// A quoted document or glossary entry, opened on demand so the reader can check it
+function KnowledgeSource({ sourceId }: { sourceId: string }) {
+  const [text, setText] = useState<string | null>(null)
+  const [error, setError] = useState(false)
+
+  async function load(open: boolean) {
+    if (!open || text !== null) {
+      return
+    }
+
+    try {
+      const source = await getKnowledgeSource(sourceId)
+      setText(`${source.title}${source.version ? ` (version ${source.version})` : ''}\n\n${source.text}`)
+    } catch {
+      setError(true)
+    }
+  }
+
+  return (
+    <details className="copilot-tech" onToggle={(event) => void load(event.currentTarget.open)}>
+      <summary>View source: {sourceId}</summary>
+      {error ? <p role="alert">This source could not be opened.</p> : <pre>{text ?? 'Loading…'}</pre>}
+    </details>
+  )
 }
 
 const FEEDBACK_CHOICES: [FeedbackCategory, string][] = [
@@ -295,11 +322,11 @@ function CopilotChat({ role, live, compact = false, focusSignal = 0 }: CopilotCh
                 </ul>
               )}
 
-              {reply.evidence_refs.length > 0 && (
+              {reply.evidence_refs.some((ref) => ref.type !== 'knowledge') && (
                 <p className="copilot-sources">
                   <strong>Sources:</strong>{' '}
                   {reply.evidence_refs
-                    .filter((ref) => ref.type !== 'audit')
+                    .filter((ref) => ref.type !== 'audit' && ref.type !== 'knowledge')
                     .map((ref) => (
                       <span key={`${ref.type}-${ref.id}`}>
                         <code>{ref.id}</code>{' '}
@@ -319,6 +346,12 @@ function CopilotChat({ role, live, compact = false, focusSignal = 0 }: CopilotCh
                   {isAdmin && has('system') && <Link to="/app/service-panel">Open Service Panel</Link>}
                 </p>
               )}
+
+              {reply.evidence_refs
+                .filter((ref) => ref.type === 'knowledge')
+                .map((ref) => (
+                  <KnowledgeSource key={ref.id} sourceId={ref.id} />
+                ))}
 
               <p className="copilot-meta">
                 <span className={`pill ${reply.data_status === 'unavailable' ? 'warn' : 'neutral'}`}>

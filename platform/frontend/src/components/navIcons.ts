@@ -18,6 +18,8 @@ export const NAV_ICONS = {
   panel: 'M4 4h16a1 1 0 0 1 1 1v5a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1zM4 13h16a1 1 0 0 1 1 1v5a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1v-5a1 1 0 0 1 1-1zM7 7.5h.01M7 16.5h.01M11 7.5h6M11 16.5h6',
   // Security Copilot: a speech bubble with a spark
   copilot: 'M4 5a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-7l-5 4v-4H6a2 2 0 0 1-2-2V5zM12 7v5M9.5 9.5h5',
+  // Knowledge base: an open book
+  knowledge: 'M4 5a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v14a1 1 0 0 0-1-1H4zM20 5a1 1 0 0 0-1-1h-6a1 1 0 0 0-1 1v14a1 1 0 0 1 1-1h8z',
   settings: 'M12 15a3 3 0 1 0 0-6a3 3 0 1 0 0 6zM12 2v3M12 19v3M4.2 4.2l2.1 2.1M17.7 17.7l2.1 2.1M2 12h3M19 12h3M4.2 19.8l2.1-2.1M17.7 6.3l2.1-2.1',
 } as const
 

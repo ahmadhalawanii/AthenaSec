@@ -222,3 +222,43 @@
   gap: 4px;
   color: var(--color-text-subtle);
 }
+
+/* ---- knowledge base page ---- */
+
+.copilot-doc {
+  margin: 12px 0 0;
+  padding: 12px;
+  max-height: 320px;
+  overflow: auto;
+  white-space: pre-wrap;
+  border-radius: 8px;
+  background: var(--color-bg);
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+.copilot-add {
+  display: grid;
+  gap: 12px;
+  max-width: 720px;
+}
+
+.copilot-add label,
+.copilot-add fieldset {
+  display: grid;
+  gap: 4px;
+  color: var(--color-text-subtle);
+}
+
+.copilot-add fieldset {
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  padding: 8px 12px;
+}
+
+.copilot-check {
+  display: flex !important;
+  grid-auto-flow: column;
+  align-items: center;
+  gap: 8px;
+}

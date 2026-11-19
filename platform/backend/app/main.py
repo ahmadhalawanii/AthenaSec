@@ -26,6 +26,8 @@ from app.llm import (
 )
 from app.chat.api import register_chat_routes
 from app.chat.phrasing import build_phraser_from_env
+from app.chat.knowledge.service import KnowledgeBase
+from app.chat.knowledge.store import InMemoryKnowledgeStore, build_knowledge_store_from_env
 from app.chat.service import ChatSources
 from app.chat.store import InMemoryChatStore, build_chat_store_from_env
 from app.ml.runtime_config import (
@@ -380,6 +382,7 @@ def create_app(
     health_probes: Any = None,
     chat_store: Any = None,
     chat_phraser: Any = None,
+    knowledge_store: Any = None,
 ) -> FastAPI:
     app = FastAPI(
         title="AthenaSec Agent API",
@@ -580,6 +583,20 @@ def create_app(
 
     else:
         configured_chat_store = InMemoryChatStore()
+
+    if knowledge_store is not None:
+        configured_knowledge_store = knowledge_store
+
+    elif (
+        default_investigation_store is not None
+        or default_audit_store is not None
+    ):
+        configured_knowledge_store = build_knowledge_store_from_env()
+
+    else:
+        configured_knowledge_store = InMemoryKnowledgeStore()
+
+    configured_knowledge_base = KnowledgeBase(configured_knowledge_store)
 
     if alert_workflow_store is not None:
         configured_alert_workflow_store = alert_workflow_store
@@ -2757,15 +2774,14 @@ def create_app(
         events.sort(key=lambda event: (as_utc(event.occurred_at), event.event_id), reverse=True)
         return events[:limit]
 
-    def chat_audit(principal, session_id, tools, data_status):
-        # Who asked and which tools ran; never the question text
+    def chat_audit(principal, action, target, detail):
+        # Who did what to which record; never the question or the document text
         role = getattr(principal, "role", None)
         configured_operator_audit_store.append_event(
             actor_id=principal.operator_id,
             actor_role=role if role in ("Analyst", "Administrator") else "Analyst",
-            category="Copilot", action="chat.answer", target=session_id, result="Success",
-            event_type="chat_answer",
-            detail={"tools": list(tools), "data_status": data_status},
+            category="Copilot", action=action, target=target, result="Success",
+            event_type=action.replace(".", "_"), detail=detail,
         )
 
     # Security Copilot: read-only; reuses this app's own sign-in and stores.
@@ -2787,9 +2803,12 @@ def create_app(
             get_policy_decision=configured_incident_response_store.get_policy_decision,
             health=lambda: current_system_health(),
             recent_audit=chat_recent_audit,
+            search_knowledge=lambda query, role, limit: configured_knowledge_base.search(
+                query, role, limit),
         ),
         phraser=chat_phraser if chat_phraser is not None else build_phraser_from_env(),
         audit=chat_audit,
+        knowledge=configured_knowledge_base,
     )
 
     # ----- Analyst actions from the website: close, reopen, assign, tick -----

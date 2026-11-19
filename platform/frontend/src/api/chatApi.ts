@@ -46,3 +46,53 @@ export function sendChatMessage(sessionId: string, content: string, presentation
     timeoutMs: 60000,
   })
 }
+
+// ---- Knowledge base: documents the Copilot may quote ----
+
+export type KnowledgeStatus = 'draft' | 'approved' | 'quarantined' | 'revoked' | 'superseded'
+
+export type KnowledgeDocument = {
+  doc_id: string
+  slug: string
+  version: number
+  title: string
+  status: KnowledgeStatus
+  allowed_roles: string[]
+  created_by: string
+  created_at: string
+  approved_by: string | null
+  approved_at: string | null
+  quarantine_reason: string | null
+}
+
+export type KnowledgeSource = {
+  source_id: string
+  title: string
+  text: string
+  version?: number
+  status?: KnowledgeStatus
+}
+
+export function getKnowledgeSource(sourceId: string) {
+  return api<KnowledgeSource>(`/chat/knowledge/sources/${encodeURIComponent(sourceId)}`)
+}
+
+const DOCS = '/chat/knowledge/documents'
+
+export const listKnowledgeDocuments = () => api<{ items: KnowledgeDocument[] }>(DOCS)
+
+export const addKnowledgeDocument = (body: {
+  slug: string
+  title: string
+  body: string
+  allowed_roles: string[]
+}) => api<KnowledgeDocument>(DOCS, { method: 'POST', body })
+
+export const approveKnowledgeDocument = (docId: string) =>
+  api<KnowledgeDocument>(`${DOCS}/${encodeURIComponent(docId)}/approve`, { method: 'POST', body: {} })
+
+export const revokeKnowledgeDocument = (docId: string) =>
+  api<KnowledgeDocument>(`${DOCS}/${encodeURIComponent(docId)}/revoke`, { method: 'POST', body: {} })
+
+export const importKnowledgeSeed = () =>
+  api<{ created: KnowledgeDocument[] }>('/chat/knowledge/seed', { method: 'POST', body: {} })

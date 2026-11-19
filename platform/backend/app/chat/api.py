@@ -8,6 +8,7 @@ from typing import Any, Callable, Literal
 from fastapi import Depends, FastAPI, Header, HTTPException, Request
 from pydantic import BaseModel, Field, field_validator
 
+from app.chat.knowledge.service import ROLES, KnowledgeBase, KnowledgeError
 from app.chat.service import ChatSources, knowledge_source, respond
 from app.chat.store import ChatStore
 
@@ -37,6 +38,13 @@ class FeedbackRequest(BaseModel):
     message_id: str
     category: Literal["confusing", "wrong_source", "incorrect", "other"]
     note: str | None = Field(default=None, max_length=500)
+
+
+class DocumentRequest(BaseModel):
+    slug: str
+    title: str
+    body: str
+    allowed_roles: list[str] = Field(default_factory=lambda: list(ROLES))
 
 
 class EvidenceRef(BaseModel):
@@ -71,7 +79,8 @@ def register_chat_routes(
     store: ChatStore,
     sources: ChatSources,
     phraser: Callable[[str, str], str] | None = None,
-    audit: Callable[[Any, str, list[str], str], None] | None = None,
+    audit: Callable[[Any, str, str, dict], None] | None = None,
+    knowledge: KnowledgeBase | None = None,
 ) -> None:
     def reader(request: Request, authorization: str | None = Header(default=None)):
         return require_identity(authorization, request=request)
@@ -83,6 +92,19 @@ def register_chat_routes(
             token = request.headers.get(CSRF_HEADER)
             if not token or not secrets.compare_digest(token, principal.csrf_token):
                 raise HTTPException(status_code=403, detail="CSRF token required.")
+        return principal
+
+    def record(principal, action: str, target: str, detail: dict) -> None:
+        # Who did what, never the text. A failed audit write does not hold back a read-only answer.
+        if audit is not None:
+            try:
+                audit(principal, action, target, detail)
+            except Exception:
+                pass
+
+    def admin_only(principal):
+        if getattr(principal, "role", None) != "Administrator":
+            raise HTTPException(status_code=403, detail="Administrator permission required.")
         return principal
 
     def owned(session_id: str, principal) -> dict:
@@ -136,7 +158,8 @@ def register_chat_routes(
         )
 
         # The facts are fixed above; the phraser may only reword them.
-        if phraser is not None and result["data_status"] != "unavailable" and result["tools"]:
+        if (phraser is not None and result["data_status"] != "unavailable" and result["tools"]
+                and result["answer_type"] != "knowledge"):  # a quoted document is never reworded
             try:
                 reworded = phraser(result["answer"], presentation)
             except Exception:
@@ -148,24 +171,71 @@ def register_chat_routes(
             "tools": result["tools"], "evidence_refs": result["evidence_refs"],
             "data_status": result["data_status"], "answer_type": result["answer_type"],
         })
-        # Who asked, which tools ran and how fresh the data was; never the question text.
-        # A read-only answer is not held back if the audit write fails.
-        if audit is not None:
-            try:
-                audit(principal, session_id, result["tools"], result["data_status"])
-            except Exception:
-                pass
+        record(principal, "chat.answer", session_id,
+               {"tools": list(result["tools"]), "data_status": result["data_status"]})
 
         return ChatAnswer(message_id=message["message_id"], **result)
 
     @app.get("/api/v1/chat/knowledge/sources/{source_id}")
     def get_knowledge_source(source_id: str, principal=Depends(reader)):
-        source = knowledge_source(source_id)
+        if source_id.startswith("doc-") and knowledge is not None:
+            source = knowledge.source(source_id, getattr(principal, "role", None))
+        else:
+            source = knowledge_source(source_id)
 
         if source is None:
             raise HTTPException(status_code=404, detail="Knowledge source not found.")
 
         return source
+
+    # ---- document administration (administrators only) ----
+
+    def run(principal, action: str, operation):
+        try:
+            doc = operation()
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        except KnowledgeError as exc:
+            raise HTTPException(status_code=exc.code, detail=exc.message) from exc
+
+        record(principal, action, doc["doc_id"],
+               {"slug": doc["slug"], "version": doc["version"], "status": doc["status"]})
+        return doc
+
+    @app.post("/api/v1/chat/knowledge/documents", status_code=201)
+    def add_document(payload: DocumentRequest, principal=Depends(writer)):
+        admin_only(principal)
+        return run(principal, "knowledge.ingest", lambda: knowledge.ingest(
+            slug=payload.slug, title=payload.title, body=payload.body,
+            allowed_roles=payload.allowed_roles, created_by=principal.operator_id))
+
+    @app.get("/api/v1/chat/knowledge/documents")
+    def list_documents(principal=Depends(reader)):
+        admin_only(principal)
+        return {"items": knowledge.list_documents()}
+
+    @app.post("/api/v1/chat/knowledge/documents/{doc_id}/approve")
+    def approve_document(doc_id: str, principal=Depends(writer)):
+        admin_only(principal)
+        return run(principal, "knowledge.approve",
+                   lambda: knowledge.approve(doc_id, principal.operator_id))
+
+    @app.post("/api/v1/chat/knowledge/documents/{doc_id}/revoke")
+    def revoke_document(doc_id: str, principal=Depends(writer)):
+        admin_only(principal)
+        return run(principal, "knowledge.revoke",
+                   lambda: knowledge.revoke(doc_id, principal.operator_id))
+
+    @app.post("/api/v1/chat/knowledge/seed")
+    def import_seed_documents(principal=Depends(writer)):
+        admin_only(principal)
+        created = knowledge.import_seed(principal.operator_id)
+
+        for doc in created:
+            record(principal, "knowledge.ingest", doc["doc_id"],
+                   {"slug": doc["slug"], "version": doc["version"], "status": doc["status"]})
+
+        return {"created": created}
 
     @app.post("/api/v1/chat/feedback", status_code=201)
     def send_chat_feedback(payload: FeedbackRequest, principal=Depends(writer)):

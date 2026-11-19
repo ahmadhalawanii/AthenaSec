@@ -74,6 +74,7 @@ const adminNav: NavEntry[] = [
     countTone: 'warn',
   },
   { to: '/app/copilot', label: 'Security Copilot', icon: 'copilot' },
+  { to: '/app/knowledge', label: 'Knowledge base', icon: 'knowledge' },
   { to: '/app/user-management', label: 'User Management', icon: 'users' },
   { to: '/app/audit-logs', label: 'Audit Logs', icon: 'audit' },
   {

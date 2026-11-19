@@ -27,6 +27,15 @@ HEALTH = re.compile(
     r"health|monitoring|working|services?\b|\bdown\b|\bonline\b|connected|wazuh|misp|ollama|cortex",
     re.IGNORECASE,
 )
+# Questions that ask for guidance rather than a record, so approved documents are tried first
+EXPLAIN = re.compile(
+    r"\bhow (?:do|does|should|can|could|would|to)\b|\bwhen (?:can|should)\b"
+    r"|\bwhat (?:should|happens|do i do)\b|\bwhat does .{1,40}\bdo\b"
+    r"|\b(?:steps?|procedure|playbook|runbook|guidance)\b",
+    re.IGNORECASE,
+)
+# Intents matched only by loose keywords, which a guidance question may override
+LOOSE_INTENTS = {"runtime", "audit", "health", "case_list", "approvals", "snapshot"}
 APPROVALS = re.compile(r"approvals?\b|waiting|pending", re.IGNORECASE)
 DEFINITION = re.compile(r"\b(what\s+(is|does|are)|mean|meaning|define|explain)\b", re.IGNORECASE)
 RUNTIME = re.compile(
@@ -112,6 +121,7 @@ class ChatSources:
     get_policy_decision: Callable[[str], Any]
     health: Callable[[], Any]
     recent_audit: Callable[[int], list]
+    search_knowledge: Callable[[str, str | None, int], list]
 
 
 def _ref(kind: str, record_id: str) -> dict[str, str]:
@@ -134,7 +144,8 @@ def _answer(text, *, kind, status, tools, refs=None, limitations=None, technical
 
 
 def route(text: str) -> tuple[str, str | None]:
-    if ACTION_WORDS.search(text):
+    # "kill switch" names a safety control; asking about it is not a request to kill anything
+    if ACTION_WORDS.search(re.sub(r"kill\s+switch", "", text, flags=re.IGNORECASE)):
         return "refuse_action", None
     if match := ALERT_ID.search(text):
         return "alert", match.group(0).upper()
@@ -167,6 +178,20 @@ def route(text: str) -> tuple[str, str | None]:
 def respond(text: str, sources: ChatSources, *, presentation: str = "simple",
             role: str | None = None) -> dict:
     intent, arg = route(text)
+    asks_for_guidance = bool(EXPLAIN.search(text))
+
+    # Approved documents answer guidance questions, and anything the chat could not place
+    if intent == "clarify" or (asks_for_guidance and intent in LOOSE_INTENTS):
+        found = _knowledge_answer(text, sources, role, presentation)
+
+        if found is not None:
+            return found
+
+        # A how-to question that no approved document covers is not answered with a status
+        # report that merely shares a keyword ("attack", "approval", "cases")
+        if asks_for_guidance:
+            return _no_source()
+
     handler = {
         "refuse_action": lambda: _refuse(),
         "alert": lambda: _alert(arg, sources, presentation),
@@ -640,4 +665,64 @@ def _audit(sources, presentation, role):
         text, kind="operational", status="stored", tools=["audit_recent"],
         refs=[{"type": "audit", "id": e.event_id, "href": f"/api/v1/audit/{e.event_id}"}
               for e in events],
+    )
+
+
+# ---- approved documents -------------------------------------------------------------------
+
+EXCERPT_CHARS = 700
+
+
+def _excerpt(text: str) -> str:
+    flat = " ".join(text.split())
+
+    if len(flat) <= EXCERPT_CHARS:
+        return flat
+
+    cut = flat[:EXCERPT_CHARS]
+    end = max(cut.rfind(". "), cut.rfind("! "), cut.rfind("? "))
+
+    return (cut[: end + 1] if end > 200 else cut.rstrip()) + " …"
+
+
+def _knowledge_answer(text, sources, role, presentation):
+    try:
+        hits = sources.search_knowledge(text, role, 3)
+    except Exception:
+        return None  # a failing knowledge base must not hide the chat's other answers
+
+    if not hits:
+        return None
+
+    top = hits[0]
+    section = f', section "{top["heading"]}"' if top["heading"] else ""
+    quote = _excerpt(top["text"])
+    others = [f'"{h["title"]}" (version {h["version"]})' for h in hits[1:]]
+
+    if presentation == "technical":
+        when = top["approved_at"].isoformat() if top["approved_at"] else "unknown"
+        answer = (f'{top["doc_id"]} | version {top["version"]} | section: {top["heading"] or "none"} | '
+                  f'score {top["score"]} | approved: {when}. {quote}')
+    else:
+        answer = (f'From the approved guidance "{top["title"]}" (version {top["version"]}{section}): '
+                  f"{quote} This is general guidance, not a record of what happened in your environment.")
+
+    if others:
+        answer += " Also relevant: " + "; ".join(others) + "."
+
+    return _answer(
+        answer, kind="knowledge", status="stored", tools=["knowledge_search"],
+        refs=[{"type": "knowledge", "id": h["doc_id"],
+               "href": f"/api/v1/chat/knowledge/sources/{h['doc_id']}"} for h in hits],
+        followups=["Are there any urgent problems?", "Show my unresolved cases"],
+    )
+
+
+def _no_source():
+    return _answer(
+        "I could not find that in the approved documents, so I will not guess. An "
+        "administrator can add or approve guidance on it. I can still answer questions about "
+        "alerts, cases, approvals and system status.",
+        kind="unable_to_verify", status="stored", tools=["knowledge_search"],
+        followups=FOLLOWUPS,
     )

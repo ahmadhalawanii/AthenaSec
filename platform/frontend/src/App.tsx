@@ -23,6 +23,7 @@ import CasesPage from './pages/CasesPage'
 import IncidentResponsePage from './pages/IncidentResponsePage'
 import ApprovalsPage from './pages/ApprovalsPage'
 import CopilotPage from './pages/CopilotPage'
+import KnowledgePage from './pages/KnowledgePage'
 import ConfigurationPage from './pages/ConfigurationPage'
 import ResponsePoliciesPage from './pages/ResponsePoliciesPage'
 import UserManagementPage from './pages/UserManagementPage'
@@ -429,6 +430,18 @@ function App() {
             <Route
               path="copilot"
               element={<CopilotPage role={role} live={mode === 'live'} />}
+            />
+
+            {/* Administrators choose which documents the Copilot may quote */}
+            <Route
+              path="knowledge"
+              element={
+                role === 'Administrator' ? (
+                  <KnowledgePage live={mode === 'live'} />
+                ) : (
+                  <Navigate to="/app/dashboard" replace />
+                )
+              }
             />
 
             <Route

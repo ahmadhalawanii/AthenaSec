@@ -302,6 +302,13 @@ def test_chat_text_cannot_trigger_a_response(text):
     assert h.response_store.list_all_incident_cases() == cases_before
 
 
+def test_asking_about_the_kill_switch_is_not_a_request_to_act():
+    body = ChatHarness().ask("What does the kill switch do?").json()
+
+    assert "cannot block, isolate" not in body["answer"]
+    assert body["answer_type"] != "unable_to_verify" or "approved documents" in body["answer"]
+
+
 # ---- capabilities ------------------------------------------------------------------
 
 def test_capabilities_are_honest_about_what_is_not_built():
