@@ -24,6 +24,16 @@ import sys
 from datetime import timedelta
 from pathlib import Path
 
+if sys.version_info < (3, 14):
+    sys.exit(
+        f"This project needs Python 3.14 or newer; this is Python {sys.version.split()[0]}.\n"
+        "Easiest fix (macOS or Linux), from platform/backend:\n"
+        "  curl -LsSf https://astral.sh/uv/install.sh | sh\n"
+        "  uv venv --python 3.14 .venv && source .venv/bin/activate\n"
+        "  uv pip install -r requirements.txt\n"
+        "  python tools/copilot_demo.py"
+    )
+
 BACKEND = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(BACKEND))
 

@@ -76,12 +76,28 @@ event.** If the audit write fails, the read-only answer is still returned. Addin
 
 ## Try it locally (fake data)
 
-Needs Python 3.14 with `requirements.txt` installed, and Node.
+Needs **Python 3.14** (older versions fail with `NameError: name 'MISPEnrichment' is not
+defined`), the packages in `requirements.txt`, and Node. If `python --version` is not 3.14, the
+easiest fix is `uv`:
 
 ```bash
-cd platform/backend && python tools/copilot_demo.py
-cd platform/frontend && npm run dev
+cd platform/backend
+curl -LsSf https://astral.sh/uv/install.sh | sh
+uv venv --python 3.14 .venv && source .venv/bin/activate
+uv pip install -r requirements.txt
+python tools/copilot_demo.py
 ```
+
+If `pip` cannot find the pinned `xgboost` version, install any available `xgboost` instead; the
+demo does not use the classifier.
+
+In a second terminal:
+
+```bash
+cd platform/frontend && npm install && npm run dev
+```
+
+The chat stays greyed out ("needs the live backend") until the demo backend is running.
 
 Open `http://localhost:8000/demo/login/analyst` (or `/demo/login/admin`). All data is made up,
 there is no real sign-in, and the script refuses to start if `ATHENASEC_DATABASE_URL` is set.
